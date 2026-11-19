@@ -137,6 +137,25 @@ function buildHeaderMap(headerRow: unknown[]): Record<string, number> {
   return map;
 }
 
+function deduplicatePostSlugs(posts: JournalPost[]): JournalPost[] {
+  const seen = new Set<string>();
+  return posts.map((post, idx) => {
+    let uniqueSlug = post.slug;
+    if (seen.has(uniqueSlug)) {
+      const suffixBase = post.rowIndex ? `r${post.rowIndex}` : `${idx + 1}`;
+      let candidate = `${post.slug}-${suffixBase}`;
+      let counter = 2;
+      while (seen.has(candidate)) {
+        candidate = `${post.slug}-${suffixBase}-${counter}`;
+        counter++;
+      }
+      uniqueSlug = candidate;
+    }
+    seen.add(uniqueSlug);
+    return uniqueSlug === post.slug ? post : {...post, slug: uniqueSlug};
+  });
+}
+
 /**
  * Fetches spreadsheet metadata (title and actual tab names) via Google Sheets API v4.
  * Never assumes the first tab is named 'Sheet1'.
@@ -228,7 +247,7 @@ export async function fetchPostsFromSheetsApi(
     const parsed = rowToPost(values[i], headerMap, i + 1);
     if (parsed) posts.push(parsed);
   }
-  return posts;
+  return deduplicatePostSlugs(posts);
 }
 
 /**
@@ -540,7 +559,7 @@ export async function fetchPostsFromPublicGviz(
     const parsed = rowToPost(row, headerMap, idx + 2);
     if (parsed) posts.push(parsed);
   });
-  return posts;
+  return deduplicatePostSlugs(posts);
 }
 
 export function exportPostsAsJson(posts: JournalPost[]): string {

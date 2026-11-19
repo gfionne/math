@@ -1715,9 +1715,9 @@ export default function App() {
             />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPosts.map((post) => (
+              {filteredPosts.map((post, idx) => (
                 <ArticleCard
-                  key={post.slug}
+                  key={`${post.slug}-${post.rowIndex ?? idx}`}
                   post={post}
                   onSelect={(p) => setActivePost(p)}
                 />
@@ -1741,9 +1741,9 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 text-sm">
-                    {filteredPosts.map((post) => (
+                    {filteredPosts.map((post, idx) => (
                       <tr
-                        key={post.slug}
+                        key={`${post.slug}-${post.rowIndex ?? idx}`}
                         className="hover:bg-[#FBF9F5] transition-colors"
                       >
                         <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">

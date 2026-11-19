@@ -405,7 +405,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           <div className="max-w-2xl w-full mx-auto px-5 pt-4 pb-1 flex items-center gap-1.5 shrink-0">
             {currentPosts.map((p, idx) => (
               <button
-                key={p.slug}
+                key={`${p.slug}-bar-${p.rowIndex ?? idx}`}
                 type="button"
                 onClick={() => scrollToCard(idx)}
                 aria-label={`跳至第 ${idx + 1} 篇：${p.title}`}
@@ -455,7 +455,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
 
                 return (
                   <div
-                    key={post.slug}
+                    key={`${post.slug}-card-${post.rowIndex ?? idx}`}
                     onClick={() => {
                       if (!isActive) {
                         scrollToCard(idx);

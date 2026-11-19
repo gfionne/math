@@ -213,9 +213,9 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
               : 'snap-x snap-mandatory scroll-smooth cursor-grab'
           }`}
         >
-          {group.posts.map((post) => (
+          {group.posts.map((post, idx) => (
             <div
-              key={post.slug}
+              key={`${post.slug}-${post.rowIndex ?? idx}`}
               className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex"
             >
               <div className="w-full flex flex-col">
@@ -252,7 +252,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           {group.posts.map((post, idx) => (
             <button
-              key={post.slug}
+              key={`${post.slug}-seg-${post.rowIndex ?? idx}`}
               type="button"
               onClick={() => scrollToCard(idx)}
               aria-label={`切換至第 ${idx + 1} 篇：${post.title}`}

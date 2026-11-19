@@ -366,9 +366,16 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
 
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();
-    const safeSlug =
+    let safeSlug =
       formState.slug.trim() ||
       `post-${Date.now().toString(36)}`;
+    if (isNewPost && existingSlugSet.has(safeSlug)) {
+      let suffix = Date.now().toString(36).slice(-4);
+      while (existingSlugSet.has(`${safeSlug}-${suffix}`)) {
+        suffix = `${suffix}${Math.floor(Math.random() * 10)}`;
+      }
+      safeSlug = `${safeSlug}-${suffix}`;
+    }
     onSavePost(
       {
         ...formState,
@@ -901,7 +908,15 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setFormState({...EMPTY_FORM, ...XIMEN_SCRATCH_POST});
+                          const baseSlug = XIMEN_SCRATCH_POST.slug;
+                          const uniqueSlug = existingSlugSet.has(baseSlug)
+                            ? `${baseSlug}-${Date.now().toString(36).slice(-4)}`
+                            : baseSlug;
+                          setFormState({
+                            ...EMPTY_FORM,
+                            ...XIMEN_SCRATCH_POST,
+                            slug: uniqueSlug,
+                          });
                         }}
                         className="px-2.5 py-1 text-xs font-medium text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-md hover:border-[#1E3A8A]/40 transition-colors whitespace-nowrap shrink-0"
                       >
@@ -1237,9 +1252,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   </span>
                 </div>
                 <div className="divide-y divide-stone-100">
-                  {posts.map((p) => (
+                  {posts.map((p, idx) => (
                     <div
-                      key={p.slug}
+                      key={`${p.slug}-${p.rowIndex ?? idx}`}
                       className="px-6 py-3.5 flex items-center justify-between gap-4 hover:bg-[#FBF9F5] transition-colors"
                     >
                       <div className="min-w-0 flex-1">
@@ -1425,13 +1440,13 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   )}
 
                   <div className="max-h-80 overflow-y-auto divide-y divide-stone-100">
-                    {rssResult.posts.map((p) => {
+                    {rssResult.posts.map((p, idx) => {
                       const dup = isDuplicatePost(p);
                       const checked =
                         selectedSlugs.has(p.slug) && !(skipDuplicates && dup);
                       return (
                         <label
-                          key={p.slug}
+                          key={`${p.slug}-${idx}`}
                           className={`px-6 py-3 flex items-start gap-3 cursor-pointer hover:bg-[#FBF9F5] transition-colors ${
                             skipDuplicates && dup ? 'opacity-50' : ''
                           }`}
