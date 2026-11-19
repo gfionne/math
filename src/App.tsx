@@ -1154,24 +1154,28 @@ export default function App() {
       <main id="top" className="flex-1">
         {/* Editorial Masthead + Prominent First-Screen Search + Compact Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
-          <div className="max-w-7xl mx-auto px-6 py-8 lg:py-10">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-              {/* Left Column: Brand Masthead & Prominent First-Screen Search */}
-              <div className="lg:col-span-7 flex flex-col justify-between gap-6">
-                <div className="space-y-3">
-                  <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500">
-                    {siteSettings.siteSubtitle}
-                  </p>
+          <div className="max-w-7xl mx-auto px-6 py-7 lg:py-9">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              {/* Left Column: Brand Masthead, Prominent Search & Top Topic Quick Links */}
+              <div className="lg:col-span-7 flex flex-col justify-center gap-5">
+                <div className="space-y-2.5">
+                  {siteSettings.siteSubtitle.trim() && (
+                    <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500">
+                      {siteSettings.siteSubtitle}
+                    </p>
+                  )}
                   <h1 className="font-editorial text-3xl sm:text-4xl lg:text-[42px] font-semibold text-stone-950 leading-[1.18] text-balance">
                     {siteSettings.heroHeading}
                   </h1>
-                  <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl">
-                    {siteSettings.heroDescription}
-                  </p>
+                  {siteSettings.heroDescription.trim() && (
+                    <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl">
+                      {siteSettings.heroDescription}
+                    </p>
+                  )}
                 </div>
 
                 {/* First-Screen Unified Search & Academic Year Bar */}
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -1214,6 +1218,38 @@ export default function App() {
                     </div>
                   </form>
 
+                  {/* Quick Topic Shortcuts (Populates Left Column Purposefully & Speeds Discovery) */}
+                  {availableCategories.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-stone-500 mr-1">常用分類：</span>
+                      {availableCategories
+                        .filter((cat) => cat !== '全部分類')
+                        .sort(
+                          (a, b) =>
+                            (categoryCounts.get(b) ?? 0) -
+                            (categoryCounts.get(a) ?? 0),
+                        )
+                        .slice(0, 5)
+                        .map((cat) => (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => {
+                              setSelectedCategory(cat);
+                              scrollToSection('journal-catalog');
+                            }}
+                            className={`px-2.5 py-1 rounded-md border transition-colors whitespace-nowrap ${
+                              selectedCategory === cat
+                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:border-stone-300 hover:text-stone-950'
+                            }`}
+                          >
+                            {cat} ({categoryCounts.get(cat) ?? 0})
+                          </button>
+                        ))}
+                    </div>
+                  )}
+
                   {(searchQuery.trim() !== '' ||
                     selectedYear !== '全部年度' ||
                     selectedCategory !== '全部分類') && (
@@ -1244,7 +1280,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right Column: Compact Featured Spotlight (Doesn't Push Search Down!) */}
+              {/* Right Column: Compact Featured Spotlight */}
               {featuredSpotlightPost ? (
                 <div className="lg:col-span-5 flex">
                   <article className="w-full bg-[#FBF9F5] border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between">
@@ -1264,7 +1300,7 @@ export default function App() {
                           alt={featuredSpotlightPost.title}
                           referrerPolicy="no-referrer"
                           onError={() => setSpotlightImgFailed(true)}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                          className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.03]"
                         />
                       </button>
                     )}

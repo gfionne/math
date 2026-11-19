@@ -46,7 +46,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
               draggable={false}
               referrerPolicy="no-referrer"
               onError={() => setImgFailed(true)}
-              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.03]"
             />
           </div>
         </button>
