@@ -120,8 +120,8 @@ service cloud.firestore {
       data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
       data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
       data.folderName is string && data.folderName.size() <= 120 &&
-      data.imageUrl is string && data.imageUrl.size() >= 10 && data.imageUrl.size() <= 500 && data.imageUrl.matches('^https://.*') &&
-      data.downloadUrl is string && data.downloadUrl.size() >= 10 && data.downloadUrl.size() <= 500 && data.downloadUrl.matches('^https://.*') &&
+      data.imageUrl is string && data.imageUrl.size() >= 10 && data.imageUrl.size() <= 2000000 && (data.imageUrl.matches('^https://.*') || data.imageUrl.matches('^data:image/.*')) &&
+      data.downloadUrl is string && data.downloadUrl.size() >= 10 && data.downloadUrl.size() <= 2000000 && (data.downloadUrl.matches('^https://.*') || data.downloadUrl.matches('^data:image/.*')) &&
       data.driveFileId is string && data.driveFileId.size() >= 1 && data.driveFileId.size() <= 200 &&
       data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 100 &&
       data.sizeBytes is int && data.sizeBytes >= 0 && data.sizeBytes <= 52428800 &&

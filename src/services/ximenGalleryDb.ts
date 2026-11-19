@@ -126,13 +126,13 @@ export async function createXimenGalleryItem(
   const id = generateGalleryDocId();
   const docPath = `${GALLERY_COLLECTION}/${id}`;
 
-  const safeImageUrl = input.imageUrl.trim().slice(0, 500);
-  const safeDownloadUrl = input.downloadUrl.trim().slice(0, 500);
+  const safeImageUrl = input.imageUrl.trim().slice(0, 2000000);
+  const safeDownloadUrl = input.downloadUrl.trim().slice(0, 2000000);
   if (
-    !safeImageUrl.startsWith('https://') ||
-    !safeDownloadUrl.startsWith('https://')
+    !(safeImageUrl.startsWith('https://') || safeImageUrl.startsWith('data:image/')) ||
+    !(safeDownloadUrl.startsWith('https://') || safeDownloadUrl.startsWith('data:image/'))
   ) {
-    throw new Error('圖片網址格式無效，必須為 HTTPS 連結。');
+    throw new Error('圖片格式無效，必須為 HTTPS 連結或圖片 Data URL。');
   }
 
   const payload = {
