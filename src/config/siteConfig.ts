@@ -68,7 +68,7 @@ export interface SaveSiteConfigPayload {
  */
 export async function saveSiteConfig(
   payload: SaveSiteConfigPayload,
-): Promise<{success: boolean; message: string}> {
+): Promise<{success: boolean; persistedToRepo?: boolean; message: string}> {
   const nextConfig = {
     spreadsheetId: (
       payload.spreadsheetId ?? BUNDLED_SITE_CONFIG.spreadsheetId
@@ -96,29 +96,25 @@ export async function saveSiteConfig(
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(nextConfig),
     });
-    if (res.ok) {
-      return {
-        success: true,
-        message:
-          '已成功更新專案根目錄 site-config.json！網頁標題與設定已即時套用，Push to GitHub 後將自動同步上線。',
-      };
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json().catch(() => null);
+      if (data?.success) {
+        return {
+          success: true,
+          persistedToRepo: true,
+          message:
+            '已直接寫入專案根目錄 site-config.json！在 AI Studio 點擊 Push to GitHub 即可一併部署上線。',
+        };
+      }
     }
-    const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `HTTP ${res.status}`);
+    throw new Error(`Static hosting (${res.status})`);
   } catch (_err) {
-    const jsonStr = JSON.stringify(nextConfig, null, 2) + '\n';
-    const blob = new Blob([jsonStr], {type: 'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'site-config.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
     return {
       success: true,
-      message: '已為您下載 site-config.json，放入專案根目錄後推上 Git 即可生效！',
+      persistedToRepo: false,
+      message:
+        '已套用於目前瀏覽器預覽。因目前為靜態網站（無本機檔案寫入端點），不會覆寫 GitHub 上的 site-config.json；若要讓所有訪客即時生效，請點擊「同步寫入 Google Sheet（Settings 分頁）」，或另行下載 site-config.json 覆蓋倉庫檔案。',
     };
   }
 }

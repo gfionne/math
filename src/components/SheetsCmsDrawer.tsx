@@ -1641,29 +1641,66 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                 )}
 
                 <div className="pt-2 flex flex-wrap items-center gap-3">
-                  <button
-                    type="submit"
-                    disabled={isSavingSettings}
-                    className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                  >
-                    <Save className="w-3.5 h-3.5" />
-                    <span>
-                      {isSavingSettings
-                        ? '正在套用並寫入...'
-                        : '立即套用並儲存設定（更新 site-config.json）'}
-                    </span>
-                  </button>
+                  {dataSourceMode === 'sheets-api' && sheetMeta ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onSyncSettingsToSheet(settingsDraft)}
+                        disabled={isSyncing}
+                        className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      >
+                        <Sheet className="w-3.5 h-3.5" />
+                        <span>直接發布至正式網站（寫入 Google Sheet Settings 分頁）</span>
+                      </button>
 
-                  {dataSourceMode === 'sheets-api' && sheetMeta && (
-                    <button
-                      type="button"
-                      onClick={() => onSyncSettingsToSheet(settingsDraft)}
-                      disabled={isSyncing}
-                      className="px-4 py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                    >
-                      <Sheet className="w-3.5 h-3.5" />
-                      <span>同步寫入 Google Sheet（Settings 分頁）</span>
-                    </button>
+                      <button
+                        type="submit"
+                        disabled={isSavingSettings}
+                        className="px-4 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 disabled:opacity-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>
+                          {isSavingSettings
+                            ? '正在儲存...'
+                            : '套用並儲存至 site-config.json（AI Studio 開發用）'}
+                        </span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="submit"
+                        disabled={isSavingSettings}
+                        className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        <span>
+                          {isSavingSettings
+                            ? '正在套用並儲存...'
+                            : '套用並儲存設定（AI Studio 開發寫入 site-config.json）'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const jsonStr =
+                            JSON.stringify(
+                              {
+                                spreadsheetId: activeSpreadsheetId || currentConfigId || '',
+                                tabName: sheetMeta?.activeTab || currentConfigTab || 'Posts',
+                                ...settingsDraft,
+                              },
+                              null,
+                              2,
+                            ) + '\n';
+                          downloadFile(jsonStr, 'site-config.json', 'application/json');
+                        }}
+                        className="px-3.5 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>手動下載 site-config.json</span>
+                      </button>
+                    </>
                   )}
                 </div>
               </form>
