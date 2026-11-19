@@ -59,7 +59,6 @@ import {
 } from './types/journal';
 
 const PUBLIC_SHEET_STORAGE_KEY = 'pesmath_public_sheet_id';
-const SITE_SETTINGS_STORAGE_KEY = 'pesmath_site_settings';
 
 export default function App() {
   // Data & Source State
@@ -74,12 +73,9 @@ export default function App() {
   const [syncError, setSyncError] = useState<string | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
     try {
-      const saved = localStorage.getItem(SITE_SETTINGS_STORAGE_KEY);
-      if (saved) {
-        return {...INITIAL_SITE_SETTINGS, ...JSON.parse(saved)};
-      }
+      localStorage.removeItem('pesmath_site_settings');
     } catch {
-      // Ignore storage parse error
+      // Ignore storage error
     }
     return INITIAL_SITE_SETTINGS;
   });
@@ -125,18 +121,14 @@ export default function App() {
       setSiteSettings((prev) => {
         if (!prev.autoTitleFromSheet) return prev;
         if (remote) {
-          const merged = {...prev, ...remote};
-          localStorage.setItem(SITE_SETTINGS_STORAGE_KEY, JSON.stringify(merged));
-          return merged;
+          return {...prev, ...remote};
         }
         if (
           fallbackSpreadsheetTitle &&
           fallbackSpreadsheetTitle !== 'PesMath 數學教學社群資料庫' &&
           prev.siteTitle === DEFAULT_SITE_SETTINGS.siteTitle
         ) {
-          const merged = {...prev, siteTitle: fallbackSpreadsheetTitle};
-          localStorage.setItem(SITE_SETTINGS_STORAGE_KEY, JSON.stringify(merged));
-          return merged;
+          return {...prev, siteTitle: fallbackSpreadsheetTitle};
         }
         return prev;
       });
@@ -699,7 +691,6 @@ export default function App() {
     nextSettings: SiteSettings,
   ): Promise<{success: boolean; message: string}> => {
     setSiteSettings(nextSettings);
-    localStorage.setItem(SITE_SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
     return saveSiteConfig({
       spreadsheetId: sheetMeta?.spreadsheetId || publicSheetId || undefined,
       tabName: sheetMeta?.activeTab || publicTabName || 'Posts',
@@ -741,10 +732,6 @@ export default function App() {
           );
           setSheetMeta({...sheetMeta, tabs: updatedTabs});
           setSiteSettings(nextSettings);
-          localStorage.setItem(
-            SITE_SETTINGS_STORAGE_KEY,
-            JSON.stringify(nextSettings),
-          );
         } catch (err: any) {
           setSyncError(err?.message || '寫入 Settings 分頁失敗。');
         } finally {
