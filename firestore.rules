@@ -23,22 +23,22 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn();
     }
 
     function isOwnerAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'g.fionne@gmail.com';
+      return isSignedIn() && request.auth.token.email is string && request.auth.token.email.lower() == 'g.fionne@gmail.com';
     }
 
     function isAdmin() {
       return isOwnerAdmin() || (
-        isVerifiedUser() &&
+        isSignedIn() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
     function isSchoolMember() {
-      return isVerifiedUser() &&
+      return isSignedIn() &&
         request.auth.token.email is string &&
         request.auth.token.email.lower().matches('^[^@]+@hmes\\.tp\\.edu\\.tw$');
     }
@@ -76,7 +76,7 @@ service cloud.firestore {
       data.heroDescription is string && data.heroDescription.size() <= 1000 &&
       data.autoDynamicTitle is bool &&
       data.autoTitleFromSheet is bool &&
-      data.updatedAt == request.time &&
+      data.updatedAt is timestamp &&
       data.updatedByUid is string && isValidId(data.updatedByUid) &&
       data.updatedByUid == request.auth.uid;
     }
@@ -85,7 +85,7 @@ service cloud.firestore {
       return data.keys().hasAll(['email', 'addedAt', 'addedByUid']) &&
       data.keys().hasOnly(['email', 'addedAt', 'addedByUid']) &&
       data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
-      data.addedAt == request.time &&
+      data.addedAt is timestamp &&
       data.addedByUid is string && isValidId(data.addedByUid) &&
       data.addedByUid == request.auth.uid;
     }
@@ -128,7 +128,7 @@ service cloud.firestore {
       data.uploadedByName is string && data.uploadedByName.size() >= 1 && data.uploadedByName.size() <= 100 &&
       data.uploadedByUid is string && isValidId(data.uploadedByUid) &&
       data.uploadedByUid == request.auth.uid &&
-      data.createdAt == request.time;
+      data.createdAt is timestamp;
     }
 
     match /siteConfig/{configId} {
