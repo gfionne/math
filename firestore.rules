@@ -1,0 +1,134 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwnerAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'g.fionne@gmail.com';
+    }
+
+    function isAdmin() {
+      return isOwnerAdmin() || (
+        isVerifiedUser() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidSiteConfig(data) {
+      return data.keys().hasAll([
+        'spreadsheetId',
+        'tabName',
+        'siteTitle',
+        'siteSubtitle',
+        'heroHeading',
+        'heroDescription',
+        'autoDynamicTitle',
+        'autoTitleFromSheet',
+        'updatedAt',
+        'updatedByUid'
+      ]) &&
+      data.keys().hasOnly([
+        'spreadsheetId',
+        'tabName',
+        'siteTitle',
+        'siteSubtitle',
+        'heroHeading',
+        'heroDescription',
+        'autoDynamicTitle',
+        'autoTitleFromSheet',
+        'updatedAt',
+        'updatedByUid'
+      ]) &&
+      data.spreadsheetId is string && data.spreadsheetId.size() <= 200 &&
+      data.tabName is string && data.tabName.size() >= 1 && data.tabName.size() <= 100 &&
+      data.siteTitle is string && data.siteTitle.size() >= 1 && data.siteTitle.size() <= 120 &&
+      data.siteSubtitle is string && data.siteSubtitle.size() <= 200 &&
+      data.heroHeading is string && data.heroHeading.size() <= 200 &&
+      data.heroDescription is string && data.heroDescription.size() <= 1000 &&
+      data.autoDynamicTitle is bool &&
+      data.autoTitleFromSheet is bool &&
+      data.updatedAt == request.time &&
+      data.updatedByUid is string && isValidId(data.updatedByUid) &&
+      data.updatedByUid == request.auth.uid;
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['email', 'addedAt', 'addedByUid']) &&
+      data.keys().hasOnly(['email', 'addedAt', 'addedByUid']) &&
+      data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+      data.addedAt == request.time &&
+      data.addedByUid is string && isValidId(data.addedByUid) &&
+      data.addedByUid == request.auth.uid;
+    }
+
+    match /siteConfig/{configId} {
+      // Publicly readable so visitors on GitHub Pages and AI Studio load the exact same config in real time
+      allow get: if isValidId(configId) && configId == 'main';
+      allow list: if false;
+
+      allow create: if isAdmin() &&
+        isValidId(configId) &&
+        configId == 'main' &&
+        isValidSiteConfig(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(configId) &&
+        configId == 'main' &&
+        isValidSiteConfig(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'spreadsheetId',
+          'tabName',
+          'siteTitle',
+          'siteSubtitle',
+          'heroHeading',
+          'heroDescription',
+          'autoDynamicTitle',
+          'autoTitleFromSheet',
+          'updatedAt',
+          'updatedByUid'
+        ]);
+
+      allow delete: if false;
+    }
+
+    match /admins/{userId} {
+      // Only the admin themselves or the owner admin can read an individual admin doc (no PII list scraping)
+      allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isOwnerAdmin());
+      allow list: if false;
+
+      allow create: if isOwnerAdmin() &&
+        isValidId(userId) &&
+        isValidAdminUser(incoming());
+
+      allow update: if isOwnerAdmin() &&
+        isValidId(userId) &&
+        isValidAdminUser(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['email', 'addedAt', 'addedByUid']);
+
+      allow delete: if isOwnerAdmin() && isValidId(userId);
+    }
+  }
+}

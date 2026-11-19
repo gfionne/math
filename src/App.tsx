@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
   ArrowUpRight,
@@ -32,11 +32,16 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 import {SEED_POSTS} from './data/seedPosts';
 import {
+  auth,
   getAccessToken,
   googleSignIn,
   initAuth,
   logout,
 } from './services/googleAuth';
+import {
+  saveSharedSiteConfig,
+  subscribeSharedSiteConfig,
+} from './services/firestoreSync';
 import {
   appendPostToSheet,
   batchAppendPostsToSheet,
@@ -79,6 +84,8 @@ export default function App() {
     }
     return INITIAL_SITE_SETTINGS;
   });
+  const lastCloudSheetKeyRef = useRef<string>('');
+  const lastFocusRefreshRef = useRef<number>(0);
 
   // Auth State (Access token kept strictly in memory via googleAuth.ts)
   const [user, setUser] = useState<User | null>(null);
@@ -181,6 +188,71 @@ export default function App() {
         localStorage.removeItem(PUBLIC_SHEET_STORAGE_KEY);
       }
     }
+  }, [loadPublicSheet]);
+
+  // Real-time Firestore listener so edits on either AI Studio or GitHub Pages sync immediately
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sheetParam = params.get('sheet');
+
+    const unsubscribe = subscribeSharedSiteConfig(
+      (cloudCfg) => {
+        if (!cloudCfg) return;
+
+        setSiteSettings({
+          siteTitle: cloudCfg.siteTitle,
+          siteSubtitle: cloudCfg.siteSubtitle,
+          heroHeading: cloudCfg.heroHeading,
+          heroDescription: cloudCfg.heroDescription,
+          autoDynamicTitle: cloudCfg.autoDynamicTitle,
+          autoTitleFromSheet: cloudCfg.autoTitleFromSheet,
+        });
+
+        if (!sheetParam && cloudCfg.spreadsheetId) {
+          const nextKey = `${cloudCfg.spreadsheetId}|${cloudCfg.tabName}`;
+          if (lastCloudSheetKeyRef.current !== nextKey) {
+            lastCloudSheetKeyRef.current = nextKey;
+            const token = getAccessToken();
+            if (token) {
+              void (async () => {
+                try {
+                  const meta = await fetchSpreadsheetMeta(
+                    cloudCfg.spreadsheetId,
+                    token,
+                  );
+                  const targetTab = cloudCfg.tabName || meta.activeTab;
+                  const fetched = await fetchPostsFromSheetsApi(
+                    meta.spreadsheetId,
+                    targetTab,
+                    token,
+                  );
+                  setSheetMeta({...meta, activeTab: targetTab});
+                  setPosts(fetched);
+                  setPublicSheetId(meta.spreadsheetId);
+                  setDataSourceMode('sheets-api');
+                  localStorage.setItem(
+                    PUBLIC_SHEET_STORAGE_KEY,
+                    meta.spreadsheetId,
+                  );
+                } catch {
+                  await loadPublicSheet(
+                    cloudCfg.spreadsheetId,
+                    cloudCfg.tabName,
+                  );
+                }
+              })();
+            } else {
+              void loadPublicSheet(cloudCfg.spreadsheetId, cloudCfg.tabName);
+            }
+          }
+        }
+      },
+      (err) => {
+        console.warn('Shared Firestore config listener notice:', err.message);
+      },
+    );
+
+    return () => unsubscribe();
   }, [loadPublicSheet]);
 
   useEffect(() => {
@@ -452,6 +524,25 @@ export default function App() {
     }
   };
 
+  // Auto-refresh Google Sheet posts when switching back to this browser tab
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastFocusRefreshRef.current < 10000) return;
+      lastFocusRefreshRef.current = now;
+      if (
+        dataSourceMode === 'sheets-api' ||
+        dataSourceMode === 'sheets-public'
+      ) {
+        void handleRefreshSync();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () =>
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+  });
+
   const handleCreateNewSheet = (withSeed: boolean = true) => {
     const token = getAccessToken();
     if (!token) {
@@ -686,11 +777,98 @@ export default function App() {
     nextSettings: SiteSettings,
   ): Promise<{success: boolean; message: string}> => {
     setSiteSettings(nextSettings);
-    return saveSiteConfig({
-      spreadsheetId: sheetMeta?.spreadsheetId || publicSheetId || undefined,
-      tabName: sheetMeta?.activeTab || publicTabName || 'Posts',
+    const activeId = sheetMeta?.spreadsheetId || publicSheetId || '';
+    const activeTab = sheetMeta?.activeTab || publicTabName || 'Posts';
+
+    let cloudSynced = false;
+    let cloudErrorMsg = '';
+    if (auth.currentUser) {
+      try {
+        await saveSharedSiteConfig({
+          spreadsheetId: activeId,
+          tabName: activeTab,
+          ...nextSettings,
+        });
+        cloudSynced = true;
+      } catch (err: any) {
+        cloudErrorMsg = err?.message || '雲端即時同步失敗';
+      }
+    }
+
+    const localRes = await saveSiteConfig({
+      spreadsheetId: activeId || undefined,
+      tabName: activeTab,
       ...nextSettings,
     });
+
+    if (cloudSynced) {
+      return {
+        success: true,
+        message: localRes.persistedToRepo
+          ? '已即時同步至雲端資料庫（AI Studio 與 GitHub Pages 會同時變動！），並已寫入 site-config.json。'
+          : '已即時同步至雲端資料庫！AI Studio 與 GitHub Pages 正式網站會立刻同時變動，無需重新布版。',
+      };
+    }
+
+    if (cloudErrorMsg) {
+      return {
+        success: true,
+        message: `已更新目前畫面，但雲端同步遇到權限提示（${cloudErrorMsg}）。請確認您是使用核准的管理員 Gmail 登入。`,
+      };
+    }
+
+    return localRes;
+  };
+
+  const handlePublishDefaultSpreadsheet = async (
+    spreadsheetId: string,
+    tabName: string,
+  ): Promise<{success: boolean; message: string}> => {
+    const cleanId = spreadsheetId.trim();
+    const cleanTab = tabName.trim() || 'Posts';
+    if (!cleanId) {
+      return {success: false, message: '請先輸入或連線有效的 Google 試算表 ID。'};
+    }
+    lastCloudSheetKeyRef.current = `${cleanId}|${cleanTab}`;
+
+    let cloudSynced = false;
+    let cloudErrorMsg = '';
+    if (auth.currentUser) {
+      try {
+        await saveSharedSiteConfig({
+          spreadsheetId: cleanId,
+          tabName: cleanTab,
+          ...siteSettings,
+        });
+        cloudSynced = true;
+      } catch (err: any) {
+        cloudErrorMsg = err?.message || '雲端同步失敗';
+      }
+    }
+
+    const localRes = await saveSiteConfig({
+      spreadsheetId: cleanId,
+      tabName: cleanTab,
+      ...siteSettings,
+    });
+
+    if (cloudSynced) {
+      return {
+        success: true,
+        message: localRes.persistedToRepo
+          ? '已設為雲端即時預設（AI Studio 與 GitHub Pages 會同時自動載入此試算表！）並已更新 site-config.json。'
+          : '已設為雲端即時預設！AI Studio 與 GitHub Pages 正式網站已同步切換至此試算表。',
+      };
+    }
+
+    if (cloudErrorMsg) {
+      return {
+        success: false,
+        message: `雲端同步失敗：${cloudErrorMsg}`,
+      };
+    }
+
+    return localRes;
   };
 
   const handleSyncSettingsToSheet = (nextSettings: SiteSettings) => {
@@ -706,14 +884,14 @@ export default function App() {
 
     setConfirmState({
       isOpen: true,
-      title: '確認將網頁標題設定同步寫入 Google Sheet？',
-      description: `系統將在試算表「${sheetMeta.title}」的「Settings」分頁建立或更新網站標題與簡介設定，讓所有公開訪客皆能即時套用最新網頁標題。`,
+      title: '確認將網頁標題設定同步寫入 Google Sheet 並即時發布？',
+      description: `系統將在試算表「${sheetMeta.title}」的「Settings」分頁更新網站標題，並同步至雲端即時設定，讓 AI Studio 與 GitHub Pages 同時變動。`,
       details: [
         `網站標題：${nextSettings.siteTitle}`,
         `社群副標題：${nextSettings.siteSubtitle}`,
         `首頁主標語：${nextSettings.heroHeading}`,
       ],
-      confirmLabel: '確認寫入 Settings 分頁',
+      confirmLabel: '確認寫入並同步兩端',
       isDestructive: false,
       onConfirm: async () => {
         setIsSyncing(true);
@@ -727,6 +905,13 @@ export default function App() {
           );
           setSheetMeta({...sheetMeta, tabs: updatedTabs});
           setSiteSettings(nextSettings);
+          if (auth.currentUser) {
+            await saveSharedSiteConfig({
+              spreadsheetId: sheetMeta.spreadsheetId,
+              tabName: sheetMeta.activeTab,
+              ...nextSettings,
+            });
+          }
         } catch (err: any) {
           setSyncError(err?.message || '寫入 Settings 分頁失敗。');
         } finally {
@@ -1409,6 +1594,7 @@ export default function App() {
         siteSettings={siteSettings}
         onSaveSiteSettings={handleSaveSiteSettings}
         onSyncSettingsToSheet={handleSyncSettingsToSheet}
+        onPublishDefaultSpreadsheet={handlePublishDefaultSpreadsheet}
       />
 
       {/* Mandatory Explicit Confirmation Dialog for Mutating / Destructive Operations */}

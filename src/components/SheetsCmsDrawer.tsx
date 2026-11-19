@@ -85,6 +85,10 @@ interface SheetsCmsDrawerProps {
     settings: SiteSettings,
   ) => Promise<{success: boolean; message: string}>;
   onSyncSettingsToSheet: (settings: SiteSettings) => void;
+  onPublishDefaultSpreadsheet: (
+    spreadsheetId: string,
+    tabName: string,
+  ) => Promise<{success: boolean; message: string}>;
 }
 
 const EMPTY_FORM: JournalPost = {
@@ -167,6 +171,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
   siteSettings,
   onSaveSiteSettings,
   onSyncSettingsToSheet,
+  onPublishDefaultSpreadsheet,
 }) => {
   const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
   const [sheetInput, setSheetInput] = useState('');
@@ -317,17 +322,15 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
 
     setIsSavingConfig(true);
     setSaveStatusMsg(null);
-    const result = await saveSiteConfig({
-      spreadsheetId: targetId,
-      tabName: targetTab,
-      ...siteSettings,
-    });
+    const result = await onPublishDefaultSpreadsheet(targetId, targetTab);
     setIsSavingConfig(false);
     if (result.success) {
       setCurrentConfigId(targetId);
       setCurrentConfigTab(targetTab);
       setSaveStatusMsg(result.message);
       setTimeout(() => setSaveStatusMsg(null), 6000);
+    } else {
+      setSaveStatusMsg(result.message);
     }
   };
 
@@ -844,8 +847,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       <Save className="w-3.5 h-3.5" />
                       <span>
                         {isSavingConfig
-                          ? '正在寫入 site-config.json...'
-                          : '將目前連線試算表設為全站預設（更新 site-config.json）'}
+                          ? '正在同步兩端預設設定...'
+                          : '設為兩端即時同步預設（雲端資料庫 + site-config.json）'}
                       </span>
                     </button>
 
@@ -1641,66 +1644,29 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                 )}
 
                 <div className="pt-2 flex flex-wrap items-center gap-3">
-                  {dataSourceMode === 'sheets-api' && sheetMeta ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onSyncSettingsToSheet(settingsDraft)}
-                        disabled={isSyncing}
-                        className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                      >
-                        <Sheet className="w-3.5 h-3.5" />
-                        <span>直接發布至正式網站（寫入 Google Sheet Settings 分頁）</span>
-                      </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingSettings}
+                    className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>
+                      {isSavingSettings
+                        ? '正在即時同步...'
+                        : '儲存並即時同步兩端（AI Studio 與正式網站同時變動）'}
+                    </span>
+                  </button>
 
-                      <button
-                        type="submit"
-                        disabled={isSavingSettings}
-                        className="px-4 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 disabled:opacity-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        <span>
-                          {isSavingSettings
-                            ? '正在儲存...'
-                            : '套用並儲存至 site-config.json（AI Studio 開發用）'}
-                        </span>
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="submit"
-                        disabled={isSavingSettings}
-                        className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                      >
-                        <Save className="w-3.5 h-3.5" />
-                        <span>
-                          {isSavingSettings
-                            ? '正在套用並儲存...'
-                            : '套用並儲存設定（AI Studio 開發寫入 site-config.json）'}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const jsonStr =
-                            JSON.stringify(
-                              {
-                                spreadsheetId: activeSpreadsheetId || currentConfigId || '',
-                                tabName: sheetMeta?.activeTab || currentConfigTab || 'Posts',
-                                ...settingsDraft,
-                              },
-                              null,
-                              2,
-                            ) + '\n';
-                          downloadFile(jsonStr, 'site-config.json', 'application/json');
-                        }}
-                        className="px-3.5 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>手動下載 site-config.json</span>
-                      </button>
-                    </>
+                  {dataSourceMode === 'sheets-api' && sheetMeta && (
+                    <button
+                      type="button"
+                      onClick={() => onSyncSettingsToSheet(settingsDraft)}
+                      disabled={isSyncing}
+                      className="px-4 py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <Sheet className="w-3.5 h-3.5" />
+                      <span>同時寫入 Google Sheet（Settings 分頁）</span>
+                    </button>
                   )}
                 </div>
               </form>

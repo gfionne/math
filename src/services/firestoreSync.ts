@@ -1,0 +1,155 @@
+import {
+  doc,
+  getDocFromServer,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  Unsubscribe,
+} from 'firebase/firestore';
+import {auth, db} from './googleAuth';
+import {SiteSettings} from '../types/journal';
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(
+  error: unknown,
+  operationType: OperationType,
+  path: string | null,
+): never {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo:
+        auth.currentUser?.providerData?.map((provider) => ({
+          providerId: provider.providerId,
+          email: provider.email,
+        })) || [],
+    },
+    operationType,
+    path,
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+export interface SharedCloudSiteConfig extends SiteSettings {
+  spreadsheetId: string;
+  tabName: string;
+}
+
+const SITE_CONFIG_COLLECTION = 'siteConfig';
+const SITE_CONFIG_DOC_ID = 'main';
+const SITE_CONFIG_PATH = `${SITE_CONFIG_COLLECTION}/${SITE_CONFIG_DOC_ID}`;
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('the client is offline')
+    ) {
+      console.error('Please check your Firebase configuration.');
+    }
+  }
+}
+void testConnection();
+
+/**
+ * Subscribes in real time to shared site configuration (spreadsheetId, tabName, siteTitle, etc.)
+ * so updates made in either AI Studio or GitHub Pages immediately reflect across both environments.
+ */
+export function subscribeSharedSiteConfig(
+  onUpdate: (config: SharedCloudSiteConfig | null) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  const ref = doc(db, SITE_CONFIG_COLLECTION, SITE_CONFIG_DOC_ID);
+  return onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        onUpdate(null);
+        return;
+      }
+      const d = snap.data();
+      onUpdate({
+        spreadsheetId: String(d.spreadsheetId ?? ''),
+        tabName: String(d.tabName ?? 'Posts') || 'Posts',
+        siteTitle: String(d.siteTitle ?? 'PesMath 數學知識庫'),
+        siteSubtitle: String(d.siteSubtitle ?? ''),
+        heroHeading: String(d.heroHeading ?? ''),
+        heroDescription: String(d.heroDescription ?? ''),
+        autoDynamicTitle: Boolean(d.autoDynamicTitle ?? true),
+        autoTitleFromSheet: Boolean(d.autoTitleFromSheet ?? true),
+      });
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.GET, SITE_CONFIG_PATH);
+      } catch (wrapped) {
+        onError?.(wrapped as Error);
+      }
+    },
+  );
+}
+
+/**
+ * Persists shared site configuration to Firestore with strict payload boundary validation
+ * matching firebase-blueprint.json and firestore.rules.
+ */
+export async function saveSharedSiteConfig(
+  config: SharedCloudSiteConfig,
+): Promise<void> {
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    throw new Error('請先完成 Google 登入授權，才能同步設定至雲端資料庫。');
+  }
+
+  const payload = {
+    spreadsheetId: config.spreadsheetId.trim().slice(0, 200),
+    tabName: (config.tabName.trim() || 'Posts').slice(0, 100),
+    siteTitle: (config.siteTitle.trim() || 'PesMath 數學知識庫').slice(0, 120),
+    siteSubtitle: config.siteSubtitle.trim().slice(0, 200),
+    heroHeading: config.heroHeading.trim().slice(0, 200),
+    heroDescription: config.heroDescription.trim().slice(0, 1000),
+    autoDynamicTitle: Boolean(config.autoDynamicTitle),
+    autoTitleFromSheet: Boolean(config.autoTitleFromSheet),
+    updatedAt: serverTimestamp(),
+    updatedByUid: uid,
+  };
+
+  try {
+    await setDoc(doc(db, SITE_CONFIG_COLLECTION, SITE_CONFIG_DOC_ID), payload);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, SITE_CONFIG_PATH);
+  }
+}

@@ -6,10 +6,13 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
+import {getFirestore} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
+export const app =
+  getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 const provider = new GoogleAuthProvider();
 // Combined Google Workspace scopes (Google Sheets database + Google Drive file upload)

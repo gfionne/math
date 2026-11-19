@@ -1,0 +1,116 @@
+{
+  "entities": {
+    "SiteConfig": {
+      "title": "SiteConfig",
+      "description": "Shared real-time website branding, title configuration, and connected Google Sheet pointer synchronized across AI Studio and GitHub Pages.",
+      "type": "object",
+      "properties": {
+        "spreadsheetId": {
+          "type": "string",
+          "description": "Connected Google Spreadsheet ID (empty string if not bound yet).",
+          "maxLength": 200
+        },
+        "tabName": {
+          "type": "string",
+          "description": "Active Google Sheet tab name containing journal posts.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "siteTitle": {
+          "type": "string",
+          "description": "Primary site title shown in navbar and browser tab.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "siteSubtitle": {
+          "type": "string",
+          "description": "Secondary subtitle shown in browser tab and hero eyebrow.",
+          "maxLength": 200
+        },
+        "heroHeading": {
+          "type": "string",
+          "description": "Main hero headline on the homepage.",
+          "maxLength": 200
+        },
+        "heroDescription": {
+          "type": "string",
+          "description": "Homepage introduction and meta description.",
+          "maxLength": 1000
+        },
+        "autoDynamicTitle": {
+          "type": "boolean",
+          "description": "Whether browser <title> automatically updates for active article or filters."
+        },
+        "autoTitleFromSheet": {
+          "type": "boolean",
+          "description": "Whether to sync site title from a Google Sheet Settings tab."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of the last update."
+        },
+        "updatedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the admin user who last updated the config.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        }
+      },
+      "required": [
+        "spreadsheetId",
+        "tabName",
+        "siteTitle",
+        "siteSubtitle",
+        "heroHeading",
+        "heroDescription",
+        "autoDynamicTitle",
+        "autoTitleFromSheet",
+        "updatedAt",
+        "updatedByUid"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized co-teacher or administrator allowed to update shared siteConfig.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Authorized administrator email address.",
+          "maxLength": 200
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        },
+        "addedByUid": {
+          "type": "string",
+          "description": "UID of the admin who granted access.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        }
+      },
+      "required": [
+        "email",
+        "addedAt",
+        "addedByUid"
+      ]
+    }
+  },
+  "firestore": {
+    "/siteConfig/{configId}": {
+      "schema": {
+        "$ref": "#/entities/SiteConfig"
+      },
+      "description": "Publicly readable, admin-writable shared site configuration document ('main')."
+    },
+    "/admins/{userId}": {
+      "schema": {
+        "$ref": "#/entities/AdminUser"
+      },
+      "description": "Administrator allowlist documents keyed by Firebase Auth UID."
+    }
+  }
+}
