@@ -1,5 +1,7 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {User} from 'firebase/auth';
 import {ArrowLeft, ExternalLink, MonitorPlay, X} from 'lucide-react';
+import {XimenGalleryPanel} from './XimenGalleryPanel';
 
 export type XimenScratchTab = 'map' | 'gallery' | 'blocks' | 'naming';
 
@@ -16,14 +18,34 @@ interface InteractiveEmbedModalProps {
   title: string;
   initialTab?: XimenScratchTab;
   onClose: () => void;
+  user: User | null;
+  isTeacher: boolean;
+  hasAccessToken: boolean;
+  isSigningIn: boolean;
+  authError: string | null;
+  onClearAuthError: () => void;
+  onTeacherSignIn: () => void;
+  onStudentSignIn: () => void;
+  onSignOut: () => void;
 }
 
-function buildTabbedUrl(rawUrl: string, tab: XimenScratchTab): string {
+function buildTabbedUrl(
+  rawUrl: string,
+  tab: XimenScratchTab,
+  mapBg?: {url: string; name: string} | null,
+): string {
   try {
     const base =
       typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
     const resolved = new URL(rawUrl, base);
     resolved.searchParams.set('tab', tab);
+    if (tab === 'map' && mapBg?.url) {
+      resolved.searchParams.set('mapBg', mapBg.url);
+      resolved.searchParams.set('mapName', mapBg.name);
+    } else {
+      resolved.searchParams.delete('mapBg');
+      resolved.searchParams.delete('mapName');
+    }
     if (
       typeof window !== 'undefined' &&
       resolved.origin === window.location.origin
@@ -42,8 +64,22 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
   title,
   initialTab = 'map',
   onClose,
+  user,
+  isTeacher,
+  hasAccessToken,
+  isSigningIn,
+  authError,
+  onClearAuthError,
+  onTeacherSignIn,
+  onStudentSignIn,
+  onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<XimenScratchTab>(initialTab);
+  const [customMapBg, setCustomMapBg] = useState<{
+    url: string;
+    name: string;
+  } | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -62,14 +98,36 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as {type?: string; tab?: string} | null;
+      if (data?.type === 'XIMEN_OPEN_TAB' && data.tab === 'gallery') {
+        setActiveTab('gallery');
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [isOpen]);
+
   const isXimenSite = useMemo(() => {
     return url.includes('ximen-scratch.html');
   }, [url]);
 
   const iframeSrc = useMemo(() => {
     if (!isXimenSite) return url;
-    return buildTabbedUrl(url, activeTab);
-  }, [url, isXimenSite, activeTab]);
+    const safeTab = activeTab === 'gallery' ? 'map' : activeTab;
+    return buildTabbedUrl(url, safeTab, customMapBg);
+  }, [url, isXimenSite, activeTab, customMapBg]);
+
+  const standaloneHref = useMemo(() => {
+    if (!isXimenSite) return url;
+    if (activeTab === 'gallery') {
+      return './?ximen=gallery';
+    }
+    return iframeSrc;
+  }, [isXimenSite, activeTab, url, iframeSrc]);
 
   if (!isOpen || !url) return null;
 
@@ -114,7 +172,7 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
           {isXimenSite && (
             <nav
               aria-label="互動學習網分頁切換"
-              className="hidden lg:flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg"
+              className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg overflow-x-auto max-w-full"
             >
               {XIMEN_TABS.map((tab) => {
                 const isActive = activeTab === tab.id;
@@ -137,15 +195,17 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
           )}
 
           <div className="flex items-center gap-2 shrink-0">
-            <a
-              href={iframeSrc}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            >
-              <span>獨立分頁開啟</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
+            {activeTab !== 'gallery' && (
+              <a
+                href={standaloneHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <span>獨立分頁開啟</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -157,14 +217,43 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
           </div>
         </header>
 
-        {/* Embedded Interactive Site Viewport */}
+        {/* Embedded Interactive Site Viewport or Role-Gated React Gallery Center */}
         <div className="flex-1 min-h-0 bg-white">
-          <iframe
-            key={iframeSrc}
-            src={iframeSrc}
-            title={title}
-            className="w-full h-full border-0 bg-white"
-          />
+          {isXimenSite && activeTab === 'gallery' ? (
+            <XimenGalleryPanel
+              user={user}
+              isTeacher={isTeacher}
+              hasAccessToken={hasAccessToken}
+              isSigningIn={isSigningIn}
+              authError={authError}
+              onClearAuthError={onClearAuthError}
+              onTeacherSignIn={onTeacherSignIn}
+              onStudentSignIn={onStudentSignIn}
+              onSignOut={onSignOut}
+              onApplyMapBackground={(imageUrl, displayName) => {
+                setCustomMapBg({url: imageUrl, name: displayName});
+                setActiveTab('map');
+                setTimeout(() => {
+                  try {
+                    iframeRef.current?.contentWindow?.postMessage(
+                      {type: 'XIMEN_SET_MAP_BG', url: imageUrl, name: displayName},
+                      window.location.origin,
+                    );
+                  } catch {
+                    // Fallback handled via query params on iframe src update
+                  }
+                }, 150);
+              }}
+            />
+          ) : (
+            <iframe
+              ref={iframeRef}
+              key={iframeSrc}
+              src={iframeSrc}
+              title={title}
+              className="w-full h-full border-0 bg-white"
+            />
+          )}
         </div>
       </div>
     </div>

@@ -430,40 +430,29 @@
     </section>
 
     <!-- ===================================================================== -->
-    <!-- 分頁 2：專案圖庫中心（Asset Gallery）                                  -->
+    <!-- 分頁 2：專案圖庫中心（校內帳號驗證整合橋接）                            -->
     <!-- ===================================================================== -->
     <section id="section-gallery" class="tab-section hidden space-y-6">
-      <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h2 class="text-xl font-black text-slate-800 flex items-center gap-2">
-            <span>🖼️</span> 百年西門專案圖庫中心（一鍵下載高畫質 PNG）
-          </h2>
-          <p class="text-sm text-slate-600 mt-1">
-            所有素材皆已去背並最佳化為 Scratch 舞台標準尺寸，點擊「⬇️ 下載 PNG」即可直接匯入 Scratch 角色或背景！
-          </p>
+      <div class="bg-white rounded-2xl p-6 sm:p-10 shadow-sm border border-slate-200 max-w-2xl mx-auto text-center space-y-4">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 text-indigo-700 flex items-center justify-center text-2xl font-black border border-indigo-100">
+          🔒
         </div>
-
-        <div class="flex flex-wrap items-center gap-2">
-          <input type="text" id="custom-asset-name" placeholder="輸入圖片名稱（選填）" class="border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
-          <label class="cursor-pointer bg-purple-600 hover:bg-purple-700 text-white text-xs sm:text-sm font-bold px-4 py-2.5 rounded-xl shadow transition flex items-center gap-1.5">
-            <span>➕ 上傳自訂圖片到圖庫</span>
-            <input type="file" id="upload-gallery-asset" accept="image/*" class="hidden" onchange="handleGalleryAssetUpload(event)">
-          </label>
+        <h2 class="text-xl sm:text-2xl font-black text-slate-900">
+          百年西門專案圖庫中心（須驗證身分登入）
+        </h2>
+        <p class="text-sm text-slate-600 leading-relaxed">
+          為保護校內圖檔素材與管理權限：<br/>
+          <strong>學生</strong>須登入 <code class="bg-slate-100 px-1.5 py-0.5 rounded font-bold text-indigo-700">@hmes.tp.edu.tw</code> 網域帳號方可檢視與下載圖庫；<br/>
+          <strong>教師</strong>登入後可上傳圖片、整個資料夾或刪除項目。
+        </p>
+        <div class="pt-2 flex flex-wrap items-center justify-center gap-3">
+          <button type="button" onclick="openAuthenticatedGallery()" class="bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-bold px-5 py-2.5 rounded-xl shadow transition">
+            前往驗證並開啟圖庫中心 →
+          </button>
+          <button type="button" onclick="switchTab('map')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold px-4 py-2.5 rounded-xl transition">
+            返回互動地圖
+          </button>
         </div>
-      </div>
-
-      <div id="custom-gallery-wrapper" class="hidden space-y-3">
-        <h3 class="text-base font-extrabold text-purple-800 flex items-center gap-2">
-          <span>📂</span> 我上傳的自訂專案圖片
-        </h3>
-        <div id="custom-gallery-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
-      </div>
-
-      <div class="space-y-3">
-        <h3 class="text-base font-extrabold text-slate-800 flex items-center gap-2">
-          <span>✨</span> 官方標準舞台與按鈕圖庫（12 項標準元件）
-        </h3>
-        <div id="official-gallery-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
       </div>
     </section>
 
@@ -931,7 +920,28 @@
     // =========================================================================
     // 2. 分頁切換與 Toast 通知工具
     // =========================================================================
+    function openAuthenticatedGallery() {
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'XIMEN_OPEN_TAB', tab: 'gallery' }, window.location.origin);
+          return;
+        } catch (e) {}
+      }
+      window.location.href = './?ximen=gallery';
+    }
+
     function switchTab(tabId) {
+      if (tabId === 'gallery') {
+        if (window.parent && window.parent !== window) {
+          try {
+            window.parent.postMessage({ type: 'XIMEN_OPEN_TAB', tab: 'gallery' }, window.location.origin);
+          } catch (e) {}
+        } else {
+          window.location.href = './?ximen=gallery';
+          return;
+        }
+      }
+
       document.querySelectorAll('.tab-section').forEach(sec => sec.classList.add('hidden'));
       document.getElementById(`section-${tabId}`).classList.remove('hidden');
 
@@ -1296,277 +1306,33 @@
     }
 
     // =========================================================================
-    // 5. 分頁 2：專案圖庫中心
+    // 5. 分頁 2：圖庫中心底圖套用橋接（由主系統驗證後傳入安全圖片網址）
     // =========================================================================
-    function buildOfficialGallery() {
-      const grid = document.getElementById('official-gallery-grid');
-      grid.innerHTML = '';
+    function applyExternalMapBackground(url, displayName) {
+      if (!url || !/^https:\/\//i.test(url)) return;
+      const customImg = document.getElementById('custom-map-image');
+      const svgMap = document.getElementById('default-vector-map');
+      const resetBtn = document.getElementById('btn-reset-map-img');
+      if (!customImg || !svgMap || !resetBtn) return;
 
-      const assets = [
-        {
-          id: 'asset-full-map',
-          title: '西門町商圈地圖底圖',
-          filename: '商圈地圖.png',
-          sizeText: '1200 × 900 px（舞台初始背景）',
-          width: 800,
-          height: 600,
-          draw: (ctx, w, h) => drawMapCanvas(ctx, w, h)
-        },
-        ...streetsState.map(st => ({
-          id: `asset-btn-${st.id}`,
-          title: `按鈕_${st.name}`,
-          filename: `按鈕_${st.name}.png`,
-          sizeText: '520 × 150 px（去背按鈕）',
-          width: 520,
-          height: 150,
-          draw: (ctx, w, h) => drawPurpleButtonCanvas(ctx, w, h, st.name)
-        })),
-        {
-          id: 'asset-char-left',
-          title: '左角色_西門導覽員',
-          filename: '左角色_西門導覽員.png',
-          sizeText: '360 × 420 px（需備齊待機/說話/招牌）',
-          width: 360,
-          height: 420,
-          draw: (ctx, w, h) => drawCharacterCanvas(ctx, w, h, 'left')
-        },
-        {
-          id: 'asset-char-right',
-          title: '右角色_好奇小遊客',
-          filename: '右角色_好奇小遊客.png',
-          sizeText: '360 × 420 px（需備齊待機/說話/招牌）',
-          width: 360,
-          height: 420,
-          draw: (ctx, w, h) => drawCharacterCanvas(ctx, w, h, 'right')
-        },
-        {
-          id: 'asset-btn-return',
-          title: '按鈕_返回地圖',
-          filename: '按鈕_返回地圖.png',
-          sizeText: '460 × 140 px（去背按鈕）',
-          width: 460,
-          height: 140,
-          draw: (ctx, w, h) => drawReturnButtonCanvas(ctx, w, h)
-        }
-      ];
-
-      assets.forEach(asset => {
-        const card = document.createElement('div');
-        card.className = 'bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between hover:shadow-md transition';
-
-        const previewBox = document.createElement('div');
-        previewBox.className = 'h-44 p-4 flex items-center justify-center bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:14px_14px] bg-slate-50 border-b border-slate-100';
-
-        const canvas = document.createElement('canvas');
-        canvas.width = asset.width;
-        canvas.height = asset.height;
-        canvas.className = 'max-h-full max-w-full object-contain drop-shadow';
-        const ctx = canvas.getContext('2d');
-        asset.draw(ctx, asset.width, asset.height);
-        previewBox.appendChild(canvas);
-
-        const infoBox = document.createElement('div');
-        infoBox.className = 'p-3.5 space-y-2.5';
-        infoBox.innerHTML = `
-          <div>
-            <h4 class="font-extrabold text-slate-800 text-sm">${asset.title}</h4>
-            <p class="text-xs text-slate-400 mt-0.5">${asset.sizeText}</p>
-          </div>
-          <button type="button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2 px-3 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm">
-            <span>⬇️ 下載 PNG 圖檔</span>
-          </button>
-        `;
-
-        infoBox.querySelector('button').onclick = () => {
-          try {
-            const dataUrl = canvas.toDataURL('image/png');
-            const a = document.createElement('a');
-            a.href = dataUrl;
-            a.download = asset.filename;
-            a.target = '_blank';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            showToast(`⬇️ 已開始下載「${asset.filename}」`, 'success');
-          } catch (err) {
-            showToast('請在圖片上按右鍵選擇「另存圖片」即可下載', 'warning');
-          }
-        };
-
-        card.appendChild(previewBox);
-        card.appendChild(infoBox);
-        grid.appendChild(card);
-      });
+      customImg.referrerPolicy = 'no-referrer';
+      customImg.src = url;
+      customImg.classList.remove('hidden');
+      svgMap.classList.add('hidden');
+      resetBtn.classList.remove('hidden');
+      switchTab('map');
+      if (displayName) {
+        showToast(`🗺️ 已將「${displayName}」套用為主畫面地圖底圖！`, 'success');
+      }
     }
 
-    function roundRectPath(ctx, x, y, w, h, r) {
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.arcTo(x + w, y, x + w, y + h, r);
-      ctx.arcTo(x + w, y + h, x, y + h, r);
-      ctx.arcTo(x, y + h, x, y, r);
-      ctx.arcTo(x, y, x + w, y, r);
-      ctx.closePath();
-    }
-
-    function drawPurpleButtonCanvas(ctx, w, h, label) {
-      ctx.clearRect(0, 0, w, h);
-      const pad = 12;
-      roundRectPath(ctx, pad, pad, w - pad * 2, h - pad * 2, 28);
-      ctx.fillStyle = '#682BD7';
-      ctx.fill();
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.stroke();
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '900 54px "Noto Sans TC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(label, w / 2, h / 2 + 3);
-    }
-
-    function drawReturnButtonCanvas(ctx, w, h) {
-      ctx.clearRect(0, 0, w, h);
-      const pad = 12;
-      roundRectPath(ctx, pad, pad, w - pad * 2, h - pad * 2, 26);
-      ctx.fillStyle = '#FACC15';
-      ctx.fill();
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = '#1E1B4B';
-      ctx.stroke();
-
-      ctx.fillStyle = '#1E1B4B';
-      ctx.font = '900 46px "Noto Sans TC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('🔙 返回地圖', w / 2, h / 2 + 2);
-    }
-
-    function drawCharacterCanvas(ctx, w, h, side) {
-      ctx.clearRect(0, 0, w, h);
-      const cx = w / 2;
-      roundRectPath(ctx, cx - 72, 210, 144, 155, 36);
-      ctx.fillStyle = side === 'left' ? '#4F46E5' : '#EC4899';
-      ctx.fill();
-      ctx.lineWidth = 8;
-      ctx.strokeStyle = '#1E293B';
-      ctx.stroke();
-
-      ctx.fillStyle = '#FACC15';
-      ctx.beginPath();
-      ctx.arc(cx, 275, 22, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(cx, 130, 78, 0, Math.PI * 2);
-      ctx.fillStyle = side === 'left' ? '#FDE68A' : '#FED7AA';
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(cx, 118, 78, Math.PI, 0);
-      ctx.fillStyle = side === 'left' ? '#1E293B' : '#9A3412';
-      ctx.fill();
-
-      ctx.fillStyle = '#1E293B';
-      ctx.beginPath();
-      ctx.arc(cx - 26, 132, 8, 0, Math.PI * 2);
-      ctx.arc(cx + 26, 132, 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(cx, 152, 18, 0.1 * Math.PI, 0.9 * Math.PI);
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = '#DC2626';
-      ctx.stroke();
-    }
-
-    function drawMapCanvas(ctx, w, h) {
-      ctx.fillStyle = '#84B1D9';
-      ctx.fillRect(0, 0, w, h);
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, h * 0.14, w * 0.83, h * 0.032);
-      ctx.fillRect(0, h * 0.33, w * 0.83, h * 0.045);
-      ctx.fillRect(0, h * 0.56, w * 0.54, h * 0.035);
-      ctx.fillRect(0, h * 0.79, w, h * 0.048);
-      ctx.fillRect(w * 0.15, 0, w * 0.026, h);
-      ctx.fillRect(w * 0.34, 0, w * 0.028, h);
-      ctx.fillRect(w * 0.505, 0, w * 0.032, h);
-      ctx.fillRect(w * 0.83, 0, w * 0.056, h);
-
-      ctx.fillStyle = '#D32F2F';
-      ctx.fillRect(w * 0.03, h * 0.335, w * 0.8, h * 0.036);
-
-      ctx.fillStyle = '#FDD835';
-      ctx.fillRect(w * 0.64, h * 0.17, w * 0.035, h * 0.45);
-
-      ctx.fillStyle = '#2E7D32';
-      ctx.fillRect(w * 0.52, h * 0.57, w * 0.31, h * 0.036);
-
-      ctx.fillStyle = '#C2185B';
-      roundRectPath(ctx, 16, 16, 220, 56, 8);
-      ctx.fill();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = '#F48FB1';
-      ctx.stroke();
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '900 24px "Noto Sans TC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('西門町商圈地圖', 126, 44);
-    }
-
-    function handleGalleryAssetUpload(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const customNameInput = document.getElementById('custom-asset-name');
-      const displayName = customNameInput.value.trim() || file.name;
-      const objectUrl = URL.createObjectURL(file);
-
-      const wrapper = document.getElementById('custom-gallery-wrapper');
-      const grid = document.getElementById('custom-gallery-grid');
-      wrapper.classList.remove('hidden');
-
-      const card = document.createElement('div');
-      card.className = 'bg-white rounded-2xl border-2 border-purple-200 shadow-sm overflow-hidden flex flex-col justify-between';
-      card.innerHTML = `
-        <div class="h-44 p-3 flex items-center justify-center bg-slate-50 border-b border-slate-100">
-          <img src="${objectUrl}" alt="${displayName}" class="max-h-full max-w-full object-contain rounded-lg" />
-        </div>
-        <div class="p-3.5 space-y-2">
-          <h4 class="font-extrabold text-slate-800 text-sm truncate">${displayName}</h4>
-          <div class="flex gap-1.5">
-            <a href="${objectUrl}" download="${file.name}" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2 px-2.5 rounded-xl text-center transition">
-              ⬇️ 下載
-            </a>
-            <button type="button" class="apply-map-btn bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs font-bold py-2 px-2.5 rounded-xl transition">
-              🗺️ 設為底圖
-            </button>
-          </div>
-        </div>
-      `;
-
-      card.querySelector('.apply-map-btn').onclick = () => {
-        const customImg = document.getElementById('custom-map-image');
-        const svgMap = document.getElementById('default-vector-map');
-        const resetBtn = document.getElementById('btn-reset-map-img');
-        customImg.src = objectUrl;
-        customImg.classList.remove('hidden');
-        svgMap.classList.add('hidden');
-        resetBtn.classList.remove('hidden');
-        switchTab('map');
-        showToast(`🗺️ 已將「${displayName}」設為主畫面地圖底圖！`, 'success');
-      };
-
-      grid.prepend(card);
-      customNameInput.value = '';
-      event.target.value = '';
-      showToast(`➕ 已將「${displayName}」加入專案圖庫！`, 'success');
-    }
+    window.addEventListener('message', (event) => {
+      if (event.origin !== window.location.origin) return;
+      const payload = event.data;
+      if (payload && payload.type === 'XIMEN_SET_MAP_BG' && payload.url) {
+        applyExternalMapBackground(payload.url, payload.name || '圖庫底圖');
+      }
+    });
 
     // =========================================================================
     // 6. 分頁 3：Scratch 3.0 積木與廣播邏輯教學（商圈地圖 → 舞台背景 → 背景1 → 背景2）
@@ -1878,14 +1644,21 @@
     // =========================================================================
     window.addEventListener('DOMContentLoaded', () => {
       renderMapButtons();
-      buildOfficialGallery();
       initBlockPrefixSelector();
       renderScratchBlocks();
       initNamingAndChecklist();
       const params = new URLSearchParams(window.location.search);
       const initialTab = params.get('tab');
+      if (initialTab === 'gallery' && window.parent === window) {
+        window.location.replace('./?ximen=gallery');
+        return;
+      }
       if (initialTab && ['map', 'gallery', 'blocks', 'naming'].includes(initialTab)) {
         switchTab(initialTab);
+      }
+      const mapBg = params.get('mapBg');
+      if (mapBg) {
+        applyExternalMapBackground(mapBg, params.get('mapName') || '圖庫底圖');
       }
     });
   </script>

@@ -24,7 +24,7 @@ interface ArticleReaderModalProps {
   onClose: () => void;
   onSelectPost: (post: JournalPost) => void;
   onEditPost: (post: JournalPost) => void;
-  onOpenFullEmbed?: (url: string, title: string) => void;
+  onOpenFullEmbed?: (url: string, title: string, initialTab?: 'map' | 'gallery') => void;
 }
 
 function sanitizeHtml(html: string): string {
@@ -105,6 +105,23 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [post, onClose]);
+
+  React.useEffect(() => {
+    if (!post || !showInlineEmbed || !onOpenFullEmbed || !post.embedUrl) return;
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as {type?: string; tab?: string} | null;
+      if (data?.type === 'XIMEN_OPEN_TAB' && data.tab === 'gallery') {
+        onOpenFullEmbed(
+          post.embedUrl!,
+          post.embedLabel || post.title,
+          'gallery',
+        );
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [post, showInlineEmbed, onOpenFullEmbed]);
 
   if (!post) return null;
 

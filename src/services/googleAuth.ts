@@ -6,7 +6,7 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import {getFirestore} from 'firebase/firestore';
+import {doc, getDoc, getFirestore} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export const app =
@@ -14,7 +14,14 @@ export const app =
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
+export const OWNER_ADMIN_EMAIL = 'g.fionne@gmail.com';
+export const SCHOOL_DOMAIN = 'hmes.tp.edu.tw';
+
 const provider = new GoogleAuthProvider();
+provider.setCustomParameters({
+  prompt: 'select_account',
+});
+
 // Combined Google Workspace scopes (Google Sheets database + Google Drive file upload)
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/spreadsheets',
@@ -25,9 +32,36 @@ for (const scope of WORKSPACE_SCOPES) {
   provider.addScope(scope);
 }
 
+// Clean Google provider with zero Workspace scopes for @hmes.tp.edu.tw students
+const studentProvider = new GoogleAuthProvider();
+studentProvider.setCustomParameters({
+  hd: SCHOOL_DOMAIN,
+  prompt: 'select_account',
+});
+
 // In-memory cache ONLY (never stored in localStorage/sessionStorage)
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
+
+export function isOwnerAdminEmail(email?: string | null): boolean {
+  return (email ?? '').trim().toLowerCase() === OWNER_ADMIN_EMAIL;
+}
+
+export function isHmesStudentEmail(email?: string | null): boolean {
+  const normalized = (email ?? '').trim().toLowerCase();
+  return /^[^@]+@hmes\.tp\.edu\.tw$/.test(normalized);
+}
+
+export async function checkIsTeacherAdmin(user: User | null): Promise<boolean> {
+  if (!user || !user.emailVerified) return false;
+  if (isOwnerAdminEmail(user.email)) return true;
+  try {
+    const snap = await getDoc(doc(db, 'admins', user.uid));
+    return snap.exists();
+  } catch {
+    return false;
+  }
+}
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
@@ -57,10 +91,35 @@ export const googleSignIn = async (): Promise<{
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
-      throw new Error('未能取得 Google Sheets 授權存取權杖，請再試一次。');
+      throw new Error('未能取得 Google Workspace 授權存取權杖，請再試一次。');
     }
     cachedAccessToken = credential.accessToken;
     return {user: result.user, accessToken: cachedAccessToken};
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+export const studentGoogleSignIn = async (): Promise<User> => {
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, studentProvider);
+    const signedUser = result.user;
+    const isTeacher = await checkIsTeacherAdmin(signedUser);
+    const isSchoolStudent =
+      Boolean(signedUser.emailVerified) && isHmesStudentEmail(signedUser.email);
+
+    if (!isTeacher && !isSchoolStudent) {
+      const emailLabel = signedUser.email || '未知帳號';
+      await auth.signOut();
+      cachedAccessToken = null;
+      throw new Error(
+        `您目前選擇的帳號（${emailLabel}）非 @${SCHOOL_DOMAIN} 學校網域帳號，請改用 @${SCHOOL_DOMAIN} 信箱重新登入。`,
+      );
+    }
+
+    cachedAccessToken = null;
+    return signedUser;
   } finally {
     isSigningIn = false;
   }

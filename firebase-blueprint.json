@@ -97,6 +97,91 @@
         "addedAt",
         "addedByUid"
       ]
+    },
+    "XimenGalleryItem": {
+      "title": "XimenGalleryItem",
+      "description": "Uploaded image asset in the Ximen Scratch Stage Show Gallery Center, writable only by teachers/admins and readable by teachers or verified @hmes.tp.edu.tw school members.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name of the gallery image.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "fileName": {
+          "type": "string",
+          "description": "Original filename of the uploaded image.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "folderName": {
+          "type": "string",
+          "description": "Folder or relative directory path containing the image (empty string if uncategorized).",
+          "maxLength": 120
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Direct HTTPS image preview URL.",
+          "minLength": 10,
+          "maxLength": 500,
+          "pattern": "^https://"
+        },
+        "downloadUrl": {
+          "type": "string",
+          "description": "Direct HTTPS download URL for the asset.",
+          "minLength": 10,
+          "maxLength": 500,
+          "pattern": "^https://"
+        },
+        "driveFileId": {
+          "type": "string",
+          "description": "Google Drive file ID for asset cleanup and direct download.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "mimeType": {
+          "type": "string",
+          "description": "MIME type of the uploaded image file.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "description": "File size in bytes."
+        },
+        "uploadedByName": {
+          "type": "string",
+          "description": "Non-PII teacher display label.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "uploadedByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the uploading teacher.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the asset was added."
+        }
+      },
+      "required": [
+        "name",
+        "fileName",
+        "folderName",
+        "imageUrl",
+        "downloadUrl",
+        "driveFileId",
+        "mimeType",
+        "sizeBytes",
+        "uploadedByName",
+        "uploadedByUid",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -111,6 +196,12 @@
         "$ref": "#/entities/AdminUser"
       },
       "description": "Administrator allowlist documents keyed by Firebase Auth UID."
+    },
+    "/ximenGalleryItems/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/XimenGalleryItem"
+      },
+      "description": "Role-gated gallery images readable/downloadable by @hmes.tp.edu.tw school members and teachers, writable/deletable only by teachers/admins."
     }
   }
 }

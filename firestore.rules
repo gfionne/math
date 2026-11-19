@@ -37,6 +37,12 @@ service cloud.firestore {
       );
     }
 
+    function isSchoolMember() {
+      return isVerifiedUser() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower().matches('^[^@]+@hmes\\.tp\\.edu\\.tw$');
+    }
+
     function isValidSiteConfig(data) {
       return data.keys().hasAll([
         'spreadsheetId',
@@ -84,6 +90,47 @@ service cloud.firestore {
       data.addedByUid == request.auth.uid;
     }
 
+    function isValidXimenGalleryItem(data) {
+      return data.keys().hasAll([
+        'name',
+        'fileName',
+        'folderName',
+        'imageUrl',
+        'downloadUrl',
+        'driveFileId',
+        'mimeType',
+        'sizeBytes',
+        'uploadedByName',
+        'uploadedByUid',
+        'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'name',
+        'fileName',
+        'folderName',
+        'imageUrl',
+        'downloadUrl',
+        'driveFileId',
+        'mimeType',
+        'sizeBytes',
+        'uploadedByName',
+        'uploadedByUid',
+        'createdAt'
+      ]) &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+      data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
+      data.folderName is string && data.folderName.size() <= 120 &&
+      data.imageUrl is string && data.imageUrl.size() >= 10 && data.imageUrl.size() <= 500 && data.imageUrl.matches('^https://.*') &&
+      data.downloadUrl is string && data.downloadUrl.size() >= 10 && data.downloadUrl.size() <= 500 && data.downloadUrl.matches('^https://.*') &&
+      data.driveFileId is string && data.driveFileId.size() >= 1 && data.driveFileId.size() <= 200 &&
+      data.mimeType is string && data.mimeType.size() >= 1 && data.mimeType.size() <= 100 &&
+      data.sizeBytes is int && data.sizeBytes >= 0 && data.sizeBytes <= 52428800 &&
+      data.uploadedByName is string && data.uploadedByName.size() >= 1 && data.uploadedByName.size() <= 100 &&
+      data.uploadedByUid is string && isValidId(data.uploadedByUid) &&
+      data.uploadedByUid == request.auth.uid &&
+      data.createdAt == request.time;
+    }
+
     match /siteConfig/{configId} {
       // Publicly readable so visitors on GitHub Pages and AI Studio load the exact same config in real time
       allow get: if isValidId(configId) && configId == 'main';
@@ -129,6 +176,21 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly(['email', 'addedAt', 'addedByUid']);
 
       allow delete: if isOwnerAdmin() && isValidId(userId);
+    }
+
+    match /ximenGalleryItems/{itemId} {
+      // Teachers/admins and verified @hmes.tp.edu.tw school accounts may view and download gallery items
+      allow get: if isValidId(itemId) && (isAdmin() || isSchoolMember());
+      allow list: if isAdmin() || isSchoolMember();
+
+      // Only authenticated teachers/admins may upload or delete gallery items
+      allow create: if isAdmin() &&
+        isValidId(itemId) &&
+        isValidXimenGalleryItem(incoming());
+
+      allow update: if false;
+
+      allow delete: if isAdmin() && isValidId(itemId);
     }
   }
 }

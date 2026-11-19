@@ -50,10 +50,13 @@ import firebaseConfig from '../firebase-applet-config.json';
 import {SEED_POSTS} from './data/seedPosts';
 import {
   auth,
+  checkIsTeacherAdmin,
   getAccessToken,
   googleSignIn,
   initAuth,
+  isOwnerAdminEmail,
   logout,
+  studentGoogleSignIn,
 } from './services/googleAuth';
 import {
   saveSharedSiteConfig,
@@ -107,8 +110,10 @@ export default function App() {
 
   // Auth State (Access token kept strictly in memory via googleAuth.ts)
   const [user, setUser] = useState<User | null>(null);
+  const [isTeacherAdmin, setIsTeacherAdmin] = useState(false);
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [galleryAuthError, setGalleryAuthError] = useState<string | null>(null);
 
   // Filter & View State
   const [searchQuery, setSearchQuery] = useState('');
@@ -171,6 +176,25 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Verify whether the signed-in Firebase user is an authorized teacher/admin
+  useEffect(() => {
+    let active = true;
+    if (!user) {
+      setIsTeacherAdmin(false);
+      return;
+    }
+    if (user.emailVerified && isOwnerAdminEmail(user.email)) {
+      setIsTeacherAdmin(true);
+      return;
+    }
+    void checkIsTeacherAdmin(user).then((result) => {
+      if (active) setIsTeacherAdmin(result);
+    });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
   const applyRemoteSettingsIfEnabled = useCallback(
     (remote: Partial<SiteSettings> | null, fallbackSpreadsheetTitle?: string) => {
       setSiteSettings((prev) => {
@@ -220,6 +244,16 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const ximenParam = params.get('ximen');
+    if (
+      ximenParam === 'map' ||
+      ximenParam === 'gallery' ||
+      ximenParam === 'blocks' ||
+      ximenParam === 'naming'
+    ) {
+      openXimenStage(ximenParam);
+    }
+
     const sheetParam = params.get('sheet');
     if (sheetParam) {
       loadPublicSheet(sheetParam);
@@ -236,7 +270,7 @@ export default function App() {
         localStorage.removeItem(PUBLIC_SHEET_STORAGE_KEY);
       }
     }
-  }, [loadPublicSheet]);
+  }, [loadPublicSheet, openXimenStage]);
 
   // Real-time Firestore listener so edits on either AI Studio or GitHub Pages sync immediately
   useEffect(() => {
@@ -484,11 +518,14 @@ export default function App() {
   const handleSignIn = async () => {
     setIsSigningIn(true);
     setSyncError(null);
+    setGalleryAuthError(null);
     try {
       const result = await googleSignIn();
       if (result) {
         setUser(result.user);
         setHasAccessToken(true);
+        const teacherVerified = await checkIsTeacherAdmin(result.user);
+        setIsTeacherAdmin(teacherVerified);
         const targetId = publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
         if (targetId && dataSourceMode !== 'sheets-api') {
           try {
@@ -518,16 +555,43 @@ export default function App() {
     } catch (err: any) {
       const rawMsg = err?.message || '';
       const code = err?.code || '';
+      const formatted =
+        rawMsg.includes('access_denied') ||
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request'
+          ? `Google 登入未完成（${code || 'access_denied'}）。若看到「應用程式目前處於測試階段 / 錯誤 403：access_denied」，請至 Google Cloud Console（專案 ${firebaseConfig.projectId}）的 OAuth 同意畫面 → 目標對象（Audience）→ 測試人員（Test users）加入您的 Gmail 帳號後重試。`
+          : rawMsg || 'Google 登入授權失敗，請再試一次。';
+      setSyncError(formatted);
+      setGalleryAuthError(formatted);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleStudentSignIn = async () => {
+    setIsSigningIn(true);
+    setGalleryAuthError(null);
+    try {
+      const authedStudent = await studentGoogleSignIn();
+      setUser(authedStudent);
+      setHasAccessToken(false);
+      const teacherVerified = await checkIsTeacherAdmin(authedStudent);
+      setIsTeacherAdmin(teacherVerified);
+    } catch (err: any) {
+      const rawMsg = err?.message || '';
+      const code = err?.code || '';
       if (
         rawMsg.includes('access_denied') ||
         code === 'auth/popup-closed-by-user' ||
         code === 'auth/cancelled-popup-request'
       ) {
-        setSyncError(
-          `Google 登入未完成（${code || 'access_denied'}）。若看到「應用程式目前處於測試階段 / 錯誤 403：access_denied」，請至 Google Cloud Console（專案 ${firebaseConfig.projectId}）的 OAuth 同意畫面 → 目標對象（Audience）→ 測試人員（Test users）加入您的 Gmail 帳號後重試。`,
+        setGalleryAuthError(
+          `學校帳號登入未完成（${code || 'access_denied'}）。若顯示 403 access_denied，請確認您選用的是 @hmes.tp.edu.tw 帳號，或請管理老師至 Google Cloud Console 確認 OAuth 發布狀態。`,
         );
       } else {
-        setSyncError(rawMsg || 'Google 登入授權失敗，請再試一次。');
+        setGalleryAuthError(
+          rawMsg || '學校網域帳號登入失敗，請使用 @hmes.tp.edu.tw 帳號重試。',
+        );
       }
     } finally {
       setIsSigningIn(false);
@@ -537,7 +601,9 @@ export default function App() {
   const handleSignOut = async () => {
     await logout();
     setUser(null);
+    setIsTeacherAdmin(false);
     setHasAccessToken(false);
+    setGalleryAuthError(null);
     if (dataSourceMode === 'sheets-api') {
       setDataSourceMode(publicSheetId ? 'sheets-public' : 'seed');
     }
@@ -1897,13 +1963,13 @@ export default function App() {
           setActivePost(null);
           openDrawer('editor', p);
         }}
-        onOpenFullEmbed={(url, title) => {
+        onOpenFullEmbed={(url, title, tab = 'map') => {
           setActivePost(null);
           setInteractiveStage({
             isOpen: true,
             url,
             title,
-            initialTab: 'map',
+            initialTab: tab,
           });
         }}
       />
@@ -1917,6 +1983,15 @@ export default function App() {
         onClose={() =>
           setInteractiveStage((prev) => ({...prev, isOpen: false}))
         }
+        user={user}
+        isTeacher={isTeacherAdmin}
+        hasAccessToken={hasAccessToken}
+        isSigningIn={isSigningIn}
+        authError={galleryAuthError}
+        onClearAuthError={() => setGalleryAuthError(null)}
+        onTeacherSignIn={handleSignIn}
+        onStudentSignIn={handleStudentSignIn}
+        onSignOut={handleSignOut}
       />
 
       {/* Google Sheets CMS & Architecture Drawer */}

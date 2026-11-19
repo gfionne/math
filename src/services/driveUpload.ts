@@ -10,22 +10,31 @@ export interface DriveUploadResult {
   fileId: string;
   name: string;
   directImageUrl: string;
+  downloadUrl: string;
   webViewLink: string;
 }
 
 // 記憶體快取已建立的專屬資料夾 ID，避免重複查詢
 let cachedFolderId: string | null = null;
+const cachedSubfolderIds = new Map<string, string>();
 
-async function getOrCreatePesMathFolder(accessToken: string): Promise<string> {
-  if (cachedFolderId) return cachedFolderId;
+async function getOrCreateFolder(
+  folderName: string,
+  accessToken: string,
+  parentId?: string,
+  description?: string,
+): Promise<string> {
+  const cacheKey = `${parentId || 'root'}::${folderName}`;
+  const existing = cachedSubfolderIds.get(cacheKey);
+  if (existing) return existing;
 
-  const folderName = 'PesMath_Journal_Assets';
+  const escapedName = folderName.replace(/'/g, "\\'");
+  const parentClause = parentId ? ` and '${parentId}' in parents` : '';
 
   try {
-    // 1. 搜尋是否已存在同名資料夾
     const searchRes = await fetch(
       `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
-        `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+        `name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false${parentClause}`,
       )}&fields=files(id,name)`,
       {
         headers: {
@@ -37,57 +46,69 @@ async function getOrCreatePesMathFolder(accessToken: string): Promise<string> {
     if (searchRes.ok) {
       const searchData = await searchRes.json();
       if (searchData.files && searchData.files.length > 0) {
-        cachedFolderId = searchData.files[0].id;
-        return cachedFolderId!;
+        const foundId = searchData.files[0].id as string;
+        cachedSubfolderIds.set(cacheKey, foundId);
+        return foundId;
       }
     }
 
-    // 2. 若不存在則建立新資料夾
+    const createPayload: Record<string, unknown> = {
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      description:
+        description || 'PesMath 數學教學社群期刊系統專屬圖檔與附件資料夾',
+    };
+    if (parentId) {
+      createPayload.parents = [parentId];
+    }
+
     const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        name: folderName,
-        mimeType: 'application/vnd.google-apps.folder',
-        description: 'PesMath 數學教學社群期刊系統專屬圖檔與附件資料夾',
-      }),
+      body: JSON.stringify(createPayload),
     });
 
     if (createRes.ok) {
       const folderData = await createRes.json();
-      cachedFolderId = folderData.id;
-      return cachedFolderId!;
+      const createdId = folderData.id as string;
+      cachedSubfolderIds.set(cacheKey, createdId);
+      return createdId;
     }
   } catch (err) {
-    console.warn('Could not auto-create PesMath folder in Drive, falling back to root:', err);
+    console.warn(`Could not auto-create Drive folder "${folderName}":`, err);
   }
 
   return '';
 }
 
-/**
- * 將圖片檔案上傳至登入教師的 Google 雲端硬碟指定資料夾 (PesMath_Journal_Assets)，並設為公開檢視
- */
-export async function uploadImageToGoogleDrive(
+async function getOrCreatePesMathFolder(accessToken: string): Promise<string> {
+  if (cachedFolderId) return cachedFolderId;
+  const folderId = await getOrCreateFolder(
+    'PesMath_Journal_Assets',
+    accessToken,
+  );
+  if (folderId) {
+    cachedFolderId = folderId;
+  }
+  return folderId;
+}
+
+async function uploadMultipartToFolder(
   file: File,
   accessToken: string,
+  folderId: string,
+  filePrefix: string,
+  description: string,
 ): Promise<DriveUploadResult> {
-  if (!accessToken) {
-    throw new Error('未取得 Google 授權憑證，請先登入 Google 帳號。');
-  }
-
-  // 取得專屬資料夾 ID（若無則放根目錄）
-  const folderId = await getOrCreatePesMathFolder(accessToken);
-
-  // 1. 建立標準 Multipart/Related 檔案上傳主體
-  const cleanName = `pesmath_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-  const metadata: any = {
+  const safeBaseName = file.name.replace(/[^\w.\-\u4e00-\u9fff]/g, '_');
+  const cleanName = `${filePrefix}_${Date.now()}_${safeBaseName}`;
+  const metadata: Record<string, unknown> = {
     name: cleanName,
     mimeType: file.type || 'image/jpeg',
-    description: '由 PesMath 教學期刊發布系統上傳之文章圖檔',
+    description,
   };
 
   if (folderId) {
@@ -133,12 +154,11 @@ export async function uploadImageToGoogleDrive(
   }
 
   const fileData = await uploadRes.json();
-  const fileId = fileData.id;
+  const fileId = fileData.id as string;
 
-  // 2. 設定該圖檔權限為「知道連結的任何人均為檢視者」
   try {
     const permRes = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/permissions`,
       {
         method: 'POST',
         headers: {
@@ -152,14 +172,17 @@ export async function uploadImageToGoogleDrive(
       },
     );
     if (!permRes.ok) {
-      console.warn('Could not set public permission on drive file', await permRes.text());
+      console.warn(
+        'Could not set public permission on drive file',
+        await permRes.text(),
+      );
     }
   } catch (err) {
     console.warn('Failed to set public reader permission:', err);
   }
 
-  // 3. 組合高解析度且具備 CDN 快取的直連圖片網址
   const directImageUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+  const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
   const webViewLink =
     fileData.webViewLink || `https://drive.google.com/file/d/${fileId}/view`;
 
@@ -167,6 +190,102 @@ export async function uploadImageToGoogleDrive(
     fileId,
     name: fileData.name || cleanName,
     directImageUrl,
+    downloadUrl,
     webViewLink,
   };
+}
+
+/**
+ * 將圖片檔案上傳至登入教師的 Google 雲端硬碟指定資料夾 (PesMath_Journal_Assets)，並設為公開檢視
+ */
+export async function uploadImageToGoogleDrive(
+  file: File,
+  accessToken: string,
+): Promise<DriveUploadResult> {
+  if (!accessToken) {
+    throw new Error('未取得 Google 授權憑證，請先登入 Google 帳號。');
+  }
+  const folderId = await getOrCreatePesMathFolder(accessToken);
+  return uploadMultipartToFolder(
+    file,
+    accessToken,
+    folderId,
+    'pesmath',
+    '由 PesMath 教學期刊發布系統上傳之文章圖檔',
+  );
+}
+
+/**
+ * 將百年西門 Scratch 圖庫中心圖片上傳至 PesMath_Journal_Assets/XimenScratchGallery/{folderName}
+ */
+export async function uploadGalleryImageToDrive(
+  file: File,
+  accessToken: string,
+  folderName?: string,
+): Promise<DriveUploadResult> {
+  if (!accessToken) {
+    throw new Error('未取得教師 Google Drive 授權憑證，請重新以教師帳號登入。');
+  }
+
+  const rootFolderId = await getOrCreatePesMathFolder(accessToken);
+  let targetFolderId = rootFolderId;
+
+  if (rootFolderId) {
+    const galleryRootId = await getOrCreateFolder(
+      'XimenScratchGallery',
+      accessToken,
+      rootFolderId,
+      '百年西門 Scratch 舞台秀互動學習網圖庫中心素材',
+    );
+    if (galleryRootId) {
+      targetFolderId = galleryRootId;
+      const cleanedSubfolder = (folderName ?? '')
+        .trim()
+        .replace(/[<>:"|?*]/g, '_')
+        .slice(0, 80);
+      if (cleanedSubfolder) {
+        const subId = await getOrCreateFolder(
+          cleanedSubfolder,
+          accessToken,
+          galleryRootId,
+          `百年西門圖庫資料夾：${cleanedSubfolder}`,
+        );
+        if (subId) {
+          targetFolderId = subId;
+        }
+      }
+    }
+  }
+
+  return uploadMultipartToFolder(
+    file,
+    accessToken,
+    targetFolderId,
+    'ximen',
+    '由百年西門 Scratch 舞台秀互動學習網圖庫中心上傳之教學素材',
+  );
+}
+
+/**
+ * 刪除教師先前透過本系統上傳至 Google Drive 的圖檔（最佳化清理，若權限不足或已刪除不阻斷 Firestore 移除）
+ */
+export async function deleteDriveFile(
+  fileId: string,
+  accessToken: string | null,
+): Promise<boolean> {
+  if (!fileId || !accessToken) return false;
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+    return res.ok || res.status === 404;
+  } catch {
+    return false;
+  }
 }
