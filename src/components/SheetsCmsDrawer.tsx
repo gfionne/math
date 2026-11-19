@@ -277,6 +277,19 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const availableEditorCategories = React.useMemo(() => {
+    const set = new Set<string>(CATEGORY_OPTIONS);
+    posts.forEach((p) => {
+      parseCategories(p.category).forEach((cat) => set.add(cat));
+    });
+    return Array.from(set);
+  }, [posts]);
+
+  const selectedEditorCategories = React.useMemo(
+    () => parseCategories(formState.category),
+    [formState.category],
+  );
+
   if (!isOpen) return null;
 
   const activeSpreadsheetId = sheetMeta?.spreadsheetId || publicSheetId;
@@ -452,19 +465,6 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
           selectedSlugs.has(p.slug) && (!skipDuplicates || !isDuplicatePost(p)),
       )
     : [];
-
-  const availableEditorCategories = React.useMemo(() => {
-    const set = new Set<string>(CATEGORY_OPTIONS);
-    posts.forEach((p) => {
-      parseCategories(p.category).forEach((cat) => set.add(cat));
-    });
-    return Array.from(set);
-  }, [posts]);
-
-  const selectedEditorCategories = React.useMemo(
-    () => parseCategories(formState.category),
-    [formState.category],
-  );
 
   const toggleEditorCategory = (cat: string) => {
     const current = parseCategories(formState.category);
