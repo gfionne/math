@@ -27,7 +27,7 @@ import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
-import {groupPostsByTopic} from './utils/postFormatting';
+import {getCategoryAccent, groupPostsByTopic} from './utils/postFormatting';
 import {
   DEFAULT_PUBLIC_SHEET_ID,
   DEFAULT_PUBLIC_SHEET_TAB,
@@ -108,6 +108,7 @@ export default function App() {
 
   // Modals & Drawers
   const [activePost, setActivePost] = useState<JournalPost | null>(null);
+  const [spotlightImgFailed, setSpotlightImgFailed] = useState(false);
   const [immersiveSwipe, setImmersiveSwipe] = useState<{
     isOpen: boolean;
     topicIndex: number;
@@ -380,15 +381,14 @@ export default function App() {
       });
   }, [posts, includeDrafts, selectedYear, selectedCategory, searchQuery]);
 
-  const leadPost = filteredPosts[0] || null;
-  const remainingPosts =
-    viewMode === 'grid' &&
-    selectedYear === '全部年度' &&
-    selectedCategory === '全部分類' &&
-    !searchQuery.trim() &&
-    leadPost
-      ? filteredPosts.slice(1)
-      : filteredPosts;
+  const featuredSpotlightPost = useMemo(() => {
+    return (
+      posts.find((p) => p.status !== 'Draft' && p.isFeatured) ||
+      posts.find((p) => p.status !== 'Draft') ||
+      posts[0] ||
+      null
+    );
+  }, [posts]);
 
   const embedCount = useMemo(
     () => posts.filter((p) => Boolean(p.embedUrl)).length,
@@ -1152,134 +1152,188 @@ export default function App() {
       )}
 
       <main id="top" className="flex-1">
-        {/* Editorial Hero / Lead Featured Story */}
+        {/* Editorial Masthead + Prominent First-Screen Search + Compact Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
-          <div className="max-w-7xl mx-auto px-6 py-10 lg:py-14">
-            <div className="mb-8 flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-8 border-b border-stone-200">
-              <div className="space-y-3 max-w-2xl">
-                <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500">
-                  {siteSettings.siteSubtitle}
-                </p>
-                <h1 className="font-editorial text-3xl sm:text-5xl font-semibold text-stone-950 leading-[1.15] text-balance">
-                  {siteSettings.heroHeading}
-                </h1>
-                <p className="text-base text-stone-600 leading-relaxed">
-                  {siteSettings.heroDescription}
-                </p>
+          <div className="max-w-7xl mx-auto px-6 py-8 lg:py-10">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+              {/* Left Column: Brand Masthead & Prominent First-Screen Search */}
+              <div className="lg:col-span-7 flex flex-col justify-between gap-6">
+                <div className="space-y-3">
+                  <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500">
+                    {siteSettings.siteSubtitle}
+                  </p>
+                  <h1 className="font-editorial text-3xl sm:text-4xl lg:text-[42px] font-semibold text-stone-950 leading-[1.18] text-balance">
+                    {siteSettings.heroHeading}
+                  </h1>
+                  <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl">
+                    {siteSettings.heroDescription}
+                  </p>
+                </div>
+
+                {/* First-Screen Unified Search & Academic Year Bar */}
+                <div className="space-y-2.5">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      scrollToSection('journal-catalog');
+                    }}
+                    className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all"
+                  >
+                    <div className="relative flex-1 min-w-0">
+                      <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder={`搜尋 ${posts.length} 篇教案、學力檢測、會議紀錄或作者...`}
+                        className="w-full h-10 pl-9 pr-3 text-sm text-stone-900 placeholder:text-stone-400 bg-transparent focus:outline-none"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:border-l sm:border-stone-200 sm:pl-2 shrink-0">
+                      <select
+                        id="academic-year-select"
+                        aria-label="篩選學年度"
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        className="h-10 pl-2.5 pr-7 text-xs font-medium text-stone-800 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
+                      >
+                        {availableYears.map((yr) => (
+                          <option key={yr} value={yr}>
+                            {yr} ({yearCounts.get(yr) ?? 0})
+                          </option>
+                        ))}
+                      </select>
+
+                      <button
+                        type="submit"
+                        className="h-10 px-4 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors whitespace-nowrap shrink-0"
+                      >
+                        搜尋文章
+                      </button>
+                    </div>
+                  </form>
+
+                  {(searchQuery.trim() !== '' ||
+                    selectedYear !== '全部年度' ||
+                    selectedCategory !== '全部分類') && (
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600 px-1">
+                      <span className="font-mono-tabular font-medium text-stone-800">
+                        符合條件：{filteredPosts.length} 篇
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => scrollToSection('journal-catalog')}
+                        className="font-medium text-[#1E3A8A] hover:underline"
+                      >
+                        查看篩選結果 ↓
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery('');
+                          setSelectedYear('全部年度');
+                          setSelectedCategory('全部分類');
+                        }}
+                        className="text-stone-500 hover:text-stone-900 hover:underline"
+                      >
+                        清除條件
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
+              {/* Right Column: Compact Featured Spotlight (Doesn't Push Search Down!) */}
+              {featuredSpotlightPost ? (
+                <div className="lg:col-span-5 flex">
+                  <article className="w-full bg-[#FBF9F5] border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between">
+                    <div
+                      className={`h-1 w-full shrink-0 ${
+                        getCategoryAccent(featuredSpotlightPost.category).barClass
+                      }`}
+                    />
+                    {featuredSpotlightPost.coverImageUrl && !spotlightImgFailed && (
+                      <button
+                        type="button"
+                        onClick={() => setActivePost(featuredSpotlightPost)}
+                        className="h-36 w-full bg-stone-100 border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
+                      >
+                        <img
+                          src={featuredSpotlightPost.coverImageUrl}
+                          alt={featuredSpotlightPost.title}
+                          referrerPolicy="no-referrer"
+                          onError={() => setSpotlightImgFailed(true)}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                        />
+                      </button>
+                    )}
 
+                    <div className="p-5 flex-1 flex flex-col justify-between gap-3">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="font-bold text-[#1E3A8A]">
+                            本期焦點
+                            {featuredSpotlightPost.category
+                              ? ` · ${featuredSpotlightPost.category}`
+                              : ''}
+                          </span>
+                          <span className="font-mono-tabular text-stone-500">
+                            {featuredSpotlightPost.academicYear}
+                          </span>
+                        </div>
+
+                        <h2 className="font-editorial text-lg sm:text-xl font-bold text-stone-950 leading-snug line-clamp-2">
+                          <button
+                            type="button"
+                            onClick={() => setActivePost(featuredSpotlightPost)}
+                            className="text-left hover:text-[#1E3A8A] transition-colors"
+                          >
+                            {featuredSpotlightPost.title}
+                          </button>
+                        </h2>
+
+                        <p className="text-xs sm:text-sm text-stone-600 leading-relaxed line-clamp-2">
+                          {featuredSpotlightPost.summary}
+                        </p>
+                      </div>
+
+                      <div className="pt-3 border-t border-stone-200/80 flex items-center justify-between gap-3 text-xs">
+                        <span className="text-stone-500 truncate">
+                          {featuredSpotlightPost.author}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActivePost(featuredSpotlightPost)}
+                          className="font-semibold text-[#1E3A8A] hover:underline inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                        >
+                          <span>閱讀全文</span>
+                          <ArrowUpRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              ) : null}
             </div>
 
-            {/* Lead Story Split (Tier 1 Editorial Salience) */}
-            {leadPost ? (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
-                <div className="lg:col-span-7">
-                  <button
-                    type="button"
-                    onClick={() => setActivePost(leadPost)}
-                    className="block w-full h-full min-h-[260px] lg:min-h-[360px] rounded-xl overflow-hidden border border-stone-200 bg-[#F7F4EE] text-left group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3A8A]"
-                  >
-                    {leadPost.coverImageUrl ? (
-                      <img
-                        src={leadPost.coverImageUrl}
-                        alt={leadPost.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                      />
-                    ) : (
-                      <div className="w-full h-full p-8 flex flex-col justify-between">
-                        <span className="text-xs font-mono-tabular text-stone-500">
-                          {leadPost.academicYear} · {leadPost.category}
-                        </span>
-                        <span className="font-editorial text-2xl font-semibold text-stone-900">
-                          {leadPost.title}
-                        </span>
-                      </div>
-                    )}
-                  </button>
-                </div>
-
-                <div className="lg:col-span-5 flex flex-col justify-between py-1 space-y-6">
-                  <div className="space-y-4">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-stone-500">
-                      <span className="font-semibold text-[#1E3A8A]">
-                        本期焦點文章
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono-tabular">
-                        {leadPost.academicYear}
-                      </span>
-                      <span aria-hidden="true">·</span>
-                      <span>{leadPost.category}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="font-mono-tabular">
-                        {leadPost.publishedAt}
-                      </span>
-                    </div>
-
-                    <h2 className="font-editorial text-2xl sm:text-3xl font-semibold text-stone-950 leading-snug text-balance">
-                      <button
-                        type="button"
-                        onClick={() => setActivePost(leadPost)}
-                        className="text-left hover:text-[#1E3A8A] transition-colors"
-                      >
-                        {leadPost.title}
-                      </button>
-                    </h2>
-
-                    <p className="text-sm sm:text-base text-stone-600 leading-relaxed">
-                      {leadPost.summary}
-                    </p>
-                  </div>
-
-                  <div className="pt-5 border-t border-stone-200 flex flex-wrap items-center justify-between gap-4">
-                    <span className="text-xs text-stone-500">
-                      撰稿：{leadPost.author}
-                    </span>
-                    <div className="flex items-center gap-3">
-                      {leadPost.embedUrl && (
-                        <a
-                          href={leadPost.embedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3.5 py-2 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                        >
-                          <span>雲端附件</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setActivePost(leadPost)}
-                        className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                      >
-                        <span>閱讀全文</span>
-                        <ArrowUpRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            {/* 4-Column Operational Utility Strip (Full-Width Below Hero Split) */}
-            <div className="mt-10 pt-8 border-t border-stone-200 grid grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Compact 4-Column Operational Utility Strip */}
+            <div className="mt-7 pt-6 border-t border-stone-200 grid grid-cols-2 lg:grid-cols-4 gap-6">
               <div>
                 <div className="text-xs text-stone-500">收錄期刊與紀錄</div>
-                <div className="font-mono-tabular text-2xl font-semibold text-stone-950 mt-1">
+                <div className="font-mono-tabular text-xl sm:text-2xl font-semibold text-stone-950 mt-0.5">
                   {posts.length} 篇
                 </div>
               </div>
               <div>
                 <div className="text-xs text-stone-500">涵蓋學年度跨距</div>
-                <div className="font-mono-tabular text-2xl font-semibold text-stone-950 mt-1">
+                <div className="font-mono-tabular text-xl sm:text-2xl font-semibold text-stone-950 mt-0.5">
                   {Math.max(1, availableYears.length - 1)} 個學年
                 </div>
               </div>
               <div>
                 <div className="text-xs text-stone-500">雲端附件與表單</div>
-                <div className="font-mono-tabular text-2xl font-semibold text-stone-950 mt-1">
+                <div className="font-mono-tabular text-xl sm:text-2xl font-semibold text-stone-950 mt-0.5">
                   {embedCount} 筆資源
                 </div>
               </div>
@@ -1303,7 +1357,7 @@ export default function App() {
                       </button>
                     )}
                 </div>
-                <div className="text-sm font-semibold text-stone-900 mt-1.5 truncate">
+                <div className="text-sm font-semibold text-stone-900 mt-1 truncate">
                   {user && hasAccessToken
                     ? dataSourceLabel
                     : '雲端即時連線（最新期刊）'}
@@ -1313,106 +1367,19 @@ export default function App() {
           </div>
         </section>
 
-        {/* Journal Catalog & Interactive Filter Workspace */}
-        <section id="journal-catalog" className="max-w-7xl mx-auto px-6 py-10 lg:py-12 space-y-8">
-          {/* Clean 2-Line Editorial Filter & Channel Bar */}
-          <div className="space-y-4">
-            {/* Line 1: Search + Year Select + View Mode Switcher */}
-            <div className="bg-white border border-stone-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0">
-                <div className="relative flex-1 min-w-0 max-w-md">
-                  <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="search"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="搜尋標題、單元、作者或關鍵字..."
-                    className="w-full pl-10 pr-4 py-2 text-sm bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white transition-colors"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <label htmlFor="academic-year-select" className="text-xs font-medium text-stone-500 whitespace-nowrap">
-                    學年度
-                  </label>
-                  <select
-                    id="academic-year-select"
-                    value={selectedYear}
-                    onChange={(e) => setSelectedYear(e.target.value)}
-                    className="py-2 pl-3 pr-8 text-xs font-medium text-stone-800 bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
-                  >
-                    {availableYears.map((yr) => (
-                      <option key={yr} value={yr}>
-                        {yr} ({yearCounts.get(yr) ?? 0})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between lg:justify-end gap-3 shrink-0">
-                {user && hasAccessToken && (
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={includeDrafts}
-                      onChange={(e) => setIncludeDrafts(e.target.checked)}
-                      className="rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
-                    />
-                    <span>顯示草稿</span>
-                  </label>
-                )}
-
-                <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('swipe')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === 'swipe'
-                        ? 'bg-white text-stone-950 shadow-xs'
-                        : 'text-stone-600 hover:text-stone-900'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>主題滑動</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('grid')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === 'grid'
-                        ? 'bg-white text-stone-950 shadow-xs'
-                        : 'text-stone-600 hover:text-stone-900'
-                    }`}
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>卡片排版</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('list')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                      viewMode === 'list'
-                        ? 'bg-white text-stone-950 shadow-xs'
-                        : 'text-stone-600 hover:text-stone-900'
-                    }`}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>目錄清單</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Line 2: Single-Line Horizontal Scrollable Channel Strip (LINE News Style) */}
-            <div className="relative flex items-center border-b border-stone-200">
+        {/* Journal Catalog & Single-Line Channel Bar */}
+        <section id="journal-catalog" className="max-w-7xl mx-auto px-6 py-8 lg:py-10 space-y-6">
+          {/* Unified Channel Tabs + View Mode Switcher Row (No Redundant Middle Search Box) */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2">
+            {/* Horizontal Scrollable Topic Channel Strip */}
+            <div className="flex-1 min-w-0 flex items-center">
               <button
                 type="button"
                 onClick={() =>
                   categoryBarRef.current?.scrollBy({left: -220, behavior: 'smooth'})
                 }
                 aria-label="向左捲動專欄分類"
-                className="hidden sm:flex min-h-[40px] min-w-[36px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
+                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -1429,7 +1396,7 @@ export default function App() {
                       key={cat}
                       type="button"
                       onClick={() => setSelectedCategory(cat)}
-                      className={`px-3.5 py-2.5 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 ${
+                      className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 ${
                         isActive
                           ? 'border-[#1E3A8A] text-[#1E3A8A] font-semibold'
                           : 'border-transparent text-stone-600 hover:text-stone-950 font-medium'
@@ -1454,10 +1421,64 @@ export default function App() {
                   categoryBarRef.current?.scrollBy({left: 220, behavior: 'smooth'})
                 }
                 aria-label="向右捲動專欄分類"
-                className="hidden sm:flex min-h-[40px] min-w-[36px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
+                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
+            </div>
+
+            {/* Right Controls: Draft Toggle + View Mode Switcher */}
+            <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pb-1 lg:pb-0">
+              {user && hasAccessToken && (
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={includeDrafts}
+                    onChange={(e) => setIncludeDrafts(e.target.checked)}
+                    className="rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  />
+                  <span>顯示草稿</span>
+                </label>
+              )}
+
+              <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('swipe')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    viewMode === 'swipe'
+                      ? 'bg-white text-stone-950 shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>主題滑動</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('grid')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    viewMode === 'grid'
+                      ? 'bg-white text-stone-950 shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>卡片排版</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('list')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                    viewMode === 'list'
+                      ? 'bg-white text-stone-950 shadow-xs'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>目錄清單</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1564,15 +1585,13 @@ export default function App() {
             />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {(remainingPosts.length > 0 ? remainingPosts : filteredPosts).map(
-                (post) => (
-                  <ArticleCard
-                    key={post.slug}
-                    post={post}
-                    onSelect={(p) => setActivePost(p)}
-                  />
-                ),
-              )}
+              {filteredPosts.map((post) => (
+                <ArticleCard
+                  key={post.slug}
+                  post={post}
+                  onSelect={(p) => setActivePost(p)}
+                />
+              ))}
             </div>
           ) : (
             /* Chronological Archive Table View */
