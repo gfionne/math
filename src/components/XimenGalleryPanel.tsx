@@ -46,6 +46,121 @@ interface XimenGalleryPanelProps {
 }
 
 const IMAGE_EXTENSIONS_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+const utf8Encoder = new TextEncoder();
+const MAX_FALLBACK_DATA_URL_BYTES = 320_000;
+
+function utf8ByteLength(text: string): number {
+  return utf8Encoder.encode(text).length;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('讀取圖片檔案失敗。'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('無法解析圖片尺寸進行壓縮。'));
+    };
+    img.src = objectUrl;
+  });
+}
+
+/**
+ * Compresses an image file into a Data URL guaranteed to stay under maxBytes (UTF-8),
+ * preserving transparency via PNG/WEBP before falling back to JPEG.
+ */
+async function fileToSafeFallbackDataUrl(
+  file: File,
+  maxBytes = MAX_FALLBACK_DATA_URL_BYTES,
+): Promise<{dataUrl: string; mimeType: string}> {
+  if (file.size <= 220_000) {
+    const directDataUrl = await readFileAsDataUrl(file);
+    if (
+      directDataUrl.startsWith('data:image/') &&
+      utf8ByteLength(directDataUrl) <= maxBytes
+    ) {
+      return {
+        dataUrl: directDataUrl,
+        mimeType: file.type || 'image/png',
+      };
+    }
+  }
+
+  const img = await loadImageFromFile(file);
+  const srcW = img.naturalWidth || img.width || 800;
+  const srcH = img.naturalHeight || img.height || 600;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('瀏覽器無法初始化圖片壓縮畫布。');
+  }
+
+  const renderScaled = (maxDim: number, fillWhite: boolean) => {
+    const scale = Math.min(1, maxDim / Math.max(srcW, srcH));
+    const targetW = Math.max(1, Math.round(srcW * scale));
+    const targetH = Math.max(1, Math.round(srcH * scale));
+    canvas.width = targetW;
+    canvas.height = targetH;
+    ctx.clearRect(0, 0, targetW, targetH);
+    if (fillWhite) {
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, targetW, targetH);
+    }
+    ctx.drawImage(img, 0, 0, targetW, targetH);
+  };
+
+  // 1. Try lossless PNG at progressively smaller dimensions (keeps full alpha)
+  for (const maxDim of [1280, 960, 720, 560, 420]) {
+    renderScaled(maxDim, false);
+    const pngUrl = canvas.toDataURL('image/png');
+    if (pngUrl.startsWith('data:image/png') && utf8ByteLength(pngUrl) <= maxBytes) {
+      return {dataUrl: pngUrl, mimeType: 'image/png'};
+    }
+  }
+
+  // 2. Try WEBP (supports alpha transparency with much smaller file size)
+  for (const maxDim of [1024, 768, 560, 420]) {
+    renderScaled(maxDim, false);
+    for (const quality of [0.85, 0.7, 0.55, 0.4]) {
+      const webpUrl = canvas.toDataURL('image/webp', quality);
+      if (
+        webpUrl.startsWith('data:image/webp') &&
+        utf8ByteLength(webpUrl) <= maxBytes
+      ) {
+        return {dataUrl: webpUrl, mimeType: 'image/webp'};
+      }
+    }
+  }
+
+  // 3. Final fallback: JPEG with white background
+  for (const maxDim of [800, 560, 400, 320]) {
+    renderScaled(maxDim, true);
+    for (const quality of [0.78, 0.6, 0.42]) {
+      const jpegUrl = canvas.toDataURL('image/jpeg', quality);
+      if (
+        jpegUrl.startsWith('data:image/jpeg') &&
+        utf8ByteLength(jpegUrl) <= maxBytes
+      ) {
+        return {dataUrl: jpegUrl, mimeType: 'image/jpeg'};
+      }
+    }
+  }
+
+  throw new Error('圖片檔案過大且無法壓縮至資料庫上限內，請先縮小圖片尺寸後再試。');
+}
 
 function isSupportedImageFile(file: File): boolean {
   if (!file || file.name.startsWith('.')) return false;
@@ -303,6 +418,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
     setGalleryError(null);
     setStatusMessage(null);
     let uploadedCount = 0;
+    let fallbackCount = 0;
     const failedNames: string[] = [];
 
     for (let i = 0; i < imageFiles.length; i++) {
@@ -326,6 +442,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
         let directUrl = '';
         let downloadUrl = '';
         let fileId = '';
+        let resolvedMimeType = file.type || 'image/png';
 
         try {
           if (!token) throw new Error('未取得 Drive 憑證');
@@ -338,16 +455,16 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
           downloadUrl = driveRes.downloadUrl;
           fileId = driveRes.fileId;
         } catch (driveErr) {
-          // Fallback to local Data URL so testing never gets blocked by Drive OAuth/scopes
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-          });
-          directUrl = dataUrl;
-          downloadUrl = dataUrl;
-          fileId = `local_fallback_${Date.now()}`;
+          console.warn(
+            `Drive upload fallback for "${file.name}":`,
+            driveErr,
+          );
+          const compressed = await fileToSafeFallbackDataUrl(file);
+          directUrl = compressed.dataUrl;
+          downloadUrl = compressed.dataUrl;
+          resolvedMimeType = compressed.mimeType;
+          fileId = `local_fallback_${Date.now()}_${i}`;
+          fallbackCount++;
         }
 
         await createXimenGalleryItem({
@@ -357,7 +474,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
           imageUrl: directUrl,
           downloadUrl,
           driveFileId: fileId,
-          mimeType: file.type || 'image/png',
+          mimeType: resolvedMimeType,
           sizeBytes: file.size || 0,
         });
         uploadedCount++;
@@ -378,10 +495,18 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
     }
 
     if (uploadedCount > 0) {
-      const skipNote =
-        skippedCount > 0 ? `（已自動略過 ${skippedCount} 個非圖片檔案）` : '';
+      const notes: string[] = [];
+      if (fallbackCount > 0) {
+        notes.push(
+          `其中 ${fallbackCount} 張已自動最佳化壓縮並存至圖庫資料庫`,
+        );
+      }
+      if (skippedCount > 0) {
+        notes.push(`已自動略過 ${skippedCount} 個非圖片檔案`);
+      }
+      const noteText = notes.length > 0 ? `（${notes.join('；')}）` : '';
       setStatusMessage(
-        `已成功上傳 ${uploadedCount} 張圖片至「百年西門專案圖庫中心」${skipNote}。`,
+        `已成功上傳 ${uploadedCount} 張圖片至「百年西門專案圖庫中心」${noteText}。`,
       );
     }
     if (failedNames.length > 0) {
@@ -399,7 +524,11 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
     setGalleryError(null);
     try {
       const token = getAccessToken();
-      if (item.driveFileId && token) {
+      if (
+        item.driveFileId &&
+        !item.driveFileId.startsWith('local_fallback_') &&
+        token
+      ) {
         await deleteDriveFile(item.driveFileId, token);
       }
       await deleteXimenGalleryItem(item.id);
@@ -429,7 +558,11 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
 
     for (const item of targets) {
       try {
-        if (item.driveFileId && token) {
+        if (
+          item.driveFileId &&
+          !item.driveFileId.startsWith('local_fallback_') &&
+          token
+        ) {
           await deleteDriveFile(item.driveFileId, token);
         }
         await deleteXimenGalleryItem(item.id);
@@ -448,6 +581,17 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
   const handleDownloadItem = async (item: XimenGalleryItem) => {
     setDownloadingId(item.id);
     try {
+      if (item.imageUrl.startsWith('data:')) {
+        const a = document.createElement('a');
+        a.href = item.imageUrl;
+        a.download = item.fileName || `${item.name}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setStatusMessage(`已開始下載「${item.fileName || item.name}」。`);
+        return;
+      }
+
       const response = await fetch(item.imageUrl, {mode: 'cors'});
       if (!response.ok) {
         throw new Error('HTTP error');

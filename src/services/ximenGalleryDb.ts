@@ -111,6 +111,22 @@ export function subscribeXimenGalleryItems(
   );
 }
 
+const textEncoder = new TextEncoder();
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  const trimmed = value.trim();
+  if (textEncoder.encode(trimmed).length <= maxBytes) return trimmed;
+  let result = '';
+  let byteCount = 0;
+  for (const ch of trimmed) {
+    const chBytes = textEncoder.encode(ch).length;
+    if (byteCount + chBytes > maxBytes) break;
+    result += ch;
+    byteCount += chBytes;
+  }
+  return result;
+}
+
 /**
  * Creates a gallery item document in Firestore with strict payload boundaries
  * matching firebase-blueprint.json (XimenGalleryItem) and firestore.rules.
@@ -126,8 +142,8 @@ export async function createXimenGalleryItem(
   const id = generateGalleryDocId();
   const docPath = `${GALLERY_COLLECTION}/${id}`;
 
-  const safeImageUrl = input.imageUrl.trim().slice(0, 2000000);
-  const safeDownloadUrl = input.downloadUrl.trim().slice(0, 2000000);
+  const safeImageUrl = input.imageUrl.trim();
+  const safeDownloadUrl = input.downloadUrl.trim();
   if (
     !(safeImageUrl.startsWith('https://') || safeImageUrl.startsWith('data:image/')) ||
     !(safeDownloadUrl.startsWith('https://') || safeDownloadUrl.startsWith('data:image/'))
@@ -135,25 +151,42 @@ export async function createXimenGalleryItem(
     throw new Error('圖片格式無效，必須為 HTTPS 連結或圖片 Data URL。');
   }
 
+  if (
+    textEncoder.encode(safeImageUrl).length > 900000 ||
+    textEncoder.encode(safeDownloadUrl).length > 900000 ||
+    textEncoder.encode(safeImageUrl).length +
+      textEncoder.encode(safeDownloadUrl).length >
+      950000
+  ) {
+    throw new Error('圖片壓縮後仍超過雲端資料庫單筆 1MB 上限，請縮小圖片解析度或啟用 Google Drive 上傳權限。');
+  }
+
+  const safeName =
+    truncateUtf8(input.name || input.fileName || '未命名圖片', 200) || '未命名圖片';
+  const safeFileName =
+    truncateUtf8(input.fileName || 'image.png', 200) || 'image.png';
+  const safeFolderName = truncateUtf8(input.folderName || '', 120);
+  const safeDriveFileId =
+    truncateUtf8(input.driveFileId || `local_${Date.now()}`, 200) ||
+    `local_${Date.now()}`;
+  const safeMimeType =
+    truncateUtf8(input.mimeType || 'image/png', 100) || 'image/png';
+  const safeUploaderName =
+    truncateUtf8(currentUser.displayName || '領域教師', 100) || '領域教師';
+
   const payload = {
-    name: (input.name.trim() || input.fileName.trim() || '未命名圖片').slice(
-      0,
-      200,
-    ),
-    fileName: (input.fileName.trim() || 'image.png').slice(0, 200),
-    folderName: input.folderName.trim().slice(0, 120),
+    name: safeName,
+    fileName: safeFileName,
+    folderName: safeFolderName,
     imageUrl: safeImageUrl,
     downloadUrl: safeDownloadUrl,
-    driveFileId: input.driveFileId.trim().slice(0, 200),
-    mimeType: (input.mimeType.trim() || 'image/png').slice(0, 100),
+    driveFileId: safeDriveFileId,
+    mimeType: safeMimeType,
     sizeBytes: Math.min(
       52428800,
       Math.max(0, Math.floor(Number(input.sizeBytes) || 0)),
     ),
-    uploadedByName: (currentUser.displayName?.trim() || '領域教師').slice(
-      0,
-      100,
-    ),
+    uploadedByName: safeUploaderName,
     uploadedByUid: currentUser.uid.slice(0, 128),
     createdAt: serverTimestamp(),
   };

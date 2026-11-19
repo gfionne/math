@@ -122,16 +122,16 @@
         },
         "imageUrl": {
           "type": "string",
-          "description": "Direct image preview URL (HTTPS or Base64 Data URL).",
+          "description": "Direct image preview URL (HTTPS or compressed Base64 Data URL).",
           "minLength": 10,
-          "maxLength": 2000000,
+          "maxLength": 900000,
           "pattern": "^(https://|data:image/)"
         },
         "downloadUrl": {
           "type": "string",
-          "description": "Direct download URL for the asset (HTTPS or Base64 Data URL).",
+          "description": "Direct download URL for the asset (HTTPS or compressed Base64 Data URL).",
           "minLength": 10,
-          "maxLength": 2000000,
+          "maxLength": 900000,
           "pattern": "^(https://|data:image/)"
         },
         "driveFileId": {

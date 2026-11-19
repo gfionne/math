@@ -96,6 +96,62 @@ async function getOrCreatePesMathFolder(accessToken: string): Promise<string> {
   return folderId;
 }
 
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function uploadResumableToFolder(
+  file: File,
+  accessToken: string,
+  metadata: Record<string, unknown>,
+): Promise<{id: string; name?: string; webViewLink?: string}> {
+  const mimeType = file.type || 'image/png';
+  const initRes = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,webViewLink',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': mimeType,
+        'X-Upload-Content-Length': String(file.size || 0),
+      },
+      body: JSON.stringify(metadata),
+    },
+  );
+
+  if (!initRes.ok) {
+    const errorJson = await initRes.json().catch(() => ({}));
+    throw new Error(
+      errorJson?.error?.message ||
+        `Google Drive 建立上傳工作階段失敗 (HTTP ${initRes.status})。`,
+    );
+  }
+
+  const uploadUrl = initRes.headers.get('Location');
+  if (!uploadUrl) {
+    throw new Error('Google Drive 未回傳 Resumable Upload 上傳位置。');
+  }
+
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': mimeType,
+    },
+    body: file,
+  });
+
+  if (!putRes.ok) {
+    const errorJson = await putRes.json().catch(() => ({}));
+    throw new Error(
+      errorJson?.error?.message ||
+        `Google Drive Resumable 上傳失敗 (HTTP ${putRes.status})。`,
+    );
+  }
+
+  return putRes.json();
+}
+
 async function uploadMultipartToFolder(
   file: File,
   accessToken: string,
@@ -107,7 +163,7 @@ async function uploadMultipartToFolder(
   const cleanName = `${filePrefix}_${Date.now()}_${safeBaseName}`;
   const metadata: Record<string, unknown> = {
     name: cleanName,
-    mimeType: file.type || 'image/jpeg',
+    mimeType: file.type || 'image/png',
     description,
   };
 
@@ -115,46 +171,92 @@ async function uploadMultipartToFolder(
     metadata.parents = [folderId];
   }
 
-  const boundary = `-------PesMathDriveBoundary${Date.now().toString(36)}`;
-  const delimiter = `\r\n--${boundary}\r\n`;
-  const closeDelimiter = `\r\n--${boundary}--`;
+  const attemptUploadOnce = async (): Promise<{
+    id: string;
+    name?: string;
+    webViewLink?: string;
+  }> => {
+    // Files > 3.5MB use resumable upload (multipart API hard-caps at 5MB)
+    if (file.size > 3.5 * 1024 * 1024) {
+      return uploadResumableToFolder(file, accessToken, metadata);
+    }
 
-  const metadataPart =
-    delimiter +
-    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-    JSON.stringify(metadata) +
-    '\r\n';
+    const boundary = `-------PesMathDriveBoundary${Date.now().toString(36)}`;
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelimiter = `\r\n--${boundary}--`;
 
-  const fileHeader =
-    `--${boundary}\r\n` +
-    `Content-Type: ${file.type || 'image/jpeg'}\r\n\r\n`;
+    const metadataPart =
+      delimiter +
+      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+      JSON.stringify(metadata) +
+      '\r\n';
 
-  const multipartBlob = new Blob(
-    [metadataPart, fileHeader, file, closeDelimiter],
-    {type: `multipart/related; boundary=${boundary}`},
-  );
+    const fileHeader =
+      `--${boundary}\r\n` +
+      `Content-Type: ${file.type || 'image/png'}\r\n\r\n`;
 
-  const uploadRes = await fetch(
-    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: multipartBlob,
-    },
-  );
-
-  if (!uploadRes.ok) {
-    const errorJson = await uploadRes.json().catch(() => ({}));
-    throw new Error(
-      errorJson?.error?.message ||
-        `Google Drive 上傳失敗 (HTTP ${uploadRes.status})。請確認已同意 Google Drive 存取權限。`,
+    const multipartBlob = new Blob(
+      [metadataPart, fileHeader, file, closeDelimiter],
+      {type: `multipart/related; boundary=${boundary}`},
     );
+
+    const uploadRes = await fetch(
+      'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: multipartBlob,
+      },
+    );
+
+    if (!uploadRes.ok) {
+      const errorJson = await uploadRes.json().catch(() => ({}));
+      const status = uploadRes.status;
+      if (status === 413 || status === 400) {
+        return uploadResumableToFolder(file, accessToken, metadata);
+      }
+      throw new Error(
+        errorJson?.error?.message ||
+          `Google Drive 上傳失敗 (HTTP ${status})。請確認已同意 Google Drive 存取權限。`,
+      );
+    }
+
+    return uploadRes.json();
+  };
+
+  let fileData: {id: string; name?: string; webViewLink?: string} | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      fileData = await attemptUploadOnce();
+      break;
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : '';
+      const isTransient =
+        msg.includes('429') ||
+        msg.includes('500') ||
+        msg.includes('502') ||
+        msg.includes('503') ||
+        msg.toLowerCase().includes('rate') ||
+        msg.toLowerCase().includes('network') ||
+        msg.toLowerCase().includes('failed to fetch');
+      if (!isTransient || attempt === 2) {
+        throw err;
+      }
+      await sleep(700 * (attempt + 1));
+    }
   }
 
-  const fileData = await uploadRes.json();
-  const fileId = fileData.id as string;
+  if (!fileData?.id) {
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Google Drive 未回傳檔案編號。');
+  }
+
+  const fileId = fileData.id;
 
   try {
     const permRes = await fetch(
