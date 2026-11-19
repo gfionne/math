@@ -9,7 +9,11 @@ import {
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
-import {estimateReadMinutes, getCategoryAccent} from '../utils/postFormatting';
+import {
+  estimateReadMinutes,
+  formatCategoryDisplay,
+  getCategoryAccent,
+} from '../utils/postFormatting';
 
 interface ArticleCardProps {
   post: JournalPost;
@@ -87,7 +91,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
           {/* Unboxed High-Contrast Category & Metadata Row */}
           <div className="flex items-center justify-between gap-2 pb-2 border-b border-stone-100 text-xs">
             <span className={`font-bold tracking-wide truncate ${accent.textClass}`}>
-              {post.category || '綜合專欄'}
+              {formatCategoryDisplay(post.category)}
             </span>
             <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">
               {post.isFeatured && (

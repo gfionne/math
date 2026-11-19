@@ -32,7 +32,12 @@ import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
-import {getCategoryAccent, groupPostsByTopic} from './utils/postFormatting';
+import {
+  formatCategoryDisplay,
+  getCategoryAccent,
+  groupPostsByTopic,
+  parseCategories,
+} from './utils/postFormatting';
 import {
   DEFAULT_PUBLIC_SHEET_ID,
   DEFAULT_PUBLIC_SHEET_TAB,
@@ -369,7 +374,7 @@ export default function App() {
   const availableCategories = useMemo(() => {
     const set = new Set<string>();
     posts.forEach((p) => {
-      if (p.category) set.add(p.category);
+      parseCategories(p.category).forEach((cat) => set.add(cat));
     });
     return ['全部分類', ...Array.from(set)];
   }, [posts]);
@@ -382,7 +387,10 @@ export default function App() {
         if (selectedYear !== '全部年度' && p.academicYear !== selectedYear) {
           return false;
         }
-        if (selectedCategory !== '全部分類' && p.category !== selectedCategory) {
+        if (
+          selectedCategory !== '全部分類' &&
+          !parseCategories(p.category).includes(selectedCategory)
+        ) {
           return false;
         }
         if (q) {
@@ -421,8 +429,8 @@ export default function App() {
   );
 
   const topicGroups = useMemo(
-    () => groupPostsByTopic(filteredPosts),
-    [filteredPosts],
+    () => groupPostsByTopic(filteredPosts, selectedCategory),
+    [filteredPosts, selectedCategory],
   );
 
   const categoryCounts = useMemo(() => {
@@ -432,9 +440,9 @@ export default function App() {
       if (!includeDrafts && p.status === 'Draft') continue;
       if (selectedYear !== '全部年度' && p.academicYear !== selectedYear) continue;
       total++;
-      if (p.category) {
-        counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
-      }
+      parseCategories(p.category).forEach((cat) => {
+        counts.set(cat, (counts.get(cat) ?? 0) + 1);
+      });
     }
     counts.set('全部分類', total);
     return counts;
@@ -1336,7 +1344,7 @@ export default function App() {
                           <span className="font-bold text-[#1E3A8A]">
                             本期焦點
                             {featuredSpotlightPost.category
-                              ? ` · ${featuredSpotlightPost.category}`
+                              ? ` · ${formatCategoryDisplay(featuredSpotlightPost.category)}`
                               : ''}
                           </span>
                           <span className="font-mono-tabular text-stone-500">
@@ -1753,7 +1761,7 @@ export default function App() {
                           {post.publishedAt}
                         </td>
                         <td className="py-3.5 px-4 text-xs text-stone-700 whitespace-nowrap">
-                          {post.category}
+                          {formatCategoryDisplay(post.category)}
                         </td>
                         <td className="py-3.5 px-4">
                           <button

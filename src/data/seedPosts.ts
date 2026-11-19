@@ -26,7 +26,7 @@ export const XIMEN_SCRATCH_POST: JournalPost = {
 
 點擊下方 **「原地展開互動」** 即可直接在本文內操作全部四個分頁，或點擊 **「全螢幕舞台」**／**「獨立分頁開啟」** 提供學生課堂實作使用。
 `,
-  category: 'STEAM',
+  category: 'STEAM, 教學資源',
   academicYear: '114 學年度',
   publishedAt: '2026-11-19',
   author: 'PesMath 跨領域教學團隊',

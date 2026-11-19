@@ -80,7 +80,7 @@ function splitAcademicYearAndCategory(
 
   return {
     academicYear: academicYear || inferAcademicYearFromDate(publishedAt),
-    category: topicCategories[0] || '社群專欄',
+    category: topicCategories.join(', ') || '社群專欄',
   };
 }
 

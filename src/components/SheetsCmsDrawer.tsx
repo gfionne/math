@@ -34,6 +34,11 @@ import {
   XIMEN_SCRATCH_POST,
 } from '../data/seedPosts';
 import {
+  formatCategories,
+  formatCategoryDisplay,
+  parseCategories,
+} from '../utils/postFormatting';
+import {
   fetchRssFeedPosts,
   parseRssOrAtomXml,
   RssImportResult,
@@ -447,6 +452,31 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
           selectedSlugs.has(p.slug) && (!skipDuplicates || !isDuplicatePost(p)),
       )
     : [];
+
+  const availableEditorCategories = React.useMemo(() => {
+    const set = new Set<string>(CATEGORY_OPTIONS);
+    posts.forEach((p) => {
+      parseCategories(p.category).forEach((cat) => set.add(cat));
+    });
+    return Array.from(set);
+  }, [posts]);
+
+  const selectedEditorCategories = React.useMemo(
+    () => parseCategories(formState.category),
+    [formState.category],
+  );
+
+  const toggleEditorCategory = (cat: string) => {
+    const current = parseCategories(formState.category);
+    const exists = current.includes(cat);
+    const next = exists
+      ? current.filter((c) => c !== cat)
+      : [...current, cat];
+    setFormState((prev) => ({
+      ...prev,
+      category: formatCategories(next),
+    }));
+  };
 
   return (
     <div
@@ -1004,24 +1034,45 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     </datalist>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-stone-700 mb-1">
-                      分類
-                    </label>
+                  <div className="sm:col-span-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+                      <label className="block text-xs font-medium text-stone-700">
+                        期刊分類（可複選多個分類，或以逗號「,」分隔自訂）
+                      </label>
+                      {selectedEditorCategories.length > 0 && (
+                        <span className="text-[11px] font-mono-tabular text-[#1E3A8A]">
+                          已選 {selectedEditorCategories.length} 個分類
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {availableEditorCategories.map((cat) => {
+                        const isSelected = selectedEditorCategories.includes(cat);
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => toggleEditorCategory(cat)}
+                            className={`px-2.5 py-1 text-xs font-medium rounded-md border transition-colors whitespace-nowrap ${
+                              isSelected
+                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:border-stone-300'
+                            }`}
+                          >
+                            {isSelected ? `✓ ${cat}` : `+ ${cat}`}
+                          </button>
+                        );
+                      })}
+                    </div>
                     <input
                       type="text"
-                      list="category-list"
                       value={formState.category}
                       onChange={(e) =>
                         setFormState({...formState, category: e.target.value})
                       }
+                      placeholder="例如：STEAM, 教學資源（多個分類請用逗號分隔）"
                       className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
-                    <datalist id="category-list">
-                      {CATEGORY_OPTIONS.map((cat) => (
-                        <option key={cat} value={cat} />
-                      ))}
-                    </datalist>
                   </div>
 
                   <div>
@@ -1264,7 +1315,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         <div className="text-xs text-stone-500 mt-0.5 flex items-center gap-2">
                           <span className="font-mono-tabular">{p.academicYear}</span>
                           <span>·</span>
-                          <span>{p.category}</span>
+                          <span>{formatCategoryDisplay(p.category)}</span>
                           <span>·</span>
                           <span className="font-mono-tabular">{p.publishedAt}</span>
                           {p.rowIndex && (
@@ -1467,7 +1518,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                                 {p.academicYear}
                               </span>
                               <span>·</span>
-                              <span>{p.category}</span>
+                              <span>{formatCategoryDisplay(p.category)}</span>
                               <span>·</span>
                               <span className="font-mono-tabular">
                                 {p.publishedAt}

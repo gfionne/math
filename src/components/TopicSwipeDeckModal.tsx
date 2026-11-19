@@ -15,6 +15,7 @@ import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
 import {
   estimateReadMinutes,
+  formatCategoryDisplay,
   getCategoryAccent,
   TopicGroup,
 } from '../utils/postFormatting';
@@ -521,7 +522,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                         <div className="space-y-3">
                           <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-100 text-xs">
                             <span className={`font-bold tracking-wide ${cardAccent.textClass}`}>
-                              {post.category || currentGroup.topic}
+                              {formatCategoryDisplay(post.category, currentGroup.topic)}
                             </span>
                             <div className="flex items-center gap-2 text-stone-500 font-mono-tabular">
                               <span>{post.academicYear}</span>

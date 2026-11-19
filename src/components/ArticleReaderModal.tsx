@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
+import {formatCategoryDisplay} from '../utils/postFormatting';
 
 interface ArticleReaderModalProps {
   post: JournalPost | null;
@@ -203,7 +204,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                 {post.academicYear}
               </span>
               <span aria-hidden="true">·</span>
-              <span>{post.category}</span>
+              <span>{formatCategoryDisplay(post.category)}</span>
               <span aria-hidden="true">·</span>
               <span className="font-mono-tabular">{post.publishedAt}</span>
               {post.isFeatured && (
@@ -246,7 +247,9 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               </div>
               <div>
                 <dt className="text-stone-400 mb-0.5">期刊分類</dt>
-                <dd className="font-medium text-stone-800">{post.category}</dd>
+                <dd className="font-medium text-stone-800">
+                  {formatCategoryDisplay(post.category)}
+                </dd>
               </div>
               <div>
                 <dt className="text-stone-400 mb-0.5">索引代號</dt>
