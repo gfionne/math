@@ -10,6 +10,7 @@ import {
   BookOpen,
   ExternalLink,
   FileText,
+  GalleryHorizontalEnd,
   Layers,
   LayoutGrid,
   List,
@@ -968,7 +969,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#FBF9F5] text-[#1C1917]">
       {/* Strict 3-Zone Top Navigation Bar */}
       <header className="sticky top-0 z-30 bg-[#FBF9F5]/95 backdrop-blur-sm border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 md:gap-8">
           {/* Zone 1: Single-line Brand Wordmark */}
           <a
             href="#top"
@@ -976,16 +977,35 @@ export default function App() {
               e.preventDefault();
               setSelectedYear('全部年度');
               setSelectedCategory('全部分類');
-              setViewMode('grid');
+              setViewMode('swipe');
               window.scrollTo({top: 0, behavior: 'smooth'});
             }}
-            className="font-editorial text-xl font-bold tracking-tight text-stone-950 whitespace-nowrap shrink-0"
+            className="font-editorial text-lg sm:text-xl font-bold tracking-tight text-stone-950 whitespace-nowrap shrink-0"
           >
             {siteSettings.siteTitle}
           </a>
 
-          {/* Zone 2: 4 Single-line Text Nav Links */}
-          <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-stone-600">
+          {/* Zone 2: 5 Single-line Text Nav Links */}
+          <nav className="flex items-center gap-4 md:gap-7 text-sm font-medium text-stone-600">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedYear('全部年度');
+                setSelectedCategory('全部分類');
+                setSearchQuery('');
+                setViewMode('swipe');
+                setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0});
+              }}
+              title="像 LINE 新聞一樣：左右滑看同主題文章，上下滑切換不同主題"
+              className={`inline-flex items-center gap-1.5 hover:text-[#1E3A8A] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
+                immersiveSwipe.isOpen
+                  ? 'text-[#1E3A8A] font-semibold'
+                  : 'text-stone-800 font-medium'
+              }`}
+            >
+              <GalleryHorizontalEnd className="w-3.5 h-3.5 text-[#1E3A8A]" />
+              <span>滑動快覽</span>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -993,7 +1013,7 @@ export default function App() {
                 setViewMode('grid');
                 scrollToSection('journal-catalog');
               }}
-              className="hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
             >
               期刊專欄
             </button>
@@ -1004,7 +1024,7 @@ export default function App() {
                 setViewMode('grid');
                 scrollToSection('journal-catalog');
               }}
-              className="hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
             >
               教學資源
             </button>
@@ -1015,7 +1035,7 @@ export default function App() {
                 setViewMode('grid');
                 scrollToSection('journal-catalog');
               }}
-              className="hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
             >
               學力檢測
             </button>
@@ -1026,7 +1046,7 @@ export default function App() {
                 setViewMode('list');
                 scrollToSection('journal-catalog');
               }}
-              className="hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
             >
               年度彙編
             </button>
