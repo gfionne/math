@@ -36,6 +36,7 @@ import {
   formatCategoryDisplay,
   getCategoryAccent,
   groupPostsByTopic,
+  normalizeAcademicYear,
   parseCategories,
 } from './utils/postFormatting';
 import {
@@ -366,25 +367,36 @@ export default function App() {
   const availableYears = useMemo(() => {
     const set = new Set<string>();
     posts.forEach((p) => {
-      if (p.academicYear) set.add(p.academicYear);
+      if (!includeDrafts && p.status === 'Draft') return;
+      const norm = normalizeAcademicYear(p.academicYear);
+      if (norm) set.add(norm);
     });
-    return ['全部年度', ...Array.from(set)];
-  }, [posts]);
+    const sorted = Array.from(set).sort((a, b) => {
+      const na = parseInt(a.match(/\d+/)?.[0] || '0', 10);
+      const nb = parseInt(b.match(/\d+/)?.[0] || '0', 10);
+      return nb - na || b.localeCompare(a);
+    });
+    return ['全部年度', ...sorted];
+  }, [posts, includeDrafts]);
 
   const availableCategories = useMemo(() => {
     const set = new Set<string>();
     posts.forEach((p) => {
+      if (!includeDrafts && p.status === 'Draft') return;
       parseCategories(p.category).forEach((cat) => set.add(cat));
     });
     return ['全部分類', ...Array.from(set)];
-  }, [posts]);
+  }, [posts, includeDrafts]);
 
   const filteredPosts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return posts
       .filter((p) => {
         if (!includeDrafts && p.status === 'Draft') return false;
-        if (selectedYear !== '全部年度' && p.academicYear !== selectedYear) {
+        if (
+          selectedYear !== '全部年度' &&
+          normalizeAcademicYear(p.academicYear) !== selectedYear
+        ) {
           return false;
         }
         if (
@@ -438,7 +450,12 @@ export default function App() {
     let total = 0;
     for (const p of posts) {
       if (!includeDrafts && p.status === 'Draft') continue;
-      if (selectedYear !== '全部年度' && p.academicYear !== selectedYear) continue;
+      if (
+        selectedYear !== '全部年度' &&
+        normalizeAcademicYear(p.academicYear) !== selectedYear
+      ) {
+        continue;
+      }
       total++;
       parseCategories(p.category).forEach((cat) => {
         counts.set(cat, (counts.get(cat) ?? 0) + 1);
@@ -454,8 +471,9 @@ export default function App() {
     for (const p of posts) {
       if (!includeDrafts && p.status === 'Draft') continue;
       total++;
-      if (p.academicYear) {
-        counts.set(p.academicYear, (counts.get(p.academicYear) ?? 0) + 1);
+      const norm = normalizeAcademicYear(p.academicYear);
+      if (norm) {
+        counts.set(norm, (counts.get(norm) ?? 0) + 1);
       }
     }
     counts.set('全部年度', total);
@@ -1932,7 +1950,13 @@ export default function App() {
         onSavePost={handleSavePost}
         onDeletePost={handleDeletePost}
         onImportJsonPosts={(imported) => {
-          setPosts(imported);
+          setPosts(
+            imported.map((p) => ({
+              ...p,
+              academicYear:
+                normalizeAcademicYear(p.academicYear) || p.academicYear,
+            })),
+          );
           setDataSourceMode('local-json');
           setSheetMeta(null);
         }}

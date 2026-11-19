@@ -5,6 +5,7 @@ import {
   SpreadsheetMeta,
   SpreadsheetTabInfo,
 } from '../types/journal';
+import {normalizeAcademicYear} from '../utils/postFormatting';
 
 export const SETTINGS_TAB_NAME = 'Settings';
 
@@ -47,7 +48,7 @@ function postToRow(post: JournalPost): string[] {
     post.summary,
     post.content,
     post.category,
-    post.academicYear,
+    normalizeAcademicYear(post.academicYear) || post.academicYear,
     post.publishedAt,
     post.author,
     post.isFeatured ? 'TRUE' : 'FALSE',
@@ -116,7 +117,9 @@ function rowToPost(
     summary: getCell(['summary', '摘要', '簡介']),
     content: getCell(['content', '內文', '本文', 'markdown']),
     category: getCell(['category', '分類', '類別']) || '領域會議',
-    academicYear: getCell(['academicyear', '學年度', '年度']) || '113 學年度',
+    academicYear:
+      normalizeAcademicYear(getCell(['academicyear', '學年度', '年度'])) ||
+      '113 學年度',
     publishedAt: getCell(['publishedat', '發布日期', '日期']) || '2025-01-01',
     author: getCell(['author', '作者', '發布者']) || '數學領域社群',
     isFeatured: parseBool(getCell(['isfeatured', '精選', '置頂'])),

@@ -20,6 +20,34 @@ const CATEGORY_PALETTE: CategoryAccent[] = [
 ];
 
 /**
+ * Normalizes academic year strings (e.g. "114學年度", "114 學年", "１１４", "114  學年度")
+ * into a consistent "114 學年度" format so spacing/style differences don't split counts.
+ */
+export function normalizeAcademicYear(raw?: string): string {
+  if (!raw) return '';
+  const halfWidth = raw
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/\u3000/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!halfWidth) return '';
+
+  const singleMatch = halfWidth.match(/^(\d{2,3})\s*(?:學年度|學年)?$/);
+  if (singleMatch) {
+    return `${singleMatch[1]} 學年度`;
+  }
+
+  const rangeMatch = halfWidth.match(
+    /^(\d{2,3})\s*[-~～—]\s*(\d{2,3})\s*(?:學年度|學年)?$/,
+  );
+  if (rangeMatch) {
+    return `${rangeMatch[1]}-${rangeMatch[2]} 學年度`;
+  }
+
+  return halfWidth.replace(/\s*(學年度|學年)\s*$/, ' 學年度').trim();
+}
+
+/**
  * Splits a post's Category string (e.g. "STEAM, 教學資源" or "STEAM、探究教學")
  * into deduplicated individual category names.
  */

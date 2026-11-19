@@ -1,4 +1,5 @@
 import {JournalPost} from '../types/journal';
+import {normalizeAcademicYear} from '../utils/postFormatting';
 
 export interface RssImportResult {
   feedTitle: string;
@@ -70,16 +71,17 @@ function splitAcademicYearAndCategory(
   for (const raw of terms) {
     const term = raw.trim();
     if (!term) continue;
-    const yearMatch = term.match(/^(\d{2,3})\s*學年度$/);
+    const yearMatch = term.match(/^(\d{2,3})\s*(?:學年度|學年)$/);
     if (yearMatch) {
-      academicYear = `${yearMatch[1]} 學年度`;
+      academicYear = normalizeAcademicYear(term);
     } else {
       topicCategories.push(term);
     }
   }
 
   return {
-    academicYear: academicYear || inferAcademicYearFromDate(publishedAt),
+    academicYear:
+      academicYear || normalizeAcademicYear(inferAcademicYearFromDate(publishedAt)),
     category: topicCategories.join(', ') || '社群專欄',
   };
 }

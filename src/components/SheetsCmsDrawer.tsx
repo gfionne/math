@@ -36,6 +36,7 @@ import {
 import {
   formatCategories,
   formatCategoryDisplay,
+  normalizeAcademicYear,
   parseCategories,
 } from '../utils/postFormatting';
 import {
@@ -399,6 +400,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
         ...formState,
         slug: safeSlug,
         title: formState.title.trim(),
+        academicYear:
+          normalizeAcademicYear(formState.academicYear) ||
+          formState.academicYear.trim(),
       },
       isNewPost,
     );
