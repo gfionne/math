@@ -10,6 +10,7 @@ import {
   BookOpen,
   ExternalLink,
   FileText,
+  Layers,
   LayoutGrid,
   List,
   RefreshCw,
@@ -19,9 +20,11 @@ import {
 import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
-import {GoogleSignInButton} from './components/GoogleSignInButton';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
+import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
+import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
+import {groupPostsByTopic} from './utils/postFormatting';
 import {
   DEFAULT_PUBLIC_SHEET_ID,
   DEFAULT_PUBLIC_SHEET_TAB,
@@ -96,11 +99,20 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>('全部年度');
   const [selectedCategory, setSelectedCategory] = useState<string>('全部分類');
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'swipe' | 'grid' | 'list'>('swipe');
   const [includeDrafts, setIncludeDrafts] = useState(false);
 
   // Modals & Drawers
   const [activePost, setActivePost] = useState<JournalPost | null>(null);
+  const [immersiveSwipe, setImmersiveSwipe] = useState<{
+    isOpen: boolean;
+    topicIndex: number;
+    cardIndex: number;
+  }>({
+    isOpen: false,
+    topicIndex: 0,
+    cardIndex: 0,
+  });
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerInitialTab, setDrawerInitialTab] = useState<DrawerTab>('sheets');
   const [editingPost, setEditingPost] = useState<JournalPost | null>(null);
@@ -377,6 +389,11 @@ export default function App() {
   const embedCount = useMemo(
     () => posts.filter((p) => Boolean(p.embedUrl)).length,
     [posts],
+  );
+
+  const topicGroups = useMemo(
+    () => groupPostsByTopic(filteredPosts),
+    [filteredPosts],
   );
 
   // Auth handlers
@@ -1276,6 +1293,18 @@ export default function App() {
                 <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg">
                   <button
                     type="button"
+                    onClick={() => setViewMode('swipe')}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                      viewMode === 'swipe'
+                        ? 'bg-white text-stone-950 shadow-xs'
+                        : 'text-stone-600 hover:text-stone-900'
+                    }`}
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>主題滑動</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setViewMode('grid')}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                       viewMode === 'grid'
@@ -1406,6 +1435,16 @@ export default function App() {
                 </button>
               </div>
             )
+          ) : viewMode === 'swipe' ? (
+            <TopicSwipeFeed
+              groups={topicGroups}
+              onSelectPost={(p) => setActivePost(p)}
+              onOpenImmersive={(topicIndex, cardIndex) =>
+                setImmersiveSwipe({isOpen: true, topicIndex, cardIndex})
+              }
+              isFilteredToSingleCategory={selectedCategory !== '全部分類'}
+              onResetCategoryFilter={() => setSelectedCategory('全部分類')}
+            />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {(remainingPosts.length > 0 ? remainingPosts : filteredPosts).map(
@@ -1536,6 +1575,19 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* 2D Topic & Card Swipe Reader Deck */}
+      <TopicSwipeDeckModal
+        isOpen={immersiveSwipe.isOpen}
+        isSuspended={Boolean(activePost)}
+        groups={topicGroups}
+        initialTopicIndex={immersiveSwipe.topicIndex}
+        initialCardIndex={immersiveSwipe.cardIndex}
+        onClose={() =>
+          setImmersiveSwipe((prev) => ({...prev, isOpen: false}))
+        }
+        onSelectPost={(p) => setActivePost(p)}
+      />
 
       {/* Article Full-Text Reader Modal */}
       <ArticleReaderModal

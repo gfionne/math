@@ -112,7 +112,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 overflow-y-auto bg-stone-950/50 backdrop-blur-xs flex justify-center p-4 sm:p-6 md:p-10"
+      className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/50 backdrop-blur-xs flex justify-center p-4 sm:p-6 md:p-10"
       role="dialog"
       aria-modal="true"
       aria-labelledby="reader-article-title"
