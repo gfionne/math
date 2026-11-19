@@ -9,6 +9,8 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  Maximize2,
+  MonitorPlay,
   X,
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
@@ -21,6 +23,7 @@ interface ArticleReaderModalProps {
   onClose: () => void;
   onSelectPost: (post: JournalPost) => void;
   onEditPost: (post: JournalPost) => void;
+  onOpenFullEmbed?: (url: string, title: string) => void;
 }
 
 function sanitizeHtml(html: string): string {
@@ -32,19 +35,32 @@ function sanitizeHtml(html: string): string {
 }
 
 function toEmbeddableUrl(url: string): string | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
   try {
-    const parsed = new URL(url);
+    const base =
+      typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
+    const parsed = new URL(trimmed, base);
+    if (
+      (typeof window !== 'undefined' &&
+        parsed.origin === window.location.origin &&
+        /\.html?$/i.test(parsed.pathname)) ||
+      trimmed.startsWith('./') ||
+      trimmed.startsWith('/')
+    ) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
     if (parsed.hostname.includes('drive.google.com') && parsed.pathname.includes('/file/d/')) {
-      return url.replace(/\/view.*$/, '/preview');
+      return trimmed.replace(/\/view.*$/, '/preview');
     }
     if (parsed.hostname.includes('docs.google.com') && parsed.pathname.includes('/forms/')) {
-      if (!url.includes('embedded=true')) {
-        return url.includes('?') ? `${url}&embedded=true` : `${url}?embedded=true`;
+      if (!trimmed.includes('embedded=true')) {
+        return trimmed.includes('?') ? `${trimmed}&embedded=true` : `${trimmed}?embedded=true`;
       }
-      return url;
+      return trimmed;
     }
     if (parsed.pathname.endsWith('/preview')) {
-      return url;
+      return trimmed;
     }
     return null;
   } catch {
@@ -59,9 +75,14 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   onClose,
   onSelectPost,
   onEditPost,
+  onOpenFullEmbed,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showInlineEmbed, setShowInlineEmbed] = useState(false);
+
+  React.useEffect(() => {
+    setShowInlineEmbed(false);
+  }, [post?.slug]);
 
   const renderedHtml = useMemo(() => {
     if (!post) return '';
@@ -260,17 +281,23 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               dangerouslySetInnerHTML={{__html: renderedHtml}}
             />
 
-            {/* Embedded Google Drive / Meet / Forms Attachment */}
+            {/* Embedded Google Drive / Meet / Forms / Interactive HTML Attachment */}
             {post.embedUrl && embedMeta && (
               <section className="max-w-2xl mx-auto mt-10 pt-8 border-t border-stone-200">
                 <h2 className="font-editorial text-lg font-semibold text-stone-900 mb-4">
-                  相關雲端附件與教學資源
+                  {embedMeta.provider === '站內互動網頁'
+                    ? '站內互動學習舞台與教學資源'
+                    : '相關雲端附件與教學資源'}
                 </h2>
                 <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-5 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-start gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
-                        <FileText className="w-5 h-5 text-[#1E3A8A]" />
+                        {embedMeta.provider === '站內互動網頁' ? (
+                          <MonitorPlay className="w-5 h-5 text-[#1E3A8A]" />
+                        ) : (
+                          <FileText className="w-5 h-5 text-[#1E3A8A]" />
+                        )}
                       </div>
                       <div className="min-w-0">
                         <div className="text-xs font-mono-tabular text-stone-500">
@@ -283,7 +310,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       {inlineEmbedUrl && (
                         <button
                           type="button"
@@ -291,16 +318,42 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                           className="px-3.5 py-2 text-xs font-medium text-stone-800 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                         >
                           <Eye className="w-3.5 h-3.5" />
-                          <span>{showInlineEmbed ? '收合預覽' : '內嵌預覽'}</span>
+                          <span>
+                            {showInlineEmbed
+                              ? '收合預覽'
+                              : embedMeta.provider === '站內互動網頁'
+                              ? '原地展開互動'
+                              : '內嵌預覽'}
+                          </span>
                         </button>
                       )}
+                      {embedMeta.provider === '站內互動網頁' &&
+                        onOpenFullEmbed && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenFullEmbed(
+                                post.embedUrl!,
+                                post.embedLabel || post.title,
+                              )
+                            }
+                            className="px-3.5 py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5" />
+                            <span>全螢幕舞台</span>
+                          </button>
+                        )}
                       <a
                         href={post.embedUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                       >
-                        <span>開啟原始連結</span>
+                        <span>
+                          {embedMeta.provider === '站內互動網頁'
+                            ? '獨立分頁開啟'
+                            : '開啟原始連結'}
+                        </span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </div>
@@ -311,7 +364,11 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                       <iframe
                         src={inlineEmbedUrl}
                         title={post.embedLabel || post.title}
-                        className="w-full h-[460px] rounded-lg border border-stone-200 bg-white"
+                        className={`w-full ${
+                          embedMeta.provider === '站內互動網頁'
+                            ? 'h-[560px]'
+                            : 'h-[460px]'
+                        } rounded-lg border border-stone-200 bg-white`}
                         loading="lazy"
                       />
                     </div>

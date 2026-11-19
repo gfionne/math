@@ -4,7 +4,40 @@ import analyticsCoverImg from '../assets/images/cover_math_analytics_17950516558
 import storybookCoverImg from '../assets/images/cover_math_storybook_1795051656136.jpg';
 import {JournalPost} from '../types/journal';
 
+export const XIMEN_SCRATCH_POST: JournalPost = {
+  slug: '114-ximen-scratch-stage-show',
+  title: '百年西門 Scratch 舞台秀互動學習網（四年級跨領域專題）',
+  summary:
+    '結合西門町在地街區踏查與 Scratch 3.0 程式實作，提供互動商圈地圖、標準圖庫匯出、積木接力教學與 401–404 分班命名檢核表。',
+  content: `## 一、跨領域專題介紹
+
+本互動學習網專為四年級（401–404 班）跨領域資訊與在地文史課程設計，引導學生透過 Scratch 3.0 打造「百年西門商圈導覽舞台秀」，將街區座標、角色造型切換與廣播事件整合成完整的數位策展作品。
+
+## 二、四大互動學習模組
+
+| 模組分頁 | 核心學習任務 | 課堂操作重點 |
+| :--- | :--- | :--- |
+| **互動商圈地圖** | 認識 8 大西門特色街區與舞台座標 | 點擊街區體驗 8 句對話輪播，支援教師模式拖曳微調 \`x / y\` 座標 |
+| **專案圖庫中心** | 匯出符合 Scratch 畫布比例的圖檔 | 一鍵下載 \`480×360\` 標準尺寸素材並套用至模擬舞台測試 |
+| **Scratch 積木教學** | 掌握廣播事件與三動作接力邏輯 | 依「待機 → 說話 → 待機 → 招牌」與「背景1 → 背景2」流程編寫腳本 |
+| **命名規範與檢核** | 統一繳交檔名與完成 9 項自我檢核 | 選取班級、組別與負責街區，自動產生標準命名並逐項檢核 |
+
+## 三、操作方式
+
+點擊下方 **「原地展開互動」** 即可直接在本文內操作全部四個分頁，或點擊 **「全螢幕舞台」**／**「獨立分頁開啟」** 提供學生課堂實作使用。
+`,
+  category: 'STEAM',
+  academicYear: '114 學年度',
+  publishedAt: '2026-11-19',
+  author: 'PesMath 跨領域教學團隊',
+  isFeatured: true,
+  status: 'Published',
+  embedUrl: './ximen-scratch.html',
+  embedLabel: '百年西門 Scratch 舞台秀互動學習網（地圖・圖庫・積木・檢核）',
+};
+
 export const SEED_POSTS: JournalPost[] = [
+  XIMEN_SCRATCH_POST,
   {
     slug: '113-curriculum-inquiry-workshop',
     title: '113 學年度數學素養導向備課：立體幾何與摺紙探究實作',
@@ -224,6 +257,7 @@ export const SEED_POSTS: JournalPost[] = [
 ];
 
 export const CATEGORY_OPTIONS = [
+  'STEAM',
   '領域會議',
   '趣味數學',
   '桌遊與繪本',
@@ -234,6 +268,7 @@ export const CATEGORY_OPTIONS = [
 ];
 
 export const ACADEMIC_YEAR_OPTIONS = [
+  '114 學年度',
   '113 學年度',
   '112 學年度',
   '111 學年度',

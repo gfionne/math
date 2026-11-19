@@ -566,12 +566,37 @@ export function exportPostsAsCsv(posts: JournalPost[]): string {
 }
 
 export function inferEmbedProvider(url?: string): {
-  provider: 'Google Drive' | 'Google Meet' | 'Google Forms' | 'Google Sheets' | 'External';
+  provider:
+    | 'Google Drive'
+    | 'Google Meet'
+    | 'Google Forms'
+    | 'Google Sheets'
+    | '站內互動網頁'
+    | 'External';
   domain: string;
 } {
   if (!url) return {provider: 'External', domain: ''};
+  const trimmed = url.trim();
+  if (
+    trimmed.startsWith('./') ||
+    trimmed.startsWith('/') ||
+    /\.html?(?:[?#].*)?$/i.test(trimmed)
+  ) {
+    try {
+      const base =
+        typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
+      const parsed = new URL(trimmed, base);
+      const isSameOrigin =
+        typeof window === 'undefined' || parsed.origin === window.location.origin;
+      if (isSameOrigin || trimmed.startsWith('./') || trimmed.startsWith('/')) {
+        return {provider: '站內互動網頁', domain: 'Interactive HTML5'};
+      }
+    } catch {
+      return {provider: '站內互動網頁', domain: 'Interactive HTML5'};
+    }
+  }
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(trimmed);
     const host = parsed.hostname;
     if (host.includes('drive.google.com')) {
       return {provider: 'Google Drive', domain: host};

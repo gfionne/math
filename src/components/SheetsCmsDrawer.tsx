@@ -28,7 +28,11 @@ import {
 import {getAccessToken} from '../services/googleAuth';
 import {uploadImageToGoogleDrive} from '../services/driveUpload';
 import {RichFormatEditor} from './RichFormatEditor';
-import {ACADEMIC_YEAR_OPTIONS, CATEGORY_OPTIONS} from '../data/seedPosts';
+import {
+  ACADEMIC_YEAR_OPTIONS,
+  CATEGORY_OPTIONS,
+  XIMEN_SCRATCH_POST,
+} from '../data/seedPosts';
 import {
   fetchRssFeedPosts,
   parseRssOrAtomXml,
@@ -888,22 +892,35 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                 onSubmit={handleSubmitForm}
                 className="bg-white border border-stone-200 rounded-xl p-6 space-y-4"
               >
-                <div className="flex items-center justify-between gap-4 border-b border-stone-100 pb-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-3">
                   <h3 className="font-editorial text-base font-semibold text-stone-900">
                     {isNewPost ? '發布新期刊文章' : `編輯文章：${formState.title}`}
                   </h3>
-                  {!isNewPost && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFormState(EMPTY_FORM);
-                        setIsNewPost(true);
-                      }}
-                      className="text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap shrink-0"
-                    >
-                      + 切換為新增文章
-                    </button>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {isNewPost && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormState({...EMPTY_FORM, ...XIMEN_SCRATCH_POST});
+                        }}
+                        className="px-2.5 py-1 text-xs font-medium text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-md hover:border-[#1E3A8A]/40 transition-colors whitespace-nowrap shrink-0"
+                      >
+                        帶入「百年西門 Scratch」專題範本
+                      </button>
+                    )}
+                    {!isNewPost && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormState(EMPTY_FORM);
+                          setIsNewPost(true);
+                        }}
+                        className="text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap shrink-0"
+                      >
+                        + 切換為新增文章
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1130,16 +1147,33 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-medium text-stone-700 mb-1">
-                      嵌入資源連結（Google Drive / Meet / Forms）
-                    </label>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <label className="block text-xs font-medium text-stone-700">
+                        嵌入資源連結（Drive / Forms / 站內 HTML）
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFormState((prev) => ({
+                            ...prev,
+                            embedUrl: './ximen-scratch.html',
+                            embedLabel:
+                              prev.embedLabel ||
+                              '百年西門 Scratch 舞台秀互動學習網',
+                          }))
+                        }
+                        className="text-[11px] font-medium text-[#1E3A8A] hover:underline whitespace-nowrap shrink-0"
+                      >
+                        填入西門 Scratch 學習網
+                      </button>
+                    </div>
                     <input
-                      type="url"
+                      type="text"
                       value={formState.embedUrl || ''}
                       onChange={(e) =>
                         setFormState({...formState, embedUrl: e.target.value})
                       }
-                      placeholder="https://drive.google.com/..."
+                      placeholder="https://drive.google.com/... 或 ./ximen-scratch.html"
                       className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>

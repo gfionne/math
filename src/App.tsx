@@ -16,6 +16,7 @@ import {
   Layers,
   LayoutGrid,
   List,
+  MonitorPlay,
   RefreshCw,
   Search,
   Sheet,
@@ -23,6 +24,10 @@ import {
 import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
+import {
+  InteractiveEmbedModal,
+  XimenScratchTab,
+} from './components/InteractiveEmbedModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
@@ -118,12 +123,32 @@ export default function App() {
     topicIndex: 0,
     cardIndex: 0,
   });
+  const [interactiveStage, setInteractiveStage] = useState<{
+    isOpen: boolean;
+    url: string;
+    title: string;
+    initialTab: XimenScratchTab;
+  }>({
+    isOpen: false,
+    url: './ximen-scratch.html',
+    title: '百年西門 Scratch 舞台秀互動學習網',
+    initialTab: 'map',
+  });
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerInitialTab, setDrawerInitialTab] = useState<DrawerTab>('sheets');
   const [editingPost, setEditingPost] = useState<JournalPost | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmActionState | null>(
     null,
   );
+
+  const openXimenStage = useCallback((tab: XimenScratchTab = 'map') => {
+    setInteractiveStage({
+      isOpen: true,
+      url: './ximen-scratch.html',
+      title: '百年西門 Scratch 舞台秀互動學習網',
+      initialTab: tab,
+    });
+  }, []);
 
   // Initialize Firebase Auth listener
   useEffect(() => {
@@ -1073,14 +1098,14 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setSelectedCategory('全部分類');
-                setViewMode('list');
-                scrollToSection('journal-catalog');
-              }}
-              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              onClick={() => openXimenStage('map')}
+              className={`hidden md:inline-block hover:text-[#1E3A8A] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
+                interactiveStage.isOpen
+                  ? 'text-[#1E3A8A] font-semibold'
+                  : ''
+              }`}
             >
-              年度彙編
+              互動專題
             </button>
           </nav>
 
@@ -1399,6 +1424,75 @@ export default function App() {
                     : '雲端即時連線（最新期刊）'}
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Integrated Interactive Topic Showcase Strip */}
+        <section
+          aria-label="跨域互動專題展示"
+          className="border-b border-stone-200 bg-[#F7F4EE]"
+        >
+          <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                <span className="font-semibold text-[#1E3A8A]">
+                  跨領域互動學習專題
+                </span>
+                <span aria-hidden="true" className="text-stone-400">
+                  ·
+                </span>
+                <span className="font-mono-tabular text-stone-600">
+                  401–404 年段實作資源
+                </span>
+              </div>
+              <h2 className="font-editorial text-lg sm:text-xl font-bold text-stone-950">
+                百年西門 Scratch 舞台秀互動學習網
+              </h2>
+              <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                提供西門町互動商圈地圖座標微調、標準圖庫匯出、Scratch 3.0 積木步驟與分班命名檢核表。
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    {id: 'map', label: '互動地圖'},
+                    {id: 'gallery', label: '專案圖庫'},
+                    {id: 'blocks', label: '積木教學'},
+                    {id: 'naming', label: '命名檢核'},
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => openXimenStage(tab.id)}
+                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:border-[#1E3A8A] hover:text-[#1E3A8A] transition-colors whitespace-nowrap shrink-0"
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => openXimenStage('map')}
+                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <MonitorPlay className="w-3.5 h-3.5" />
+                <span>開啟互動學習網</span>
+              </button>
+
+              <a
+                href="./ximen-scratch.html"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+              >
+                <span>獨立分頁</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
         </section>
@@ -1751,7 +1845,7 @@ export default function App() {
       {/* 2D Topic & Card Swipe Reader Deck */}
       <TopicSwipeDeckModal
         isOpen={immersiveSwipe.isOpen}
-        isSuspended={Boolean(activePost)}
+        isSuspended={Boolean(activePost) || interactiveStage.isOpen}
         groups={topicGroups}
         initialTopicIndex={immersiveSwipe.topicIndex}
         initialCardIndex={immersiveSwipe.cardIndex}
@@ -1777,6 +1871,26 @@ export default function App() {
           setActivePost(null);
           openDrawer('editor', p);
         }}
+        onOpenFullEmbed={(url, title) => {
+          setActivePost(null);
+          setInteractiveStage({
+            isOpen: true,
+            url,
+            title,
+            initialTab: 'map',
+          });
+        }}
+      />
+
+      {/* Full-Viewport Interactive HTML Stage Modal */}
+      <InteractiveEmbedModal
+        isOpen={interactiveStage.isOpen}
+        url={interactiveStage.url}
+        title={interactiveStage.title}
+        initialTab={interactiveStage.initialTab}
+        onClose={() =>
+          setInteractiveStage((prev) => ({...prev, isOpen: false}))
+        }
       />
 
       {/* Google Sheets CMS & Architecture Drawer */}

@@ -1,5 +1,12 @@
 import React, {useState} from 'react';
-import {ArrowUpRight, ExternalLink, FileText, Video, Table2} from 'lucide-react';
+import {
+  ArrowUpRight,
+  ExternalLink,
+  FileText,
+  MonitorPlay,
+  Table2,
+  Video,
+} from 'lucide-react';
 import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
 import {estimateReadMinutes, getCategoryAccent} from '../utils/postFormatting';
@@ -18,6 +25,9 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
 
   const renderEmbedIcon = () => {
     if (!embedMeta) return <FileText className="w-4 h-4 text-[#1E3A8A]" />;
+    if (embedMeta.provider === '站內互動網頁') {
+      return <MonitorPlay className="w-4 h-4 text-[#1E3A8A]" />;
+    }
     if (embedMeta.provider === 'Google Meet') {
       return <Video className="w-4 h-4 text-[#1E3A8A]" />;
     }
