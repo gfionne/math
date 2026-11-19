@@ -3,7 +3,6 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpRight,
-  BookOpen,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -14,7 +13,11 @@ import {
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
-import {estimateReadMinutes, TopicGroup} from '../utils/postFormatting';
+import {
+  estimateReadMinutes,
+  getCategoryAccent,
+  TopicGroup,
+} from '../utils/postFormatting';
 
 interface TopicSwipeDeckModalProps {
   isOpen: boolean;
@@ -97,7 +100,6 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     [groups.length, safeTopicIdx, scrollToCard],
   );
 
-  // Initialize indices and lock body scroll when opened
   useEffect(() => {
     if (!isOpen) return;
     const prevOverflow = document.body.style.overflow;
@@ -123,7 +125,6 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     };
   }, [isOpen, initialTopicIndex, initialCardIndex, groups, scrollToCard]);
 
-  // Keyboard navigation
   useEffect(() => {
     if (!isOpen || isSuspended) return;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -179,7 +180,6 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     }
   };
 
-  // Mouse drag-to-swipe horizontally
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
     const rail = railRef.current;
@@ -243,7 +243,6 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     }
   };
 
-  // Vertical swipe (touch) & vertical wheel (desktop) to switch topics
   const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
     if (e.touches.length !== 1) return;
     touchStartRef.current = {
@@ -268,7 +267,10 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (Math.abs(e.deltaY) > 28 && Math.abs(e.deltaY) > Math.abs(e.deltaX) * 1.3) {
+    if (
+      Math.abs(e.deltaY) > 28 &&
+      Math.abs(e.deltaY) > Math.abs(e.deltaX) * 1.3
+    ) {
       const now = Date.now();
       if (now - lastTopicSwitchRef.current < 450) return;
       if (e.deltaY > 0 && safeTopicIdx < groups.length - 1) {
@@ -289,6 +291,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     return <FileText className="w-5 h-5 text-[#1E3A8A]" />;
   };
 
+  const topicAccent = getCategoryAccent(currentGroup.topic);
   const prevTopic = safeTopicIdx > 0 ? groups[safeTopicIdx - 1] : null;
   const nextTopic =
     safeTopicIdx < groups.length - 1 ? groups[safeTopicIdx + 1] : null;
@@ -298,16 +301,18 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="主題卡片快覽模式"
-      className="fixed inset-0 z-40 bg-[#FBF9F5] flex flex-col"
+      className="fixed inset-0 z-40 bg-[#EAE5DB] flex flex-col"
     >
       {/* Top Bar */}
       <header className="h-14 shrink-0 border-b border-stone-200 bg-white px-4 sm:px-6 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="font-mono-tabular text-xs font-semibold text-[#1E3A8A] whitespace-nowrap shrink-0">
+          <span
+            className={`font-mono-tabular text-xs font-bold whitespace-nowrap shrink-0 ${topicAccent.textClass}`}
+          >
             {String(safeTopicIdx + 1).padStart(2, '0')} /{' '}
             {String(groups.length).padStart(2, '0')}
           </span>
-          <h2 className="font-editorial text-base sm:text-lg font-semibold text-stone-950 truncate">
+          <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950 truncate">
             {currentGroup.topic}
           </h2>
           <span className="hidden sm:inline text-xs font-mono-tabular text-stone-500">
@@ -318,41 +323,46 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="min-h-[40px] px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+          className="min-h-[40px] px-3.5 py-1.5 text-xs font-medium text-stone-800 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
         >
           <X className="w-4 h-4" />
           <span>回到首頁</span>
         </button>
       </header>
 
-      {/* Mobile / Tablet Topic Channel Strip (Visible < lg) */}
+      {/* Mobile / Tablet Topic Channel Strip */}
       <div className="lg:hidden shrink-0 bg-white border-b border-stone-200 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-        {groups.map((g, idx) => (
-          <button
-            key={g.topic}
-            type="button"
-            onClick={() => switchTopic(idx)}
-            className={`min-h-[36px] px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
-              idx === safeTopicIdx
-                ? 'bg-[#1E3A8A] text-white'
-                : 'bg-[#F7F4EE] text-stone-700 hover:bg-stone-200/70'
-            }`}
-          >
-            {g.topic} ({g.posts.length})
-          </button>
-        ))}
+        {groups.map((g, idx) => {
+          const isAct = idx === safeTopicIdx;
+          const acc = getCategoryAccent(g.topic);
+          return (
+            <button
+              key={g.topic}
+              type="button"
+              onClick={() => switchTopic(idx)}
+              className={`min-h-[36px] px-3 py-1.5 text-xs rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                isAct
+                  ? `${acc.barClass} text-white font-semibold`
+                  : 'bg-[#F7F4EE] text-stone-700 hover:bg-stone-200/70 font-medium'
+              }`}
+            >
+              {g.topic} ({g.posts.length})
+            </button>
+          );
+        })}
       </div>
 
-      {/* Main 2-Pane Body: Left Desktop Topic Rail + Right Peekable Card Deck */}
+      {/* Main 2-Pane Body */}
       <div className="flex-1 min-h-0 flex">
         {/* Desktop Left Topic Channel Rail */}
         <aside className="hidden lg:flex w-64 shrink-0 border-r border-stone-200 bg-white flex-col justify-between p-4">
           <div className="space-y-1 overflow-y-auto pr-1">
-            <div className="px-3 pb-2 text-xs font-medium text-stone-500">
+            <div className="px-3 pb-2 text-xs font-semibold text-stone-500">
               所有專欄主題（上下切換）
             </div>
             {groups.map((g, idx) => {
               const isActive = idx === safeTopicIdx;
+              const acc = getCategoryAccent(g.topic);
               return (
                 <button
                   key={g.topic}
@@ -360,12 +370,12 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                   onClick={() => switchTopic(idx)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex items-center justify-between gap-2 ${
                     isActive
-                      ? 'bg-[#F7F4EE] text-[#1E3A8A] font-semibold'
-                      : 'text-stone-700 hover:bg-stone-50'
+                      ? `bg-[#F7F4EE] ${acc.textClass} font-bold`
+                      : 'text-stone-700 hover:bg-stone-50 font-medium'
                   }`}
                 >
                   <span className="truncate">
-                    <span className="font-mono-tabular text-xs mr-2 opacity-60">
+                    <span className="font-mono-tabular text-xs mr-2 opacity-65">
                       {String(idx + 1).padStart(2, '0')}
                     </span>
                     {g.topic}
@@ -391,7 +401,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           onWheel={handleWheel}
           className="flex-1 min-w-0 flex flex-col justify-between relative overflow-hidden"
         >
-          {/* Story-Style Progress Bars for Current Topic */}
+          {/* Story-Style Progress Bars */}
           <div className="max-w-2xl w-full mx-auto px-5 pt-4 pb-1 flex items-center gap-1.5 shrink-0">
             {currentPosts.map((p, idx) => (
               <button
@@ -404,17 +414,17 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 <span
                   className={`block h-1.5 w-full rounded-full transition-colors ${
                     idx === safeCardIdx
-                      ? 'bg-[#1E3A8A]'
+                      ? topicAccent.barClass
                       : idx < safeCardIdx
-                      ? 'bg-stone-400'
-                      : 'bg-stone-300 group-hover:bg-stone-400'
+                      ? 'bg-stone-500/60'
+                      : 'bg-stone-400/40 group-hover:bg-stone-400'
                   }`}
                 />
               </button>
             ))}
           </div>
 
-          {/* Peekable Horizontal Card Carousel (Previous & Next Cards Peek In!) */}
+          {/* Peekable Horizontal Card Carousel */}
           <div className="flex-1 min-h-0 relative flex items-center">
             <div
               ref={railRef}
@@ -441,6 +451,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 const readMins = estimateReadMinutes(
                   post.content || post.summary,
                 );
+                const cardAccent = getCategoryAccent(post.category || currentGroup.topic);
 
                 return (
                   <div
@@ -450,20 +461,24 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                         scrollToCard(idx);
                       }
                     }}
-                    className={`w-[86vw] sm:w-[72%] md:w-[68%] max-w-2xl h-full max-h-[620px] snap-center shrink-0 flex items-center transition-all duration-200 ${
+                    className={`w-[86vw] sm:w-[72%] md:w-[68%] max-w-2xl h-full max-h-[600px] snap-center shrink-0 flex items-center transition-all duration-200 ${
                       isActive
                         ? 'opacity-100 scale-100'
                         : 'opacity-55 scale-[0.94] hover:opacity-80 cursor-pointer'
                     }`}
                   >
-                    <article className="w-full h-full bg-white border border-stone-200 rounded-2xl overflow-hidden shadow-sm flex flex-col">
+                    <article className="w-full h-full bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-lg flex flex-col">
+                      {/* Distinct Top Category Accent Bar */}
+                      <div className={`h-1.5 w-full shrink-0 ${cardAccent.barClass}`} />
+
+                      {/* Crisp Image OR Attachment Banner (No Duplicate-Title Blur Box) */}
                       {hasCover ? (
                         <button
                           type="button"
                           onClick={() => {
                             if (isActive) onSelectPost(post);
                           }}
-                          className="h-[34%] min-h-[150px] max-h-[240px] w-full bg-[#EBE6DF] border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
+                          className="h-[36%] min-h-[160px] max-h-[250px] w-full bg-stone-100 border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
                         >
                           <img
                             src={post.coverImageUrl}
@@ -485,68 +500,41 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                           onClick={() => {
                             if (isActive) onSelectPost(post);
                           }}
-                          className="h-[28%] min-h-[130px] max-h-[190px] w-full bg-[#F7F4EE] border-b border-stone-200 p-5 sm:p-6 flex flex-col justify-between text-left shrink-0"
+                          className="w-full bg-[#F7F4EE] border-b border-stone-200 px-6 py-4 flex items-center gap-3.5 text-left shrink-0 hover:bg-[#EFEAE0] transition-colors"
                         >
-                          <div className="flex items-center justify-between text-xs text-stone-500 w-full">
-                            <span className="font-mono-tabular uppercase tracking-wider">
+                          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+                            {renderEmbedIcon(embedMeta.provider)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
                               {embedMeta.provider}
-                            </span>
-                            <ExternalLink className="w-4 h-4 text-stone-400" />
-                          </div>
-                          <div className="bg-white border border-stone-200 rounded-lg px-4 py-3 flex items-center gap-3 w-full">
-                            <div className="w-9 h-9 rounded-md bg-[#FBF9F5] border border-stone-200 flex items-center justify-center shrink-0">
-                              {renderEmbedIcon(embedMeta.provider)}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="text-sm font-medium text-stone-900 truncate">
-                                {post.embedLabel || post.title}
-                              </div>
-                              <div className="text-xs text-stone-500 truncate mt-0.5">
-                                {embedMeta.domain || '雲端嵌入文件'}
-                              </div>
+                            <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
+                              {post.embedLabel || '檢視雲端教案與附件'}
                             </div>
                           </div>
+                          <ExternalLink className="w-4 h-4 text-stone-400 shrink-0" />
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isActive) onSelectPost(post);
-                          }}
-                          className="h-[25%] min-h-[120px] max-h-[175px] w-full bg-[#F7F4EE] border-b border-stone-200 p-5 sm:p-6 flex flex-col justify-between text-left shrink-0"
-                        >
-                          <div className="flex items-center justify-between w-full text-xs font-mono-tabular text-stone-500">
-                            <span>
-                              {post.academicYear} · {currentGroup.topic}
-                            </span>
-                            <BookOpen className="w-4 h-4 text-stone-400" />
-                          </div>
-                          <div className="font-editorial text-lg font-medium text-stone-800 line-clamp-2">
-                            {post.title}
-                          </div>
-                        </button>
-                      )}
+                      ) : null}
 
-                      <div className="p-5 sm:p-7 flex-1 min-h-0 flex flex-col justify-between gap-4 overflow-y-auto">
+                      <div className="p-6 sm:p-7 flex-1 min-h-0 flex flex-col justify-between gap-4 overflow-y-auto">
                         <div className="space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-stone-500">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="font-semibold text-[#1E3A8A]">
-                                {currentGroup.topic}
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <span className="font-mono-tabular">
-                                {post.academicYear}
-                              </span>
+                          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-100 text-xs">
+                            <span className={`font-bold tracking-wide ${cardAccent.textClass}`}>
+                              {post.category || currentGroup.topic}
+                            </span>
+                            <div className="flex items-center gap-2 text-stone-500 font-mono-tabular">
+                              <span>{post.academicYear}</span>
                               <span aria-hidden="true">·</span>
                               <span>{readMins} 分鐘閱讀</span>
+                              <span aria-hidden="true">·</span>
+                              <span>
+                                {idx + 1} / {currentPosts.length}
+                              </span>
                             </div>
-                            <span className="font-mono-tabular text-stone-500">
-                              {idx + 1} / {currentPosts.length}
-                            </span>
                           </div>
 
-                          <h3 className="font-editorial text-xl sm:text-2xl font-semibold text-stone-950 leading-snug text-balance">
+                          <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 leading-snug text-balance">
                             <button
                               type="button"
                               onClick={() => {
@@ -558,15 +546,21 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                             </button>
                           </h3>
 
-                          <p className="text-sm sm:text-base text-stone-600 leading-relaxed line-clamp-4">
+                          <p
+                            className={`text-sm sm:text-base text-stone-700 leading-[1.7] ${
+                              hasCover ? 'line-clamp-4' : 'line-clamp-6'
+                            }`}
+                          >
                             {post.summary ||
                               '點擊「閱讀全文」檢視完整教案內容、數學探究脈絡與社群紀錄。'}
                           </p>
                         </div>
 
-                        <div className="pt-4 border-t border-stone-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                        <div className="pt-4 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
                           <div className="text-xs text-stone-500">
-                            <span>{post.author}</span>
+                            <span className="font-medium text-stone-700">
+                              {post.author}
+                            </span>
                             <span className="mx-1.5" aria-hidden="true">
                               ·
                             </span>
@@ -596,7 +590,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                                   scrollToCard(idx);
                                 }
                               }}
-                              className="min-h-[40px] px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                              className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                             >
                               <span>{isActive ? '閱讀全文' : '看這篇'}</span>
                               <ArrowUpRight className="w-3.5 h-3.5" />
@@ -610,13 +604,12 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
               })}
             </div>
 
-            {/* Desktop Floating Left/Right Arrows */}
             {safeCardIdx > 0 && (
               <button
                 type="button"
                 onClick={() => scrollToCard(safeCardIdx - 1)}
                 aria-label="同主題上一篇"
-                className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/95 border border-stone-200 text-stone-800 shadow-md hover:bg-stone-50 transition-all"
+                className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md hover:bg-stone-50 transition-all"
               >
                 <ChevronLeft className="w-5 h-5" />
               </button>
@@ -626,20 +619,20 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 type="button"
                 onClick={() => scrollToCard(safeCardIdx + 1)}
                 aria-label="同主題下一篇"
-                className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/95 border border-stone-200 text-stone-800 shadow-md hover:bg-stone-50 transition-all"
+                className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md hover:bg-stone-50 transition-all"
               >
                 <ChevronRight className="w-5 h-5" />
               </button>
             )}
           </div>
 
-          {/* Bottom Topic Switcher Dock (Always Clear & Clickable) */}
+          {/* Bottom Topic Switcher Dock */}
           <div className="shrink-0 border-t border-stone-200 bg-white px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
             {prevTopic ? (
               <button
                 type="button"
                 onClick={() => switchTopic(safeTopicIdx - 1)}
-                className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 whitespace-nowrap"
               >
                 <ArrowUp className="w-3.5 h-3.5" />
                 <span>上個主題：{prevTopic.topic}</span>
@@ -656,9 +649,11 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
               <button
                 type="button"
                 onClick={() => switchTopic(safeTopicIdx + 1)}
-                className="min-h-[40px] px-3.5 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="min-h-[40px] px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
               >
-                <span>下個主題：{nextTopic.topic}（{nextTopic.posts.length} 篇）</span>
+                <span>
+                  下個主題：{nextTopic.topic}（{nextTopic.posts.length} 篇）
+                </span>
                 <ArrowDown className="w-3.5 h-3.5" />
               </button>
             ) : (
