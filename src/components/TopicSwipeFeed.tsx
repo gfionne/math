@@ -143,15 +143,15 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
   return (
     <section
       id={`swipe-topic-${topicIndex}`}
-      className="scroll-mt-24 space-y-4 pt-2"
+      className="scroll-mt-24 space-y-4"
     >
       {/* Clean Topic Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-2.5">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
           <span className="font-mono-tabular text-xs font-semibold text-[#1E3A8A]">
             {sectionNumber}
           </span>
-          <h3 className="font-editorial text-xl sm:text-2xl font-semibold text-stone-950 truncate">
+          <h3 className="font-editorial text-xl font-semibold text-stone-950 truncate">
             {group.topic}
           </h3>
           <span className="text-xs font-mono-tabular text-stone-500">
@@ -163,10 +163,10 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           <button
             type="button"
             onClick={() => onOpenImmersive(topicIndex, activeCardIdx)}
-            className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-stone-200 rounded-lg hover:bg-[#F7F4EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            className="min-h-[36px] px-2.5 py-1 text-xs font-medium text-[#1E3A8A] hover:bg-[#F7F4EE] rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
           >
             <GalleryHorizontalEnd className="w-3.5 h-3.5" />
-            <span>大卡片快覽</span>
+            <span>快覽滑動</span>
           </button>
 
           {group.posts.length > 1 && (
@@ -176,7 +176,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
                 onClick={() => scrollToCard(activeCardIdx - 1)}
                 disabled={!canGoPrev}
                 aria-label={`上一篇 ${group.topic}`}
-                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -185,7 +185,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
                 onClick={() => scrollToCard(activeCardIdx + 1)}
                 disabled={!canGoNext}
                 aria-label={`下一篇 ${group.topic}`}
-                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-md border border-stone-200 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -195,7 +195,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
       </div>
 
       {/* Horizontal Card Rail with Peek & Mouse Drag */}
-      <div className="relative group/rail">
+      <div className="relative">
         <div
           ref={railRef}
           onScroll={handleScroll}
@@ -204,7 +204,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           onPointerUp={handlePointerUpOrCancel}
           onPointerCancel={handlePointerUpOrCancel}
           onClickCapture={handleClickCapture}
-          className={`flex gap-5 overflow-x-auto no-scrollbar pb-2 -mx-2 px-2 select-none ${
+          className={`flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar pb-2 -mx-2 px-2 select-none ${
             isDragging
               ? 'cursor-grabbing'
               : 'snap-x snap-mandatory scroll-smooth cursor-grab'
@@ -213,7 +213,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           {group.posts.map((post) => (
             <div
               key={post.slug}
-              className="w-[82vw] sm:w-[345px] lg:w-[375px] snap-start shrink-0 flex"
+              className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex"
             >
               <div className="w-full flex flex-col">
                 <ArticleCard post={post} onSelect={onSelectPost} />
@@ -222,15 +222,14 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           ))}
         </div>
 
-        {/* Subtle Edge Arrow Affordance on Hover when More Cards Exist */}
         {canGoNext && (
           <button
             type="button"
             onClick={() => scrollToCard(activeCardIdx + 1)}
             aria-label="往左滑動下一篇"
-            className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/95 border border-stone-200 text-stone-800 shadow-md opacity-85 hover:opacity-100 hover:scale-105 transition-all"
+            className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-white/95 border border-stone-200 text-stone-800 shadow-md opacity-85 hover:opacity-100 hover:scale-105 transition-all"
           >
-            <ChevronRight className="w-5 h-5" />
+            <ChevronRight className="w-4 h-4" />
           </button>
         )}
         {canGoPrev && (
@@ -238,29 +237,29 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
             type="button"
             onClick={() => scrollToCard(activeCardIdx - 1)}
             aria-label="往右滑動上一篇"
-            className="hidden md:flex absolute left-2 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white/95 border border-stone-200 text-stone-800 shadow-md opacity-85 hover:opacity-100 hover:scale-105 transition-all"
+            className="hidden md:flex absolute left-2 top-1/2 -translate-y-1/2 min-h-[40px] min-w-[40px] items-center justify-center rounded-full bg-white/95 border border-stone-200 text-stone-800 shadow-md opacity-85 hover:opacity-100 hover:scale-105 transition-all"
           >
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-4 h-4" />
           </button>
         )}
       </div>
 
       {/* Clickable Progress Segments */}
       {group.posts.length > 1 && (
-        <div className="flex items-center gap-1.5 pt-0.5 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
           {group.posts.map((post, idx) => (
             <button
               key={post.slug}
               type="button"
               onClick={() => scrollToCard(idx)}
               aria-label={`切換至第 ${idx + 1} 篇：${post.title}`}
-              className="py-1.5 px-0.5 flex items-center focus-visible:outline-none"
+              className="py-1 px-0.5 flex items-center focus-visible:outline-none"
             >
               <span
                 className={`block h-1.5 rounded-full transition-all duration-200 ${
                   idx === activeCardIdx
-                    ? 'w-8 bg-[#1E3A8A]'
-                    : 'w-2.5 bg-stone-300 hover:bg-stone-400'
+                    ? 'w-7 bg-[#1E3A8A]'
+                    : 'w-2 bg-stone-300 hover:bg-stone-400'
                 }`}
               />
             </button>
@@ -278,51 +277,22 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
   isFilteredToSingleCategory,
   onResetCategoryFilter,
 }) => {
-  const jumpToTopic = (topicIndex: number) => {
-    const el = document.getElementById(`swipe-topic-${topicIndex}`);
-    if (el) {
-      el.scrollIntoView({behavior: 'smooth', block: 'start'});
-    }
-  };
-
   return (
-    <div className="space-y-8">
-      {/* Clean Topic Quick-Jump Bar */}
-      <div className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {groups.map((g, idx) => (
-            <button
-              key={g.topic}
-              type="button"
-              onClick={() => jumpToTopic(idx)}
-              className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] hover:bg-stone-200/70 rounded-lg transition-colors whitespace-nowrap shrink-0"
-            >
-              {g.topic}（{g.posts.length}）
-            </button>
-          ))}
-          {isFilteredToSingleCategory && (
-            <button
-              type="button"
-              onClick={onResetCategoryFilter}
-              className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap shrink-0"
-            >
-              顯示全部主題
-            </button>
-          )}
+    <div className="space-y-10">
+      {isFilteredToSingleCategory && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-[#F7F4EE] border border-stone-200 rounded-lg text-xs text-stone-700">
+          <span>目前僅顯示單一專欄主題，切換回全部主題即可上下滑動瀏覽所有分類。</span>
+          <button
+            type="button"
+            onClick={onResetCategoryFilter}
+            className="font-semibold text-[#1E3A8A] hover:underline whitespace-nowrap shrink-0"
+          >
+            查看全部主題
+          </button>
         </div>
+      )}
 
-        <button
-          type="button"
-          onClick={() => onOpenImmersive(0, 0)}
-          className="min-h-[40px] px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap shrink-0"
-        >
-          <GalleryHorizontalEnd className="w-4 h-4" />
-          <span>大卡片快覽模式</span>
-        </button>
-      </div>
-
-      {/* Vertical Stack of Topic Carousels */}
-      <div className="space-y-12">
+      <div className="space-y-10">
         {groups.map((group, idx) => (
           <TopicCarouselRow
             key={group.topic}

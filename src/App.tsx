@@ -8,6 +8,8 @@ import {User} from 'firebase/auth';
 import {
   ArrowUpRight,
   BookOpen,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   FileText,
   GalleryHorizontalEnd,
@@ -90,6 +92,7 @@ export default function App() {
   });
   const lastCloudSheetKeyRef = useRef<string>('');
   const lastFocusRefreshRef = useRef<number>(0);
+  const categoryBarRef = useRef<HTMLDivElement | null>(null);
 
   // Auth State (Access token kept strictly in memory via googleAuth.ts)
   const [user, setUser] = useState<User | null>(null);
@@ -396,6 +399,35 @@ export default function App() {
     () => groupPostsByTopic(filteredPosts),
     [filteredPosts],
   );
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    let total = 0;
+    for (const p of posts) {
+      if (!includeDrafts && p.status === 'Draft') continue;
+      if (selectedYear !== '全部年度' && p.academicYear !== selectedYear) continue;
+      total++;
+      if (p.category) {
+        counts.set(p.category, (counts.get(p.category) ?? 0) + 1);
+      }
+    }
+    counts.set('全部分類', total);
+    return counts;
+  }, [posts, includeDrafts, selectedYear]);
+
+  const yearCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    let total = 0;
+    for (const p of posts) {
+      if (!includeDrafts && p.status === 'Draft') continue;
+      total++;
+      if (p.academicYear) {
+        counts.set(p.academicYear, (counts.get(p.academicYear) ?? 0) + 1);
+      }
+    }
+    counts.set('全部年度', total);
+    return counts;
+  }, [posts, includeDrafts]);
 
   // Auth handlers
   const handleSignIn = async () => {
@@ -1283,23 +1315,44 @@ export default function App() {
 
         {/* Journal Catalog & Interactive Filter Workspace */}
         <section id="journal-catalog" className="max-w-7xl mx-auto px-6 py-10 lg:py-12 space-y-8">
-          {/* Search & Filter Controls */}
-          <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-lg">
-                <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜尋文章標題、數學單元、作者或摘要..."
-                  className="w-full pl-10 pr-4 py-2 text-sm bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white transition-colors"
-                />
+          {/* Clean 2-Line Editorial Filter & Channel Bar */}
+          <div className="space-y-4">
+            {/* Line 1: Search + Year Select + View Mode Switcher */}
+            <div className="bg-white border border-stone-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0">
+                <div className="relative flex-1 min-w-0 max-w-md">
+                  <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="search"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="搜尋標題、單元、作者或關鍵字..."
+                    className="w-full pl-10 pr-4 py-2 text-sm bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white transition-colors"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <label htmlFor="academic-year-select" className="text-xs font-medium text-stone-500 whitespace-nowrap">
+                    學年度
+                  </label>
+                  <select
+                    id="academic-year-select"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                    className="py-2 pl-3 pr-8 text-xs font-medium text-stone-800 bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
+                  >
+                    {availableYears.map((yr) => (
+                      <option key={yr} value={yr}>
+                        {yr} ({yearCounts.get(yr) ?? 0})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center justify-between lg:justify-end gap-3 shrink-0">
                 {user && hasAccessToken && (
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer">
+                  <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
                     <input
                       type="checkbox"
                       checked={includeDrafts}
@@ -1351,58 +1404,102 @@ export default function App() {
               </div>
             </div>
 
-            {/* Academic Year Filter Tabs */}
-            <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-stone-500 mr-1">
-                學年度：
-              </span>
-              {availableYears.map((yr) => (
-                <button
-                  key={yr}
-                  type="button"
-                  onClick={() => setSelectedYear(yr)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                    selectedYear === yr
-                      ? 'bg-[#1E3A8A] text-white'
-                      : 'bg-[#F7F4EE] text-stone-700 hover:bg-stone-200/70'
-                  }`}
-                >
-                  {yr}
-                </button>
-              ))}
-            </div>
+            {/* Line 2: Single-Line Horizontal Scrollable Channel Strip (LINE News Style) */}
+            <div className="relative flex items-center border-b border-stone-200">
+              <button
+                type="button"
+                onClick={() =>
+                  categoryBarRef.current?.scrollBy({left: -220, behavior: 'smooth'})
+                }
+                aria-label="向左捲動專欄分類"
+                className="hidden sm:flex min-h-[40px] min-w-[36px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
 
-            {/* Category Filter Tabs */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-stone-500 mr-1">
-                專欄分類：
-              </span>
-              {availableCategories.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors whitespace-nowrap shrink-0 ${
-                    selectedCategory === cat
-                      ? 'bg-stone-900 text-white border-stone-900'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
+              <div
+                ref={categoryBarRef}
+                className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
+              >
+                {availableCategories.map((cat) => {
+                  const isActive = selectedCategory === cat;
+                  const count = categoryCounts.get(cat) ?? 0;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-3.5 py-2.5 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 ${
+                        isActive
+                          ? 'border-[#1E3A8A] text-[#1E3A8A] font-semibold'
+                          : 'border-transparent text-stone-600 hover:text-stone-950 font-medium'
+                      }`}
+                    >
+                      <span>{cat === '全部分類' ? '全部主題' : cat}</span>
+                      <span
+                        className={`font-mono-tabular text-xs ${
+                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  categoryBarRef.current?.scrollBy({left: 220, behavior: 'smooth'})
+                }
+                aria-label="向右捲動專欄分類"
+                className="hidden sm:flex min-h-[40px] min-w-[36px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
           {/* Results Header */}
-          <div className="flex items-center justify-between gap-4 border-b border-stone-200 pb-3">
-            <h2 className="font-editorial text-xl font-semibold text-stone-900">
-              {selectedCategory === '全部分類' ? '所有期刊文章' : selectedCategory}
-              {selectedYear !== '全部年度' ? ` · ${selectedYear}` : ''}
-            </h2>
-            <span className="text-xs font-mono-tabular text-stone-500">
-              顯示 {filteredPosts.length} 筆結果
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-baseline gap-3">
+              <h2 className="font-editorial text-xl font-semibold text-stone-900">
+                {selectedCategory === '全部分類' ? '所有期刊文章' : selectedCategory}
+                {selectedYear !== '全部年度' ? ` · ${selectedYear}` : ''}
+              </h2>
+              <span className="text-xs font-mono-tabular text-stone-500">
+                共 {filteredPosts.length} 篇
+              </span>
+              {(selectedCategory !== '全部分類' ||
+                selectedYear !== '全部年度' ||
+                searchQuery.trim() !== '') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSelectedYear('全部年度');
+                    setSelectedCategory('全部分類');
+                  }}
+                  className="text-xs font-medium text-[#1E3A8A] hover:underline"
+                >
+                  重設篩選
+                </button>
+              )}
+            </div>
+
+            {viewMode === 'swipe' && filteredPosts.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0})
+                }
+                className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <GalleryHorizontalEnd className="w-3.5 h-3.5" />
+                <span>開啟大卡片滑動模式</span>
+              </button>
+            )}
           </div>
 
           {/* Empty State */}
