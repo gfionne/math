@@ -147,11 +147,6 @@ export default function App() {
           fetchPostsFromPublicGviz(spreadsheetId, tabName),
           fetchSiteSettingsFromPublicGviz(spreadsheetId),
         ]);
-        if (fetched.length === 0) {
-          throw new Error(
-            '試算表中尚未找到文章資料列，請確認第一列為欄位名稱（Title, Category, AcademicYear...）。',
-          );
-        }
         setPosts(fetched);
         setPublicSheetId(spreadsheetId);
         setPublicTabName(tabName);
@@ -181,7 +176,7 @@ export default function App() {
         savedSheetId &&
         savedSheetId !== '1TYrCzrvZgxwd9nxygksgpUOSJVRb1L3aXCxtDIo4_4E'
       ) {
-        setPublicSheetId(savedSheetId);
+        loadPublicSheet(savedSheetId);
       } else if (savedSheetId === '1TYrCzrvZgxwd9nxygksgpUOSJVRb1L3aXCxtDIo4_4E') {
         localStorage.removeItem(PUBLIC_SHEET_STORAGE_KEY);
       }
