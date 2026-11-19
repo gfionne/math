@@ -94,7 +94,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
               )}
               <span>{post.academicYear}</span>
               <span aria-hidden="true">·</span>
-              <span>{readMins}分</span>
+              <span className="font-sans">{readMins} 分鐘閱讀</span>
             </div>
           </div>
 
