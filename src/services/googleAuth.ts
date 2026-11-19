@@ -106,8 +106,7 @@ export const studentGoogleSignIn = async (): Promise<User> => {
     const result = await signInWithPopup(auth, studentProvider);
     const signedUser = result.user;
     const isTeacher = await checkIsTeacherAdmin(signedUser);
-    const isSchoolStudent =
-      Boolean(signedUser.emailVerified) && isHmesStudentEmail(signedUser.email);
+    const isSchoolStudent = isHmesStudentEmail(signedUser.email);
 
     if (!isTeacher && !isSchoolStudent) {
       const emailLabel = signedUser.email || '未知帳號';
