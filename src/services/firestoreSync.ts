@@ -35,6 +35,17 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export function isFirestoreQuotaError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? '');
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('quota exceeded') ||
+    lower.includes('quota limit exceeded') ||
+    lower.includes('resource-exhausted') ||
+    lower.includes('free daily read units')
+  );
+}
+
 export function handleFirestoreError(
   error: unknown,
   operationType: OperationType,
@@ -57,19 +68,12 @@ export function handleFirestoreError(
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  if (isFirestoreQuotaError(error)) {
+    console.warn('Firestore Quota Notice: ', JSON.stringify(errInfo));
+  } else {
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+  }
   throw new Error(JSON.stringify(errInfo));
-}
-
-export function isFirestoreQuotaError(error: unknown): boolean {
-  const msg = error instanceof Error ? error.message : String(error ?? '');
-  const lower = msg.toLowerCase();
-  return (
-    lower.includes('quota exceeded') ||
-    lower.includes('quota limit exceeded') ||
-    lower.includes('resource-exhausted') ||
-    lower.includes('free daily read units')
-  );
 }
 
 export interface SharedCloudSiteConfig extends SiteSettings {
@@ -81,6 +85,29 @@ export interface SharedCloudSiteConfig extends SiteSettings {
 const SITE_CONFIG_COLLECTION = 'siteConfig';
 const SITE_CONFIG_DOC_ID = 'main';
 const SITE_CONFIG_PATH = `${SITE_CONFIG_COLLECTION}/${SITE_CONFIG_DOC_ID}`;
+const SITE_CONFIG_CACHE_KEY = 'pesmath_shared_site_config_cache_v1';
+
+function readCachedSharedSiteConfig(): SharedCloudSiteConfig | null {
+  try {
+    const raw = localStorage.getItem(SITE_CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return parsed as SharedCloudSiteConfig;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return null;
+}
+
+function writeCachedSharedSiteConfig(config: SharedCloudSiteConfig): void {
+  try {
+    localStorage.setItem(SITE_CONFIG_CACHE_KEY, JSON.stringify(config));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 async function testConnection() {
   try {
@@ -104,6 +131,11 @@ export function subscribeSharedSiteConfig(
   onUpdate: (config: SharedCloudSiteConfig | null) => void,
   onError?: (err: Error) => void,
 ): Unsubscribe {
+  const cached = readCachedSharedSiteConfig();
+  if (cached) {
+    onUpdate(cached);
+  }
+
   const ref = doc(db, SITE_CONFIG_COLLECTION, SITE_CONFIG_DOC_ID);
   return onSnapshot(
     ref,
@@ -121,7 +153,7 @@ export function subscribeSharedSiteConfig(
             .slice(0, 50)
         : undefined;
 
-      onUpdate({
+      const nextConfig: SharedCloudSiteConfig = {
         spreadsheetId: String(d.spreadsheetId ?? ''),
         tabName: String(d.tabName ?? 'Posts') || 'Posts',
         siteTitle: String(d.siteTitle ?? 'PesMath 數學知識庫'),
@@ -131,7 +163,9 @@ export function subscribeSharedSiteConfig(
         autoDynamicTitle: Boolean(d.autoDynamicTitle ?? true),
         autoTitleFromSheet: Boolean(d.autoTitleFromSheet ?? true),
         ...(hiddenIds !== undefined ? {hiddenOfficialAssetIds: hiddenIds} : {}),
-      });
+      };
+      writeCachedSharedSiteConfig(nextConfig);
+      onUpdate(nextConfig);
     },
     (error) => {
       try {
