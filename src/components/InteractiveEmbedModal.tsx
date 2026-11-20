@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
   ArrowLeft,
@@ -7,6 +7,7 @@ import {
   MonitorPlay,
   X,
 } from 'lucide-react';
+import {isClass403AdminEmail} from '../services/googleAuth';
 import {XimenGalleryPanel} from './XimenGalleryPanel';
 
 export type XimenScratchTab = 'map' | 'gallery' | 'blocks' | 'naming';
@@ -150,6 +151,46 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  const syncParentAuthToClass403 = useCallback(async () => {
+    if (!isOpen || !isClass403Site) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    if (user && user.emailVerified && isClass403AdminEmail(user.email)) {
+      try {
+        const idToken = await user.getIdToken();
+        win.postMessage(
+          {
+            type: 'CLASS403_PARENT_AUTH',
+            signedIn: true,
+            email: user.email,
+            idToken,
+          },
+          window.location.origin,
+        );
+      } catch {
+        // ignore transient token fetch failure
+      }
+    } else {
+      try {
+        win.postMessage(
+          {
+            type: 'CLASS403_PARENT_AUTH',
+            signedIn: false,
+            email: null,
+            idToken: null,
+          },
+          window.location.origin,
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }, [isOpen, isClass403Site, user]);
+
+  useEffect(() => {
+    void syncParentAuthToClass403();
+  }, [syncParentAuthToClass403]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handleMessage = (event: MessageEvent) => {
@@ -165,10 +206,13 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
       ) {
         setActiveClassTab(data.tab);
       }
+      if (data?.type === 'CLASS403_REQUEST_PARENT_AUTH') {
+        void syncParentAuthToClass403();
+      }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [isOpen]);
+  }, [isOpen, syncParentAuthToClass403]);
 
   const handleSelectClassTab = (tab: Class403Tab) => {
     setActiveClassTab(tab);
@@ -371,6 +415,11 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
               key={iframeSrc}
               src={iframeSrc}
               title={title}
+              onLoad={() => {
+                if (isClass403Site) {
+                  void syncParentAuthToClass403();
+                }
+              }}
               className="w-full h-full border-0 bg-white"
             />
           )}

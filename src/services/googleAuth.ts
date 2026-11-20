@@ -16,6 +16,10 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 export const OWNER_ADMIN_EMAIL = 'g.fionne@gmail.com';
 export const SCHOOL_DOMAIN = 'hmes.tp.edu.tw';
+export const CLASS_403_ADMIN_EMAILS = [
+  'g.fionne@gmail.com',
+  'pes@hmes.tp.edu.tw',
+] as const;
 
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({
@@ -45,6 +49,11 @@ let isSigningIn = false;
 
 export function isOwnerAdminEmail(email?: string | null): boolean {
   return (email ?? '').trim().toLowerCase() === OWNER_ADMIN_EMAIL;
+}
+
+export function isClass403AdminEmail(email?: string | null): boolean {
+  const normalized = (email ?? '').trim().toLowerCase();
+  return (CLASS_403_ADMIN_EMAILS as readonly string[]).includes(normalized);
 }
 
 export function isHmesStudentEmail(email?: string | null): boolean {

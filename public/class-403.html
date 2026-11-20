@@ -6,6 +6,8 @@
   <title id="page-title">Pes Class Website 115 - 四年3班 (403)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth-compat.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
     body { font-family: 'Noto Sans TC', sans-serif; }
@@ -146,18 +148,20 @@
             <div id="display-teacher-ext" class="font-bold text-sm tracking-wide">分機 5207</div>
           </div>
 
-          <!-- 管理員按鈕 (已預設隱藏，訪客看不見) -->
-          <button type="button" id="admin-toggle-btn" onclick="openLoginModal()" class="hidden bg-white/20 hover:bg-white/30 text-white p-2.5 rounded-2xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer border border-white/25 text-xs font-bold items-center gap-1.5">
-            <i class="fa-solid fa-user-gear"></i> <span id="admin-btn-text">管理員</span>
+          <!-- 教師管理員登入 / 登出按鈕 -->
+          <button type="button" id="admin-toggle-btn" onclick="openLoginModal()" class="inline-flex bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-2xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer border border-white/25 text-xs font-bold items-center gap-1.5">
+            <i class="fa-solid fa-user-shield"></i> <span id="admin-btn-text">教師登入</span>
           </button>
         </div>
       </div>
     </div>
 
     <!-- 全局管理員提示列 (已登入時顯示) -->
-    <div id="admin-bar" class="hidden bg-emerald-600 text-white px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center justify-between shadow-md border border-emerald-500">
-      <div class="flex items-center gap-2">
-        <i class="fa-solid fa-unlock"></i> 已開啟管理員編輯模式（所有修改將自動同步至雲端）
+    <div id="admin-bar" class="hidden bg-emerald-600 text-white px-4 py-2.5 rounded-2xl text-xs font-semibold flex flex-wrap items-center justify-between gap-2 shadow-md border border-emerald-500">
+      <div class="flex flex-wrap items-center gap-2">
+        <i class="fa-solid fa-unlock"></i>
+        <span id="admin-bar-text">已開啟管理員編輯模式（所有修改將自動同步至雲端）</span>
+        <span id="gas-v2-badge" class="hidden bg-amber-300 text-slate-900 px-2 py-0.5 rounded-full text-[10px] font-bold">相容模式：更新 GAS 後端後即可啟用 Token 驗證鎖</span>
       </div>
       <button type="button" onclick="logoutAdmin()" class="bg-emerald-800 hover:bg-emerald-900 px-3 py-1 rounded-xl text-[11px] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer">登出編輯</button>
     </div>
@@ -576,23 +580,29 @@
 
   </div>
 
-  <!-- 管理員 Modal 彈窗 -->
+  <!-- Google 教師登入驗證 Modal 彈窗 -->
   <div id="login-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200">
       <div class="flex justify-between items-center border-b pb-3">
         <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
-          <i class="fa-solid fa-lock text-sky-600"></i> 管理員登入
+          <i class="fa-solid fa-shield-halved text-sky-600"></i> 教師身分登入驗證
         </h3>
         <button type="button" onclick="closeLoginModal()" class="text-slate-400 hover:text-slate-600 transition cursor-pointer"><i class="fa-solid fa-xmark text-lg"></i></button>
       </div>
-      <div class="space-y-2">
-        <label class="text-xs font-semibold text-slate-600">請輸入管理員密碼</label>
-        <input type="password" id="admin-password" placeholder="" class="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:border-sky-500">
-        <p id="login-error" class="text-xs text-rose-500 hidden"><i class="fa-solid fa-circle-exclamation"></i> 密碼錯誤，請重新輸入！</p>
+      <div class="space-y-2.5 text-xs text-slate-600 leading-relaxed">
+        <p>為確保班網資料安全（即使網頁置於 GitHub 或 Blogspot），編輯功能僅限授權教師的 Google 帳號登入使用：</p>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] text-slate-700 space-y-1">
+          <div class="font-bold text-slate-800">授權管理員帳號：</div>
+          <div>• g.fionne@gmail.com</div>
+          <div>• pes@hmes.tp.edu.tw</div>
+        </div>
+        <p id="login-error" class="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-2.5 hidden"></p>
       </div>
-      <div class="flex gap-2 justify-end pt-2">
+      <div class="flex gap-2 justify-end pt-1">
         <button type="button" onclick="closeLoginModal()" class="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 rounded-xl transition cursor-pointer">取消</button>
-        <button type="button" onclick="verifyPassword()" class="px-4 py-2 text-xs font-bold bg-sky-600 text-white hover:bg-sky-700 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer">登入驗證</button>
+        <button type="button" id="google-login-submit-btn" onclick="loginWithGoogleAdmin()" class="px-4 py-2 text-xs font-bold bg-sky-600 text-white hover:bg-sky-700 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer inline-flex items-center gap-1.5">
+          <i class="fa-brands fa-google"></i> <span>使用 Google 帳號登入</span>
+        </button>
       </div>
     </div>
   </div>
@@ -606,9 +616,32 @@
   </div>
 
   <script>
-const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw2Kzbm7OI8sDLUlpMNcoq_Zl86dTuBCCVEDK5yEnYkAAVTo18mFhkcfVnXkJ4Sd_9T/exec";
-    const ADMIN_PASSWORD_HASH = "c54dcf9e06513a0cd7bfe2303fa3a11e136db3eb6b09c51c69bc171fa8425ab3";
+    const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw2Kzbm7OI8sDLUlpMNcoq_Zl86dTuBCCVEDK5yEnYkAAVTo18mFhkcfVnXkJ4Sd_9T/exec";
+    const ALLOWED_CLASS_ADMINS = ["g.fionne@gmail.com", "pes@hmes.tp.edu.tw"];
+    const FIREBASE_CONFIG = {
+      apiKey: "AIzaSyCnM3MKmML7l2UVL1L42m0HHeX6Tv1rAjk",
+      authDomain: "my-project-1150619.firebaseapp.com",
+      projectId: "my-project-1150619",
+      appId: "1:884752573421:web:9ef8b206526ef5c94afde4"
+    };
+
+    let firebaseAuth = null;
+    try {
+      if (typeof firebase !== "undefined") {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(FIREBASE_CONFIG);
+        }
+        firebaseAuth = firebase.auth();
+      }
+    } catch (e) {
+      console.warn("Firebase Auth 初始化警告：", e);
+    }
+
     let isAdmin = false;
+    let currentAdminEmail = "";
+    let parentBridgedEmail = "";
+    let parentBridgedToken = "";
+    let gasAuthV2Enabled = false;
 
     let currentUploadedImageBase64 = "";
 
@@ -1063,8 +1096,14 @@ function generateAiReply(query) {
         });
         const cloudData = await res.json();
         
+        if (cloudData && cloudData.ok === false) {
+          throw new Error(cloudData.error || cloudData.message || "雲端資料讀取失敗");
+        }
         if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
-          appData = JSON.parse(JSON.stringify(cloudData));
+          gasAuthV2Enabled = Boolean(cloudData._gasAuthV2);
+          const cleanData = JSON.parse(JSON.stringify(cloudData));
+          delete cleanData._gasAuthV2;
+          appData = cleanData;
           showToast("已載入雲端最新資料");
         } else {
           showToast("初始化雲端資料");
@@ -1073,7 +1112,25 @@ function generateAiReply(query) {
         console.error("載入失敗:", err);
         showToast("⚠️ 無法載入雲端，使用快取版本");
       }
+      updateAdminStatusIndicators();
       renderAllUI();
+    }
+
+    async function getFreshTeacherIdToken() {
+      if (firebaseAuth && firebaseAuth.currentUser) {
+        const email = String(firebaseAuth.currentUser.email || "").trim().toLowerCase();
+        if (firebaseAuth.currentUser.emailVerified && ALLOWED_CLASS_ADMINS.includes(email)) {
+          try {
+            return await firebaseAuth.currentUser.getIdToken();
+          } catch (e) {
+            console.warn("取得最新 Token 失敗：", e);
+          }
+        }
+      }
+      if (parentBridgedToken && ALLOWED_CLASS_ADMINS.includes(parentBridgedEmail)) {
+        return parentBridgedToken;
+      }
+      return "";
     }
 
 async function saveCloudData() {
@@ -1081,19 +1138,52 @@ async function saveCloudData() {
         alert("請先設定有效的 GAS_API_URL 才能存至雲端！");
         return;
       }
+      if (!isAdmin) {
+        showToast("⚠️ 請先使用授權教師帳號登入後再儲存！");
+        return;
+      }
       
       showToast("正在同步資料至雲端...", true);
 
       try {
-        const payload = JSON.stringify(appData);
+        let bodyPayload = "";
+        if (gasAuthV2Enabled) {
+          const idToken = await getFreshTeacherIdToken();
+          if (!idToken) {
+            showToast("⚠️ 登入憑證已過期，請重新登入教師帳號");
+            return;
+          }
+          bodyPayload = JSON.stringify({
+            action: "saveAll",
+            idToken: idToken,
+            data: appData
+          });
+        } else {
+          bodyPayload = JSON.stringify(appData);
+        }
 
         const response = await fetch(GAS_API_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=utf-8" },
-          body: payload
+          body: bodyPayload
         });
 
         if (response.ok || response.type === 'opaque') {
+          if (response.type !== 'opaque') {
+            try {
+              const resText = await response.text();
+              if (resText) {
+                const parsed = JSON.parse(resText);
+                if (parsed && parsed.ok === false) {
+                  throw new Error(parsed.error || "雲端驗證未通過");
+                }
+              }
+            } catch (parseErr) {
+              if (parseErr && parseErr.message && parseErr.message.includes("驗證")) {
+                throw parseErr;
+              }
+            }
+          }
           showToast("雲端同步成功！", false);
           if (typeof renderHomework === 'function') renderHomework();
           if (typeof renderItems === 'function') renderItems();
@@ -1103,7 +1193,7 @@ async function saveCloudData() {
         }
       } catch (err) {
         console.error("儲存失敗:", err);
-        showToast("已送出同步請求，請稍後重整確認！", false);
+        showToast(`⚠️ 同步未完成：${err && err.message ? err.message : '請稍後再試'}`, false);
       }
     }
 
@@ -1173,18 +1263,33 @@ function renderAllUI() {
       renderSiteTitle();
       saveCloudData();
     }
-    
-    async function sha256(str) {
-      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    function updateAdminStatusIndicators() {
+      const barText = document.getElementById('admin-bar-text');
+      if (barText) {
+        barText.innerText = currentAdminEmail
+          ? `已開啟管理員編輯模式（登入帳號：${currentAdminEmail}）`
+          : '已開啟管理員編輯模式（所有修改將自動同步至雲端）';
+      }
+      const v2Badge = document.getElementById('gas-v2-badge');
+      if (v2Badge) {
+        v2Badge.classList.toggle('hidden', gasAuthV2Enabled);
+      }
+      const btnTextEl = document.getElementById('admin-btn-text');
+      if (btnTextEl) {
+        btnTextEl.innerText = isAdmin ? '登出編輯' : '教師登入';
+      }
     }
 
     function openLoginModal() {
       if (isAdmin) {
         logoutAdmin();
       } else {
-        document.getElementById('admin-password').value = '';
-        document.getElementById('login-error').classList.add('hidden');
+        const errEl = document.getElementById('login-error');
+        if (errEl) {
+          errEl.innerText = '';
+          errEl.classList.add('hidden');
+        }
         document.getElementById('login-modal').classList.remove('hidden');
       }
     }
@@ -1193,26 +1298,68 @@ function renderAllUI() {
       document.getElementById('login-modal').classList.add('hidden');
     }
 
-    async function verifyPassword() {
-      const pwd = document.getElementById('admin-password').value;
-      const hash = await sha256(pwd);
-      if (hash === ADMIN_PASSWORD_HASH) {
-        isAdmin = true;
+    async function loginWithGoogleAdmin() {
+      const errEl = document.getElementById('login-error');
+      const submitBtn = document.getElementById('google-login-submit-btn');
+      if (errEl) errEl.classList.add('hidden');
+      if (!firebaseAuth) {
+        if (errEl) {
+          errEl.innerText = '驗證元件載入失敗，請重新整理頁面後再試。';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const googleProvider = new firebase.auth.GoogleAuthProvider();
+        googleProvider.setCustomParameters({ prompt: 'select_account' });
+        const result = await firebaseAuth.signInWithPopup(googleProvider);
+        const signedUser = result.user;
+        const email = String(signedUser && signedUser.email ? signedUser.email : '').trim().toLowerCase();
+        if (!signedUser || !signedUser.emailVerified || !ALLOWED_CLASS_ADMINS.includes(email)) {
+          await firebaseAuth.signOut();
+          if (errEl) {
+            errEl.innerText = `帳號「${email || '未知'}」不在 403 班網管理員白名單內，請改用 g.fionne@gmail.com 或 pes@hmes.tp.edu.tw 登入。`;
+            errEl.classList.remove('hidden');
+          }
+          return;
+        }
+        currentAdminEmail = email;
         closeLoginModal();
         toggleAdminUI(true);
-        showToast("已成功登入管理員模式");
-      } else {
-        document.getElementById('login-error').classList.remove('hidden');
+        showToast(`已使用 ${email} 開啟編輯模式`);
+      } catch (err) {
+        console.warn('Google 教師登入失敗：', err);
+        const msg = err && err.code === 'auth/unauthorized-domain'
+          ? '目前網域尚未加入 Firebase Auth 授權網域（請於 Firebase 主控台新增此網域）。'
+          : (err && err.message ? err.message : '登入取消或發生錯誤，請再試一次。');
+        if (errEl) {
+          errEl.innerText = msg;
+          errEl.classList.remove('hidden');
+        }
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     }
 
-function logoutAdmin() {
-  isAdmin = false;
-  toggleAdminUI(false);
-  if (typeof showToast === 'function') {
-    showToast("已安全登出管理員模式");
-  }
-}
+    async function logoutAdmin() {
+      isAdmin = false;
+      currentAdminEmail = '';
+      parentBridgedEmail = '';
+      parentBridgedToken = '';
+      try {
+        if (firebaseAuth && firebaseAuth.currentUser) {
+          await firebaseAuth.signOut();
+        }
+      } catch (e) {
+        console.warn('登出警告：', e);
+      }
+      toggleAdminUI(false);
+      if (typeof showToast === 'function') {
+        showToast("已安全登出管理員模式");
+      }
+    }
 function toggleAdminUI(show) {
       isAdmin = !!show;
 
@@ -1238,9 +1385,8 @@ function toggleAdminUI(show) {
         }
       });
 
-      const btnTextEl = document.getElementById('admin-btn-text');
-      if (btnTextEl) {
-        btnTextEl.innerText = show ? "登出" : "管理員";
+      if (typeof updateAdminStatusIndicators === 'function') {
+        updateAdminStatusIndicators();
       }
 
       if (typeof renderAllUI === 'function') {
@@ -2323,7 +2469,7 @@ function renderTextbooks() {
       });
     }
 
-    function addComment() {
+    async function addComment() {
       const author = document.getElementById('comment-author').value.trim();
       const content = document.getElementById('comment-text').value.trim();
       if (!content) {
@@ -2335,23 +2481,96 @@ function renderTextbooks() {
       const now = new Date();
       const timeStr = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 
-      appData.comments.unshift({
+      const newComment = {
         author: author || '熱心家長/同學',
         emoji: selectedEmojiVal,
         content: content,
         date: timeStr
-      });
+      };
+
+      appData.comments.unshift(newComment);
 
       document.getElementById('comment-author').value = '';
       document.getElementById('comment-text').value = '';
       selectEmoji('💬');
-      saveCloudData();
+      renderComments();
+
+      if (gasAuthV2Enabled) {
+        showToast("正在送出留言...", true);
+        try {
+          const response = await fetch(GAS_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify({
+              action: "addComment",
+              comment: newComment
+            })
+          });
+          if (response.ok || response.type === 'opaque') {
+            if (response.type !== 'opaque') {
+              const resText = await response.text();
+              if (resText) {
+                const parsed = JSON.parse(resText);
+                if (parsed && parsed.ok === false) {
+                  throw new Error(parsed.error || "留言寫入未通過驗證");
+                }
+              }
+            }
+            showToast("留言已發布至雲端！", false);
+          } else {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+        } catch (err) {
+          console.error("留言送出失敗：", err);
+          showToast(`⚠️ 留言暫時無法同步：${err && err.message ? err.message : '請稍後再試'}`, false);
+        }
+      } else {
+        // 過渡相容模式（尚未部署新版 GAS 時維持原寫入方式）
+        try {
+          showToast("正在同步留言...", true);
+          await fetch(GAS_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=utf-8" },
+            body: JSON.stringify(appData)
+          });
+          showToast("留言已發布！", false);
+        } catch (err) {
+          console.error("留言儲存失敗：", err);
+          showToast("⚠️ 留言同步失敗", false);
+        }
+      }
     }
 
     function deleteComment(idx) {
       if (!appData.comments) return;
       appData.comments.splice(idx, 1);
       saveCloudData();
+    }
+
+    if (firebaseAuth) {
+      firebaseAuth.onAuthStateChanged((user) => {
+        if (user && user.emailVerified) {
+          const email = String(user.email || '').trim().toLowerCase();
+          if (ALLOWED_CLASS_ADMINS.includes(email)) {
+            currentAdminEmail = email;
+            if (!isAdmin) {
+              toggleAdminUI(true);
+            } else {
+              updateAdminStatusIndicators();
+            }
+            return;
+          }
+        }
+        if (parentBridgedToken && ALLOWED_CLASS_ADMINS.includes(parentBridgedEmail)) {
+          currentAdminEmail = parentBridgedEmail;
+          if (!isAdmin) toggleAdminUI(true);
+          return;
+        }
+        if (isAdmin) {
+          currentAdminEmail = '';
+          toggleAdminUI(false);
+        }
+      });
     }
 
     window.addEventListener('DOMContentLoaded', () => {
@@ -2364,6 +2583,11 @@ function renderTextbooks() {
       if (initialTab && VALID_CLASS_TABS.includes(initialTab)) {
         switchTab(initialTab, true);
       }
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'CLASS403_REQUEST_PARENT_AUTH' }, window.location.origin);
+        } catch {}
+      }
       loadCloudData();
     });
 
@@ -2372,6 +2596,26 @@ function renderTextbooks() {
       const data = event.data;
       if (data && data.type === 'CLASS403_SWITCH_TAB' && typeof data.tab === 'string') {
         switchTab(data.tab, true);
+      }
+      if (data && data.type === 'CLASS403_PARENT_AUTH') {
+        const email = String(data.email || '').trim().toLowerCase();
+        if (data.signedIn && data.idToken && ALLOWED_CLASS_ADMINS.includes(email)) {
+          parentBridgedEmail = email;
+          parentBridgedToken = data.idToken;
+          currentAdminEmail = email;
+          if (!isAdmin) {
+            toggleAdminUI(true);
+          } else {
+            updateAdminStatusIndicators();
+          }
+        } else {
+          parentBridgedEmail = '';
+          parentBridgedToken = '';
+          if (!firebaseAuth || !firebaseAuth.currentUser) {
+            currentAdminEmail = '';
+            if (isAdmin) toggleAdminUI(false);
+          }
+        }
       }
     });
 
