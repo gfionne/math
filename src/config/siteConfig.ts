@@ -4,9 +4,9 @@ import {SiteSettings} from '../types/journal';
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   siteTitle: 'PesMath 數學期刊',
   siteSubtitle: 'PesMath 數學教學社群 · 期刊與知識專欄',
-  heroHeading: '數學教案、研究專欄與領域共備知識庫',
+  heroHeading: 'AI領航 徜徉酷數',
   heroDescription:
-    '彙整歷學年度領域會議紀錄、趣味數學桌遊與繪本實作、學力檢測數據分析及雲端教案資源。支援純靜態 GitHub Pages 部署與 Google Sheets 即時動態存取。',
+    '網站彙整pes在數學教育上的設計、開發與研究，結合數位學習工具、ＡＩ模組規劃而建立雲端教案資源；供西門社群教師及班級親師生使用為主。',
   autoDynamicTitle: true,
   autoTitleFromSheet: true,
 };

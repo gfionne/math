@@ -231,7 +231,23 @@ export default function App() {
       setSiteSettings((prev) => {
         if (!prev.autoTitleFromSheet) return prev;
         if (remote) {
-          return {...prev, ...remote};
+          const remoteHeading = (remote.heroHeading ?? '').trim();
+          const isLegacyHeading =
+            remoteHeading.toLowerCase() === 'math knowledge';
+          const remoteDesc = (remote.heroDescription ?? '').trim();
+          const isLegacyDesc =
+            remoteDesc.startsWith('彙整pes數學教育上的106-115學年度領域會議紀錄') ||
+            remoteDesc.startsWith('彙整歷學年度領域會議紀錄');
+          return {
+            ...prev,
+            ...remote,
+            ...(isLegacyHeading
+              ? {heroHeading: INITIAL_SITE_SETTINGS.heroHeading}
+              : {}),
+            ...(isLegacyDesc
+              ? {heroDescription: INITIAL_SITE_SETTINGS.heroDescription}
+              : {}),
+          };
         }
         if (
           fallbackSpreadsheetTitle &&
@@ -321,11 +337,24 @@ export default function App() {
       (cloudCfg) => {
         if (!cloudCfg) return;
 
+        const cloudHeading = (cloudCfg.heroHeading ?? '').trim();
+        const cloudDesc = (cloudCfg.heroDescription ?? '').trim();
+        const isLegacyCloudHeading =
+          !cloudHeading || cloudHeading.toLowerCase() === 'math knowledge';
+        const isLegacyCloudDesc =
+          !cloudDesc ||
+          cloudDesc.startsWith('彙整pes數學教育上的106-115學年度領域會議紀錄') ||
+          cloudDesc.startsWith('彙整歷學年度領域會議紀錄');
+
         setSiteSettings({
           siteTitle: cloudCfg.siteTitle,
           siteSubtitle: cloudCfg.siteSubtitle,
-          heroHeading: cloudCfg.heroHeading,
-          heroDescription: cloudCfg.heroDescription,
+          heroHeading: isLegacyCloudHeading
+            ? INITIAL_SITE_SETTINGS.heroHeading
+            : cloudCfg.heroHeading,
+          heroDescription: isLegacyCloudDesc
+            ? INITIAL_SITE_SETTINGS.heroDescription
+            : cloudCfg.heroDescription,
           autoDynamicTitle: cloudCfg.autoDynamicTitle,
           autoTitleFromSheet: cloudCfg.autoTitleFromSheet,
         });

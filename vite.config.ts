@@ -123,13 +123,12 @@ export default defineConfig(() => {
                   heroHeading:
                     (parsed.heroHeading !== undefined
                       ? String(parsed.heroHeading).trim()
-                      : existing.heroHeading) ||
-                    '數學教案、研究專欄與領域共備知識庫',
+                      : existing.heroHeading) || 'AI領航 徜徉酷數',
                   heroDescription:
                     (parsed.heroDescription !== undefined
                       ? String(parsed.heroDescription).trim()
                       : existing.heroDescription) ||
-                    '彙整歷學年度領域會議紀錄、趣味數學桌遊與繪本實作、學力檢測數據分析及雲端教案資源。支援純靜態 GitHub Pages 部署與 Google Sheets 即時動態存取。',
+                    '網站彙整pes在數學教育上的設計、開發與研究，結合數位學習工具、ＡＩ模組規劃而建立雲端教案資源；供西門社群教師及班級親師生使用為主。',
                   autoDynamicTitle:
                     typeof parsed.autoDynamicTitle === 'boolean'
                       ? parsed.autoDynamicTitle
