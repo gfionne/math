@@ -1169,7 +1169,7 @@ export default function App() {
           </a>
 
           {/* Zone 2: 5 Single-line Text Nav Links */}
-          <nav className="flex items-center gap-4 md:gap-7 text-sm font-medium text-stone-600">
+          <nav className="flex items-center gap-1.5 md:gap-2 text-sm font-medium text-stone-600">
             <button
               type="button"
               onClick={() => {
@@ -1180,9 +1180,9 @@ export default function App() {
                 setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0});
               }}
               title="像 LINE 新聞一樣：左右滑看同主題文章，上下滑切換不同主題"
-              className={`inline-flex items-center gap-1.5 hover:text-[#1E3A8A] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
+              className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                 immersiveSwipe.isOpen
-                  ? 'text-[#1E3A8A] font-semibold'
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                   : 'text-stone-800 font-medium'
               }`}
             >
@@ -1196,7 +1196,7 @@ export default function App() {
                 setViewMode('grid');
                 scrollToSection('journal-catalog');
               }}
-              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
             >
               期刊專欄
             </button>
@@ -1207,7 +1207,7 @@ export default function App() {
                 setViewMode('grid');
                 scrollToSection('journal-catalog');
               }}
-              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
             >
               教學資源
             </button>
@@ -1218,16 +1218,16 @@ export default function App() {
                 setViewMode('grid');
                 scrollToSection('journal-catalog');
               }}
-              className="hidden md:inline-block hover:text-stone-950 hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0"
+              className="hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
             >
               學力檢測
             </button>
             <button
               type="button"
               onClick={() => openXimenStage('map')}
-              className={`hidden md:inline-block hover:text-[#1E3A8A] hover:underline underline-offset-4 transition-colors whitespace-nowrap shrink-0 ${
+              className={`hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                 interactiveStage.isOpen
-                  ? 'text-[#1E3A8A] font-semibold'
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                   : ''
               }`}
             >
@@ -1242,14 +1242,14 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => openDrawer('editor')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors whitespace-nowrap shrink-0"
+                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
                 >
                   管理後台
                 </button>
                 <button
                   type="button"
                   onClick={handleSignOut}
-                  className="px-2.5 py-1.5 text-xs font-medium text-stone-600 hover:text-stone-900 transition-colors whitespace-nowrap shrink-0"
+                  className="px-2.5 py-1.5 text-xs font-medium text-stone-600 rounded-lg hover:bg-stone-200/60 hover:text-stone-900 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
                 >
                   登出
                 </button>
@@ -1259,7 +1259,7 @@ export default function App() {
                 type="button"
                 onClick={handleSignIn}
                 disabled={isSigningIn}
-                className="px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors whitespace-nowrap shrink-0"
+                className="px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] hover:bg-[#F7F4EE] hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
               >
                 {isSigningIn ? '登入中...' : '教師登入'}
               </button>
@@ -1389,10 +1389,10 @@ export default function App() {
                               setSelectedCategory(cat);
                               scrollToSection('journal-catalog');
                             }}
-                            className={`px-2.5 py-1 rounded-md border transition-colors whitespace-nowrap ${
+                            className={`px-2.5 py-1 rounded-md border transition-all duration-150 active:scale-[0.97] whitespace-nowrap ${
                               selectedCategory === cat
-                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                                : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:border-stone-300 hover:text-stone-950'
+                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                                : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:-translate-y-0.5 hover:border-[#1E3A8A]/50 hover:bg-white hover:text-[#1E3A8A] hover:shadow-xs'
                             }`}
                           >
                             {cat} ({categoryCounts.get(cat) ?? 0})
@@ -1434,26 +1434,25 @@ export default function App() {
               {/* Right Column: Compact Featured Spotlight */}
               {featuredSpotlightPost ? (
                 <div className="lg:col-span-5 flex">
-                  <article className="w-full bg-[#FBF9F5] border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between">
+                  <article
+                    onClick={() => setActivePost(featuredSpotlightPost)}
+                    className="group w-full cursor-pointer bg-[#FBF9F5] border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between shadow-[0_2px_10px_rgba(28,25,23,0.04)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-[#1E3A8A]/50 hover:shadow-[0_14px_28px_-6px_rgba(30,58,138,0.15)] active:translate-y-0 active:scale-[0.99]"
+                  >
                     <div
-                      className={`h-1 w-full shrink-0 ${
+                      className={`h-1 group-hover:h-1.5 w-full shrink-0 transition-all duration-200 ${
                         getCategoryAccent(featuredSpotlightPost.category).barClass
                       }`}
                     />
                     {featuredSpotlightPost.coverImageUrl && !spotlightImgFailed && (
-                      <button
-                        type="button"
-                        onClick={() => setActivePost(featuredSpotlightPost)}
-                        className="h-36 w-full bg-stone-100 border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
-                      >
+                      <div className="h-36 w-full bg-stone-100 border-b border-stone-200 overflow-hidden shrink-0">
                         <img
                           src={featuredSpotlightPost.coverImageUrl}
                           alt={featuredSpotlightPost.title}
                           referrerPolicy="no-referrer"
                           onError={() => setSpotlightImgFailed(true)}
-                          className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.03]"
+                          className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.04]"
                         />
-                      </button>
+                      </div>
                     )}
 
                     <div className="p-5 flex-1 flex flex-col justify-between gap-3">
@@ -1473,8 +1472,11 @@ export default function App() {
                         <h2 className="font-editorial text-lg sm:text-xl font-bold text-stone-950 leading-snug line-clamp-2">
                           <button
                             type="button"
-                            onClick={() => setActivePost(featuredSpotlightPost)}
-                            className="text-left hover:text-[#1E3A8A] transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActivePost(featuredSpotlightPost);
+                            }}
+                            className="text-left group-hover:text-[#1E3A8A] transition-colors focus-visible:outline-none focus-visible:underline"
                           >
                             {featuredSpotlightPost.title}
                           </button>
@@ -1489,14 +1491,10 @@ export default function App() {
                         <span className="text-stone-500 truncate">
                           {featuredSpotlightPost.author}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => setActivePost(featuredSpotlightPost)}
-                          className="font-semibold text-[#1E3A8A] hover:underline inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                        >
+                        <span className="font-semibold text-[#1E3A8A] px-2 py-1 -mr-2 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all duration-200">
                           <span>閱讀全文</span>
-                          <ArrowUpRight className="w-3.5 h-3.5" />
-                        </button>
+                          <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                        </span>
                       </div>
                     </div>
                   </article>
@@ -1594,7 +1592,7 @@ export default function App() {
                     key={tab.id}
                     type="button"
                     onClick={() => openXimenStage(tab.id)}
-                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:border-[#1E3A8A] hover:text-[#1E3A8A] transition-colors whitespace-nowrap shrink-0"
+                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
                   >
                     {tab.label}
                   </button>
@@ -1604,7 +1602,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => openXimenStage('map')}
-                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
               >
                 <MonitorPlay className="w-3.5 h-3.5" />
                 <span>開啟互動學習網</span>
@@ -1614,7 +1612,7 @@ export default function App() {
                 href="./ximen-scratch.html"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
               >
                 <span>獨立分頁</span>
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -1652,10 +1650,10 @@ export default function App() {
                       key={cat}
                       type="button"
                       onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-2 text-sm border-b-2 transition-colors whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 ${
+                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
                         isActive
-                          ? 'border-[#1E3A8A] text-[#1E3A8A] font-semibold'
-                          : 'border-transparent text-stone-600 hover:text-stone-950 font-medium'
+                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
+                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
                       }`}
                     >
                       <span>{cat === '全部分類' ? '全部主題' : cat}</span>
@@ -1677,7 +1675,7 @@ export default function App() {
                   categoryBarRef.current?.scrollBy({left: 220, behavior: 'smooth'})
                 }
                 aria-label="向右捲動專欄分類"
-                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
+                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center rounded-md text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 transition-colors shrink-0"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -1701,10 +1699,10 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setViewMode('swipe')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'swipe'
-                      ? 'bg-white text-stone-950 shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900'
+                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
+                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
                   }`}
                 >
                   <Layers className="w-3.5 h-3.5" />
@@ -1713,10 +1711,10 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setViewMode('grid')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'grid'
-                      ? 'bg-white text-stone-950 shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900'
+                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
+                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
                   }`}
                 >
                   <LayoutGrid className="w-3.5 h-3.5" />
@@ -1725,10 +1723,10 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setViewMode('list')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'list'
-                      ? 'bg-white text-stone-950 shadow-xs'
-                      : 'text-stone-600 hover:text-stone-900'
+                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
+                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
                   }`}
                 >
                   <List className="w-3.5 h-3.5" />
@@ -1870,7 +1868,8 @@ export default function App() {
                     {filteredPosts.map((post, idx) => (
                       <tr
                         key={`${post.slug}-${post.rowIndex ?? idx}`}
-                        className="hover:bg-[#FBF9F5] transition-colors"
+                        onClick={() => setActivePost(post)}
+                        className="group cursor-pointer hover:bg-[#F3EFE6] transition-colors"
                       >
                         <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">
                           {post.academicYear}
@@ -1884,8 +1883,11 @@ export default function App() {
                         <td className="py-3.5 px-4">
                           <button
                             type="button"
-                            onClick={() => setActivePost(post)}
-                            className="text-left font-medium text-stone-900 hover:text-[#1E3A8A] transition-colors"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActivePost(post);
+                            }}
+                            className="text-left font-medium text-stone-900 group-hover:text-[#1E3A8A] transition-colors"
                           >
                             {post.title}
                           </button>
@@ -1896,6 +1898,7 @@ export default function App() {
                               href={post.embedUrl}
                               target="_blank"
                               rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 text-[#1E3A8A] hover:underline"
                             >
                               <FileText className="w-3.5 h-3.5" />
@@ -1908,10 +1911,14 @@ export default function App() {
                         <td className="py-3.5 px-5 text-right whitespace-nowrap">
                           <button
                             type="button"
-                            onClick={() => setActivePost(post)}
-                            className="text-xs font-medium text-[#1E3A8A] hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActivePost(post);
+                            }}
+                            className="text-xs font-semibold text-[#1E3A8A] px-2.5 py-1 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 transition-all"
                           >
-                            閱讀全文
+                            <span>閱讀全文</span>
+                            <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                           </button>
                         </td>
                       </tr>

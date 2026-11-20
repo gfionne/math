@@ -12,6 +12,14 @@
     background-color: #FBF9F5;
     color: #1C1917;
   }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
 }
 
 .font-editorial {

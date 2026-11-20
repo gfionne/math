@@ -166,7 +166,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           <button
             type="button"
             onClick={() => onOpenImmersive(topicIndex, activeCardIdx)}
-            className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#F7F4EE] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
           >
             <GalleryHorizontalEnd className="w-3.5 h-3.5" />
             <span>大卡片快覽</span>
@@ -179,7 +179,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
                 onClick={() => scrollToCard(activeCardIdx - 1)}
                 disabled={!canGoPrev}
                 aria-label={`上一篇 ${group.topic}`}
-                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-stone-300/80 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-stone-300/80 bg-white text-stone-700 hover:bg-[#F7F4EE] hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] active:scale-[0.96] disabled:opacity-35 disabled:cursor-not-allowed transition-all"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
@@ -188,7 +188,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
                 onClick={() => scrollToCard(activeCardIdx + 1)}
                 disabled={!canGoNext}
                 aria-label={`下一篇 ${group.topic}`}
-                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-stone-300/80 bg-white text-stone-700 hover:bg-stone-50 disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-stone-300/80 bg-white text-stone-700 hover:bg-[#F7F4EE] hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] active:scale-[0.96] disabled:opacity-35 disabled:cursor-not-allowed transition-all"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
@@ -207,7 +207,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           onPointerUp={handlePointerUpOrCancel}
           onPointerCancel={handlePointerUpOrCancel}
           onClickCapture={handleClickCapture}
-          className={`flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar pb-1 select-none items-stretch ${
+          className={`flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar pb-1 pt-1 select-none items-stretch ${
             isDragging
               ? 'cursor-grabbing'
               : 'snap-x snap-mandatory scroll-smooth cursor-grab'
@@ -230,7 +230,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
             type="button"
             onClick={() => scrollToCard(activeCardIdx + 1)}
             aria-label="往左滑動下一篇"
-            className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-90 hover:opacity-100 hover:scale-105 transition-all"
+            className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -240,7 +240,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
             type="button"
             onClick={() => scrollToCard(activeCardIdx - 1)}
             aria-label="往右滑動上一篇"
-            className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-90 hover:opacity-100 hover:scale-105 transition-all"
+            className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>

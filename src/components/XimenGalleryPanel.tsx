@@ -236,18 +236,18 @@ const OfficialAssetCard: React.FC<{
   };
 
   return (
-    <div className="bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col justify-between hover:border-stone-300 transition-colors">
-      <div className="h-40 p-4 flex items-center justify-center bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:14px_14px] bg-stone-50 border-b border-stone-100">
+    <div className="group bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:border-[#1E3A8A]/45 hover:shadow-[0_10px_22px_-6px_rgba(30,58,138,0.14)]">
+      <div className="h-40 p-4 flex items-center justify-center bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:14px_14px] bg-stone-50 border-b border-stone-100 overflow-hidden">
         <canvas
           ref={canvasRef}
           width={asset.width}
           height={asset.height}
-          className="max-h-full max-w-full object-contain drop-shadow-xs"
+          className="max-h-full max-w-full object-contain drop-shadow-xs transition-transform duration-200 group-hover:scale-[1.04]"
         />
       </div>
       <div className="p-3.5 space-y-2.5">
         <div>
-          <h4 className="font-semibold text-stone-900 text-sm truncate">
+          <h4 className="font-semibold text-stone-900 group-hover:text-[#1E3A8A] transition-colors text-sm truncate">
             {asset.title}
           </h4>
           <p className="text-xs text-stone-500 mt-0.5 truncate">
@@ -257,7 +257,7 @@ const OfficialAssetCard: React.FC<{
         <button
           type="button"
           onClick={handleDownload}
-          className="w-full min-h-[36px] bg-[#1E3A8A] hover:bg-[#172554] text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors inline-flex items-center justify-center gap-1.5"
+          className="w-full min-h-[36px] bg-[#1E3A8A] hover:bg-[#172554] text-white text-xs font-semibold py-2 px-3 rounded-lg transition-all duration-150 active:scale-[0.98] inline-flex items-center justify-center gap-1.5"
         >
           <Download className="w-3.5 h-3.5" />
           <span>下載 PNG 圖檔</span>
@@ -1060,7 +1060,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                     type="button"
                     onClick={onTeacherSignIn}
                     disabled={isSigningIn}
-                    className="w-full h-10 px-4 rounded-lg text-xs font-semibold bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 text-white inline-flex items-center justify-center gap-2 transition-colors"
+                    className="w-full h-10 px-4 rounded-lg text-xs font-semibold bg-[#1E3A8A] hover:bg-[#172554] active:scale-[0.98] disabled:opacity-60 text-white inline-flex items-center justify-center gap-2 transition-all duration-150 shadow-xs hover:shadow-sm"
                   >
                     <RefreshCw className="w-4 h-4 shrink-0" />
                     <span>
@@ -1072,10 +1072,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                 ) : (
                   <>
                     <label
-                      className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                      className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-150 cursor-pointer whitespace-nowrap ${
                         uploadProgress
                           ? 'bg-stone-200 text-stone-500 cursor-not-allowed'
-                          : 'bg-[#1E3A8A] hover:bg-[#172554] text-white'
+                          : 'bg-[#1E3A8A] hover:bg-[#172554] active:scale-[0.98] text-white shadow-xs hover:shadow-sm'
                       }`}
                     >
                       <ImagePlus className="w-4 h-4 shrink-0" />
@@ -1092,10 +1092,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                     </label>
 
                     <label
-                      className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap border ${
+                      className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-all duration-150 cursor-pointer whitespace-nowrap border ${
                         uploadProgress
                           ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed'
-                          : 'bg-[#F7F4EE] hover:bg-stone-200/70 text-stone-900 border-stone-300'
+                          : 'bg-[#F7F4EE] hover:bg-stone-200/80 hover:border-stone-400 active:scale-[0.98] text-stone-900 border-stone-300'
                       }`}
                     >
                       <FolderUp className="w-4 h-4 shrink-0 text-[#1E3A8A]" />
@@ -1147,10 +1147,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
               <button
                 type="button"
                 onClick={() => setActiveFolder('ALL')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-150 active:scale-[0.97] whitespace-nowrap ${
                   activeFolder === 'ALL'
-                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                    : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                    : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A] hover:bg-[#1E3A8A]/5'
                 }`}
               >
                 全部圖庫 ({folderSummaries.total + visibleOfficialAssets.length})
@@ -1161,10 +1161,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                   key={folder}
                   type="button"
                   onClick={() => setActiveFolder(folder)}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors inline-flex items-center gap-1.5 whitespace-nowrap ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-150 active:scale-[0.97] inline-flex items-center gap-1.5 whitespace-nowrap ${
                     activeFolder === folder
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A] hover:bg-[#1E3A8A]/5'
                   }`}
                 >
                   <FolderOpen className="w-3.5 h-3.5" />
@@ -1178,10 +1178,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveFolder('UNCATEGORIZED')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-150 active:scale-[0.97] whitespace-nowrap ${
                     activeFolder === 'UNCATEGORIZED'
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A] hover:bg-[#1E3A8A]/5'
                   }`}
                 >
                   未分類圖片 ({folderSummaries.uncategorizedCount})
@@ -1192,10 +1192,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setActiveFolder('OFFICIAL')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-150 active:scale-[0.97] whitespace-nowrap ${
                     activeFolder === 'OFFICIAL'
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A] hover:bg-[#1E3A8A]/5'
                   }`}
                 >
                   官方標準元件 ({visibleOfficialAssets.length})
@@ -1298,14 +1298,14 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                   return (
                     <div
                       key={item.id}
-                      className="bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col justify-between hover:border-stone-300 transition-colors"
+                      className="group bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col justify-between transition-all duration-200 hover:-translate-y-0.5 hover:border-[#1E3A8A]/45 hover:shadow-[0_10px_22px_-6px_rgba(30,58,138,0.14)]"
                     >
-                      <div className="h-44 p-3 flex items-center justify-center bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:14px_14px] bg-stone-50 border-b border-stone-100 relative">
+                      <div className="h-44 p-3 flex items-center justify-center bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] [background-size:14px_14px] bg-stone-50 border-b border-stone-100 relative overflow-hidden">
                         <img
                           src={item.imageUrl}
                           alt={item.name}
                           referrerPolicy="no-referrer"
-                          className="max-h-full max-w-full object-contain rounded"
+                          className="max-h-full max-w-full object-contain rounded transition-transform duration-200 group-hover:scale-[1.04]"
                         />
                         {item.folderName && (
                           <span className="absolute top-2 left-2 max-w-[85%] truncate px-2 py-0.5 text-[11px] font-medium bg-white/95 text-stone-700 border border-stone-200 rounded-md">
@@ -1317,7 +1317,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                       <div className="p-3.5 space-y-2.5">
                         <div className="min-w-0">
                           <h5
-                            className="font-semibold text-stone-900 text-sm truncate"
+                            className="font-semibold text-stone-900 group-hover:text-[#1E3A8A] transition-colors text-sm truncate"
                             title={item.name}
                           >
                             {item.name}
@@ -1335,7 +1335,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                             type="button"
                             disabled={downloadingId === item.id}
                             onClick={() => handleDownloadItem(item)}
-                            className="flex-1 min-h-[36px] bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 text-white text-xs font-semibold py-1.5 px-2.5 rounded-lg inline-flex items-center justify-center gap-1 transition-colors"
+                            className="flex-1 min-h-[36px] bg-[#1E3A8A] hover:bg-[#172554] active:scale-[0.98] disabled:opacity-60 text-white text-xs font-semibold py-1.5 px-2.5 rounded-lg inline-flex items-center justify-center gap-1 transition-all duration-150"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>
@@ -1349,7 +1349,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                               onApplyMapBackground(item.imageUrl, item.name)
                             }
                             title="套用至互動商圈地圖底圖預覽"
-                            className="min-h-[36px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] hover:bg-stone-200/70 border border-stone-200 rounded-lg inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+                            className="min-h-[36px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] hover:bg-[#1E3A8A]/10 hover:text-[#1E3A8A] hover:border-[#1E3A8A]/35 active:scale-[0.98] border border-stone-200 rounded-lg inline-flex items-center gap-1 transition-all duration-150 whitespace-nowrap"
                           >
                             <MapIcon className="w-3.5 h-3.5 text-[#1E3A8A]" />
                             <span>設為底圖</span>

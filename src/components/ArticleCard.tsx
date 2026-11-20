@@ -42,47 +42,42 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
   };
 
   return (
-    <article className="group h-full bg-white border border-stone-300/85 rounded-xl overflow-hidden flex flex-col shadow-[0_2px_10px_rgba(28,25,23,0.05)] transition-all duration-200 hover:border-stone-400 hover:shadow-[0_8px_22px_rgba(28,25,23,0.10)]">
-      {/* Subtle 3px Top Category Color Rule for Instant Visual Grouping */}
-      <div className={`h-1 w-full shrink-0 ${accent.barClass}`} />
+    <article
+      onClick={() => onSelect(post)}
+      className="group h-full cursor-pointer bg-white border border-stone-300/85 rounded-xl overflow-hidden flex flex-col shadow-[0_2px_10px_rgba(28,25,23,0.05)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-[#1E3A8A]/50 hover:shadow-[0_14px_28px_-6px_rgba(30,58,138,0.16)] active:translate-y-0 active:scale-[0.99]"
+    >
+      {/* Top Category Color Rule that subtly accentuates on hover */}
+      <div
+        className={`h-1 group-hover:h-1.5 w-full shrink-0 transition-all duration-200 ${accent.barClass}`}
+      />
 
-      {/* Clear Image OR Attachment Slot (No Blurry Duplicate-Title Boxes) */}
+      {/* Clear Image OR Attachment Slot */}
       {hasCover ? (
-        <button
-          type="button"
-          onClick={() => onSelect(post)}
-          className="text-left w-full shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1E3A8A]"
-        >
-          <div className="aspect-[16/9] w-full bg-stone-100 overflow-hidden border-b border-stone-200">
-            <img
-              src={post.coverImageUrl}
-              alt={post.title}
-              draggable={false}
-              referrerPolicy="no-referrer"
-              onError={() => setImgFailed(true)}
-              className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.03]"
-            />
-          </div>
-        </button>
+        <div className="aspect-[16/9] w-full bg-stone-100 overflow-hidden border-b border-stone-200 shrink-0">
+          <img
+            src={post.coverImageUrl}
+            alt={post.title}
+            draggable={false}
+            referrerPolicy="no-referrer"
+            onError={() => setImgFailed(true)}
+            className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.04]"
+          />
+        </div>
       ) : post.embedUrl && embedMeta ? (
-        <button
-          type="button"
-          onClick={() => onSelect(post)}
-          className="text-left w-full shrink-0 bg-[#F7F4EE] border-b border-stone-200 px-5 py-4 flex items-center gap-3 hover:bg-[#EFEAE0] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#1E3A8A]"
-        >
-          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+        <div className="w-full shrink-0 bg-[#F7F4EE] border-b border-stone-200 px-5 py-4 flex items-center gap-3 group-hover:bg-[#EFEAE0] transition-colors">
+          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 group-hover:border-[#1E3A8A]/35 flex items-center justify-center shrink-0 transition-colors">
             {renderEmbedIcon()}
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
               {embedMeta.provider}
             </div>
-            <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
+            <div className="text-sm font-semibold text-stone-900 group-hover:text-[#1E3A8A] truncate mt-0.5 transition-colors">
               {post.embedLabel || '檢視雲端教案與附件'}
             </div>
           </div>
-          <ExternalLink className="w-4 h-4 text-stone-400 group-hover:text-[#1E3A8A] shrink-0 transition-colors" />
-        </button>
+          <ExternalLink className="w-4 h-4 text-stone-400 group-hover:text-[#1E3A8A] group-hover:translate-x-0.5 group-hover:-translate-y-0.5 shrink-0 transition-all" />
+        </div>
       ) : null}
 
       {/* Card Body: Sharp Category Kicker + Crisp Headline + High-Legibility Excerpt */}
@@ -115,8 +110,11 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
           <h3 className="font-editorial text-[19px] font-bold text-stone-950 leading-[1.35] text-balance line-clamp-2">
             <button
               type="button"
-              onClick={() => onSelect(post)}
-              className="text-left hover:text-[#1E3A8A] transition-colors focus-visible:outline-none focus-visible:underline"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(post);
+              }}
+              className="text-left group-hover:text-[#1E3A8A] transition-colors focus-visible:outline-none focus-visible:underline"
             >
               {post.title}
             </button>
@@ -137,14 +135,10 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
             <span className="mx-1.5" aria-hidden="true">·</span>
             <span className="font-mono-tabular">{post.publishedAt}</span>
           </div>
-          <button
-            type="button"
-            onClick={() => onSelect(post)}
-            className="font-semibold text-[#1E3A8A] hover:text-[#172554] inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-          >
+          <span className="font-semibold text-[#1E3A8A] px-2 py-1 -mr-2 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all duration-200">
             <span>閱讀全文</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
+            <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </span>
         </div>
       </div>
     </article>
