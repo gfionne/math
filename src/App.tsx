@@ -25,6 +25,7 @@ import {
 import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
+import {FeaturedSpotlight} from './components/FeaturedSpotlight';
 import {
   Class403Tab,
   InteractiveEmbedModal,
@@ -37,7 +38,6 @@ import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
 import {
   formatCategoryDisplay,
-  getCategoryAccent,
   groupPostsByTopic,
   normalizeAcademicYear,
   parseCategories,
@@ -146,7 +146,6 @@ export default function App() {
 
   // Modals & Drawers
   const [activePost, setActivePost] = useState<JournalPost | null>(null);
-  const [spotlightImgFailed, setSpotlightImgFailed] = useState(false);
   const [immersiveSwipe, setImmersiveSwipe] = useState<{
     isOpen: boolean;
     topicIndex: number;
@@ -541,13 +540,11 @@ export default function App() {
       });
   }, [posts, includeDrafts, selectedYear, selectedCategory, searchQuery]);
 
-  const featuredSpotlightPost = useMemo(() => {
-    return (
-      posts.find((p) => p.status !== 'Draft' && p.isFeatured) ||
-      posts.find((p) => p.status !== 'Draft') ||
-      posts[0] ||
-      null
-    );
+  const featuredSpotlightPosts = useMemo(() => {
+    const published = posts.filter((p) => p.status !== 'Draft');
+    const flagged = published.filter((p) => p.isFeatured);
+    const pool = flagged.length > 0 ? flagged : published.length > 0 ? published : posts;
+    return pool.slice(0, 4);
   }, [posts]);
 
   const embedCount = useMemo(
@@ -1464,7 +1461,7 @@ export default function App() {
         {/* Editorial Masthead + Prominent First-Screen Search + Compact Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-7 lg:py-9">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
               {/* Left Column: Brand Masthead, Prominent Search & Top Topic Quick Links */}
               <div className="lg:col-span-7 min-w-0 flex flex-col justify-center gap-5">
                 <div className="space-y-2.5 min-w-0">
@@ -1589,73 +1586,13 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right Column: Compact Featured Spotlight */}
-              {featuredSpotlightPost ? (
+              {/* Right Column: Curated Featured Spotlight Showcase */}
+              {featuredSpotlightPosts.length > 0 ? (
                 <div className="lg:col-span-5 min-w-0 flex">
-                  <article
-                    onClick={() => setActivePost(featuredSpotlightPost)}
-                    className="group w-full cursor-pointer bg-[#FBF9F5] border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between shadow-[0_2px_10px_rgba(28,25,23,0.04)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-[#1E3A8A]/50 hover:shadow-[0_14px_28px_-6px_rgba(30,58,138,0.15)] active:translate-y-0 active:scale-[0.99]"
-                  >
-                    <div
-                      className={`h-1 group-hover:h-1.5 w-full shrink-0 transition-all duration-200 ${
-                        getCategoryAccent(featuredSpotlightPost.category).barClass
-                      }`}
-                    />
-                    {featuredSpotlightPost.coverImageUrl && !spotlightImgFailed && (
-                      <div className="h-36 w-full bg-stone-100 border-b border-stone-200 overflow-hidden shrink-0">
-                        <img
-                          src={featuredSpotlightPost.coverImageUrl}
-                          alt={featuredSpotlightPost.title}
-                          referrerPolicy="no-referrer"
-                          onError={() => setSpotlightImgFailed(true)}
-                          className="w-full h-full object-cover object-top transition-transform duration-500 group-hover:scale-[1.04]"
-                        />
-                      </div>
-                    )}
-
-                    <div className="p-5 flex-1 flex flex-col justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                          <span className="font-bold text-[#1E3A8A]">
-                            本期焦點
-                            {featuredSpotlightPost.category
-                              ? ` · ${formatCategoryDisplay(featuredSpotlightPost.category)}`
-                              : ''}
-                          </span>
-                          <span className="font-mono-tabular text-stone-500">
-                            {featuredSpotlightPost.academicYear}
-                          </span>
-                        </div>
-
-                        <h2 className="font-editorial text-lg sm:text-xl font-bold text-stone-950 leading-snug line-clamp-2">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActivePost(featuredSpotlightPost);
-                            }}
-                            className="text-left group-hover:text-[#1E3A8A] transition-colors focus-visible:outline-none focus-visible:underline"
-                          >
-                            {featuredSpotlightPost.title}
-                          </button>
-                        </h2>
-
-                        <p className="text-xs sm:text-sm text-stone-600 leading-relaxed line-clamp-2">
-                          {featuredSpotlightPost.summary}
-                        </p>
-                      </div>
-
-                      <div className="pt-3 border-t border-stone-200/80 flex items-center justify-between gap-3 text-xs">
-                        <span className="text-stone-500 truncate">
-                          {featuredSpotlightPost.author}
-                        </span>
-                        <span className="font-semibold text-[#1E3A8A] px-2 py-1 -mr-2 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all duration-200">
-                          <span>閱讀全文</span>
-                          <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                        </span>
-                      </div>
-                    </div>
-                  </article>
+                  <FeaturedSpotlight
+                    posts={featuredSpotlightPosts}
+                    onSelectPost={(post) => setActivePost(post)}
+                  />
                 </div>
               ) : null}
             </div>
