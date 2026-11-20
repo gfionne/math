@@ -1,9 +1,22 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
-import {ArrowLeft, ExternalLink, MonitorPlay, X} from 'lucide-react';
+import {
+  ArrowLeft,
+  ExternalLink,
+  GraduationCap,
+  MonitorPlay,
+  X,
+} from 'lucide-react';
 import {XimenGalleryPanel} from './XimenGalleryPanel';
 
 export type XimenScratchTab = 'map' | 'gallery' | 'blocks' | 'naming';
+export type Class403Tab =
+  | 'agenda'
+  | 'news'
+  | 'resources'
+  | 'contact'
+  | 'comments';
+export type InteractiveStageTab = XimenScratchTab | Class403Tab;
 
 const XIMEN_TABS: Array<{id: XimenScratchTab; label: string}> = [
   {id: 'map', label: '互動商圈地圖'},
@@ -12,11 +25,29 @@ const XIMEN_TABS: Array<{id: XimenScratchTab; label: string}> = [
   {id: 'naming', label: '命名規範與檢核'},
 ];
 
+const CLASS403_TABS: Array<{id: Class403Tab; label: string}> = [
+  {id: 'agenda', label: '互動聯絡簿'},
+  {id: 'news', label: '公告與行事曆'},
+  {id: 'resources', label: '學習資源庫'},
+  {id: 'contact', label: '聯絡與課表'},
+  {id: 'comments', label: '班級留言板'},
+];
+
+const isXimenTab = (tab: string): tab is XimenScratchTab =>
+  tab === 'map' || tab === 'gallery' || tab === 'blocks' || tab === 'naming';
+
+const isClass403Tab = (tab: string): tab is Class403Tab =>
+  tab === 'agenda' ||
+  tab === 'news' ||
+  tab === 'resources' ||
+  tab === 'contact' ||
+  tab === 'comments';
+
 interface InteractiveEmbedModalProps {
   isOpen: boolean;
   url: string;
   title: string;
-  initialTab?: XimenScratchTab;
+  initialTab?: InteractiveStageTab;
   onClose: () => void;
   user: User | null;
   isTeacher: boolean;
@@ -35,7 +66,7 @@ interface InteractiveEmbedModalProps {
 
 function buildTabbedUrl(
   rawUrl: string,
-  tab: XimenScratchTab,
+  tab: string,
   mapBg?: {url: string; name: string} | null,
 ): string {
   try {
@@ -80,7 +111,17 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
   hiddenOfficialAssetIds,
   onUpdateHiddenOfficialAssets,
 }) => {
-  const [activeTab, setActiveTab] = useState<XimenScratchTab>(initialTab);
+  const isXimenSite = useMemo(() => url.includes('ximen-scratch.html'), [url]);
+  const isClass403Site = useMemo(() => url.includes('class-403.html'), [url]);
+
+  const [activeTab, setActiveTab] = useState<XimenScratchTab>(
+    isXimenTab(initialTab) ? initialTab : 'map',
+  );
+  const [activeClassTab, setActiveClassTab] = useState<Class403Tab>(
+    isClass403Tab(initialTab) ? initialTab : 'agenda',
+  );
+  const [classIframeSeedTab, setClassIframeSeedTab] =
+    useState<Class403Tab>('agenda');
   const [customMapBg, setCustomMapBg] = useState<{
     url: string;
     name: string;
@@ -88,10 +129,15 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setActiveTab(initialTab);
+    if (!isOpen) return;
+    if (isXimenSite) {
+      setActiveTab(isXimenTab(initialTab) ? initialTab : 'map');
+    } else if (isClass403Site) {
+      const nextClassTab = isClass403Tab(initialTab) ? initialTab : 'agenda';
+      setActiveClassTab(nextClassTab);
+      setClassIframeSeedTab(nextClassTab);
     }
-  }, [isOpen, initialTab, url]);
+  }, [isOpen, initialTab, url, isXimenSite, isClass403Site]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -112,28 +158,53 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
       if (data?.type === 'XIMEN_OPEN_TAB' && data.tab === 'gallery') {
         setActiveTab('gallery');
       }
+      if (
+        data?.type === 'CLASS403_TAB_CHANGED' &&
+        typeof data.tab === 'string' &&
+        isClass403Tab(data.tab)
+      ) {
+        setActiveClassTab(data.tab);
+      }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [isOpen]);
 
-  const isXimenSite = useMemo(() => {
-    return url.includes('ximen-scratch.html');
-  }, [url]);
+  const handleSelectClassTab = (tab: Class403Tab) => {
+    setActiveClassTab(tab);
+    try {
+      iframeRef.current?.contentWindow?.postMessage(
+        {type: 'CLASS403_SWITCH_TAB', tab},
+        window.location.origin,
+      );
+    } catch {
+      setClassIframeSeedTab(tab);
+    }
+  };
 
   const iframeSrc = useMemo(() => {
-    if (!isXimenSite) return url;
-    const safeTab = activeTab === 'gallery' ? 'map' : activeTab;
-    return buildTabbedUrl(url, safeTab, customMapBg);
-  }, [url, isXimenSite, activeTab, customMapBg]);
+    if (isXimenSite) {
+      const safeTab = activeTab === 'gallery' ? 'map' : activeTab;
+      return buildTabbedUrl(url, safeTab, customMapBg);
+    }
+    if (isClass403Site) {
+      return buildTabbedUrl(url, classIframeSeedTab);
+    }
+    return url;
+  }, [url, isXimenSite, isClass403Site, activeTab, customMapBg, classIframeSeedTab]);
 
   const standaloneHref = useMemo(() => {
-    if (!isXimenSite) return url;
-    if (activeTab === 'gallery') {
-      return './?ximen=gallery';
+    if (isXimenSite) {
+      if (activeTab === 'gallery') {
+        return './?ximen=gallery';
+      }
+      return iframeSrc;
     }
-    return iframeSrc;
-  }, [isXimenSite, activeTab, url, iframeSrc]);
+    if (isClass403Site) {
+      return buildTabbedUrl(url, activeClassTab);
+    }
+    return url;
+  }, [isXimenSite, isClass403Site, activeTab, activeClassTab, url, iframeSrc]);
 
   if (!isOpen || !url) return null;
 
@@ -155,7 +226,7 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="min-h-[40px] px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 hover:text-stone-950 hover:bg-stone-100 rounded-lg inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="min-h-[40px] px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 hover:text-[#1E3A8A] hover:bg-stone-100 active:scale-[0.97] rounded-lg inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>返回知識庫</span>
@@ -164,7 +235,11 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
             <div className="hidden sm:block h-4 w-px bg-stone-200 shrink-0" />
 
             <div className="flex items-center gap-2 min-w-0">
-              <MonitorPlay className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+              {isClass403Site ? (
+                <GraduationCap className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+              ) : (
+                <MonitorPlay className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+              )}
               <h2
                 id="interactive-embed-title"
                 className="font-editorial text-sm sm:text-base font-semibold text-stone-950 truncate"
@@ -187,10 +262,36 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
                     key={tab.id}
                     type="button"
                     onClick={() => setActiveTab(tab.id)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                       isActive
                         ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                        : 'text-stone-600 hover:text-stone-950'
+                        : 'text-stone-600 hover:text-stone-950 hover:bg-white/60'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </nav>
+          )}
+
+          {/* Direct Section Switcher for 403 Class Website */}
+          {isClass403Site && (
+            <nav
+              aria-label="403班級網站分頁切換"
+              className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg overflow-x-auto max-w-full"
+            >
+              {CLASS403_TABS.map((tab) => {
+                const isActive = activeClassTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleSelectClassTab(tab.id)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                      isActive
+                        ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-950 hover:bg-white/60'
                     }`}
                   >
                     {tab.label}
@@ -201,12 +302,12 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
           )}
 
           <div className="flex items-center gap-2 shrink-0">
-            {activeTab !== 'gallery' && (
+            {(!isXimenSite || activeTab !== 'gallery') && (
               <a
                 href={standaloneHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
               >
                 <span>獨立分頁開啟</span>
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -215,8 +316,8 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              aria-label="關閉互動學習網"
-              className="min-h-[40px] min-w-[40px] flex items-center justify-center text-stone-500 hover:text-stone-950 hover:bg-stone-100 rounded-lg transition-colors"
+              aria-label="關閉視窗"
+              className="min-h-[40px] min-w-[40px] flex items-center justify-center text-stone-500 hover:text-stone-950 hover:bg-stone-100 active:scale-[0.95] rounded-lg transition-all"
             >
               <X className="w-4 h-4" />
             </button>
@@ -278,3 +379,4 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
     </div>
   );
 };
+

@@ -1,0 +1,2522 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="page-title">Pes Class Website 115 - 四年3班 (403)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap');
+    body { font-family: 'Noto Sans TC', sans-serif; }
+    .tab-btn.active {
+      background-color: #ffffff;
+      color: #0284c7;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      border-color: #38bdf8;
+    }
+    .hover-lift {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .hover-lift:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+  
+<meta name='google-adsense-platform-account' content='ca-host-pub-1556223355139109'/>
+<meta name='google-adsense-platform-domain' content='blogspot.com'/>
+
+<meta name='google-adsense-platform-account' content='ca-host-pub-1556223355139109'/>
+<meta name='google-adsense-platform-domain' content='blogspot.com'/>
+<meta name='google-adsense-platform-account' content='ca-host-pub-1556223355139109'/>
+<meta name='google-adsense-platform-domain' content='blogspot.com'/>
+</head>
+<body class="bg-slate-100 p-2 sm:p-4 min-h-screen text-slate-700 relative">
+
+  <!-- 雲端同步狀態提示框 -->
+  <div id="sync-toast" class="hidden fixed bottom-5 left-5 bg-slate-900/90 text-white px-4 py-2.5 rounded-2xl text-xs font-medium shadow-xl z-50 flex items-center gap-2 backdrop-blur-md border border-slate-700">
+    <i class="fa-solid fa-spinner fa-spin text-sky-400" id="sync-icon"></i>
+    <span id="sync-text">雲端資料載入中...</span>
+  </div>
+
+  <!-- AI 小幫手懸浮按鈕 -->
+  <button type="button" onclick="toggleAiChat()" class="fixed bottom-5 right-5 bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 text-white p-3.5 sm:px-4 sm:py-3 rounded-full shadow-2xl z-40 flex items-center gap-2 font-bold text-xs sm:text-sm transition-all duration-300 hover:scale-105 active:scale-95 border-2 border-white/40">
+    <i class="fa-solid fa-robot text-lg animate-bounce"></i>
+    <span class="hidden sm:inline">AI 小幫手</span>
+  </button>
+
+  <!-- AI 小幫手對話視窗 -->
+  <div id="ai-chat-window" class="hidden fixed bottom-20 right-5 w-[90vw] sm:w-[380px] h-[500px] bg-white rounded-3xl shadow-2xl z-50 flex flex-col border border-slate-200 overflow-hidden transition-all duration-300">
+    <div class="bg-gradient-to-r from-sky-600 to-indigo-600 p-4 text-white flex items-center justify-between shadow-sm">
+      <div class="flex items-center gap-2.5">
+        <div class="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-sm border border-white/30">
+          <i class="fa-solid fa-robot text-sky-200"></i>
+        </div>
+        <div>
+          <h4 class="font-bold text-xs sm:text-sm">智能叮噹</h4>
+          <p class="text-[10px] text-sky-200">即時解答作業、檔案下載、行事曆與班級訊息</p>
+        </div>
+      </div>
+      <button type="button" onclick="toggleAiChat()" class="text-white/80 hover:text-white text-lg p-1 transition"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <div id="ai-chat-messages" class="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50 text-xs">
+      <div class="flex gap-2">
+        <div class="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs shadow-sm">AI</div>
+        <div class="bg-white p-3 rounded-2xl rounded-tl-none border border-slate-200 text-slate-700 max-w-[80%] shadow-sm leading-relaxed">
+          您好！我是 403 班級 AI 小叮噹 👋 <br>請點選下方快捷按鈕，或輸入您想查詢的內容！
+        </div>
+      </div>
+    </div>
+
+   <div class="px-3 py-2 bg-white border-t border-slate-100 flex flex-wrap gap-1.5 shrink-0">
+      <button type="button" onclick="sendQuickPrompt('最新公告')" class="bg-amber-50 hover:bg-amber-100 text-amber-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-amber-200 transition">📢 最新公告</button>
+      <button type="button" onclick="sendQuickPrompt('今日行事曆')" class="bg-purple-50 hover:bg-purple-100 text-purple-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-purple-200 transition">🗓️ 今日行事曆</button>
+      <button type="button" onclick="sendQuickPrompt('403課表')" class="bg-teal-50 hover:bg-teal-100 text-teal-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-teal-200 transition">📊 403課表</button>
+      <button type="button" onclick="sendQuickPrompt('今日作業')" class="bg-sky-50 hover:bg-sky-100 text-sky-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-sky-200 transition">📝 今日作業</button>
+      <button type="button" onclick="sendQuickPrompt('今日服裝')" class="bg-amber-50 hover:bg-amber-100 text-amber-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-amber-200 transition">👕 服裝規定</button>
+      <button type="button" onclick="sendQuickPrompt('今日課表')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-200 transition">📅 今日課表</button>
+      <button type="button" onclick="sendQuickPrompt('檔案下載')" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-200 transition">📁 檔案下載</button>
+      <button type="button" onclick="sendQuickPrompt('聯絡老師')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-indigo-200 transition">📞 聯絡資訊</button>
+    </div>
+
+    <div class="p-3 bg-white border-t border-slate-200 flex items-center gap-2 shrink-0">
+      <input type="text" id="ai-input" onkeypress="handleAiKeyPress(event)" placeholder="輸入關鍵字（例：班級導師、自然老師、作業）..." class="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-indigo-500 focus:bg-white transition">
+      <button type="button" onclick="sendAiMessage()" class="bg-indigo-600 hover:bg-indigo-700 text-white w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition shadow-sm"><i class="fa-solid fa-paper-plane text-xs"></i></button>
+    </div>
+  </div>
+
+<!-- 放大版面容器 -->
+  <div class="w-full max-w-[96%] mx-auto space-y-5">
+    
+    <!-- Banner 頂部看板 -->
+    <div class="bg-gradient-to-br from-sky-600 via-indigo-600 to-indigo-700 rounded-3xl p-6 sm:p-8 text-white shadow-lg border border-indigo-500/30 relative overflow-hidden">
+      <div class="absolute -right-10 -bottom-10 w-48 h-48 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
+      
+      <!-- 管理員修改標題輸入框 -->
+      <div id="admin-title-edit-box" class="hidden bg-slate-900/40 backdrop-blur-md p-4 rounded-2xl border border-white/20 mb-4 space-y-2 shadow-inner">
+        <div class="text-xs font-bold text-sky-200 flex items-center gap-1.5"><i class="fa-solid fa-pen-to-square"></i> 修改看板與教師資訊</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          <input type="text" id="edit-site-title-input" placeholder="主標題 (例: Our Dream World 115)" class="text-xs p-2 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-sky-400">
+          <input type="text" id="edit-site-subtitle-input" placeholder="副標題 (例: 四年 3 班 (403))" class="text-xs p-2 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-sky-400">
+          <input type="text" id="edit-site-semester-input" placeholder="學期名稱 (例: 115 學年度第一學期)" class="text-xs p-2 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-sky-400">
+          <input type="text" id="edit-teacher-name-input" placeholder="導師姓名 (例: 黃老師)" class="text-xs p-2 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-sky-400">
+          <input type="text" id="edit-teacher-ext-input" placeholder="分機號碼 (例: 5207)" class="text-xs p-2 rounded-xl text-slate-800 outline-none focus:ring-2 focus:ring-sky-400">
+        </div>
+        <button type="button" onclick="saveSiteTitle()" class="bg-white hover:bg-sky-50 text-sky-800 text-xs px-3.5 py-1.5 rounded-xl font-bold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer">儲存資訊變更</button>
+      </div>
+
+      <!-- 看板內容：左側標題 + 右側功能選單 -->
+      <div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <!-- 左側：班級名稱與標題 -->
+        <div class="space-y-1.5">
+          <div class="inline-flex items-center gap-1.5 bg-sky-400/20 backdrop-blur-md px-3 py-1 rounded-full text-xs text-sky-100 border border-sky-300/30 font-semibold">
+            <i class="fa-solid fa-school text-sky-200"></i> <span id="display-site-semester">115 學年度第一學期</span>
+          </div>
+          <h1 class="text-2xl sm:text-3xl font-bold tracking-tight drop-shadow-sm">
+            <span id="display-site-title">Pes Class Website 115</span>
+            <span id="display-site-subtitle" class="text-sky-200 text-base sm:text-lg font-normal">｜ 四年 3 班 (403)</span>
+          </h1>
+        </div>
+
+        <!-- 右側：下拉選單 + 導師分機 + 管理員按鈕 -->
+        <div class="flex flex-wrap items-center gap-2.5">
+
+          <!-- ⚡ 五大頁籤下拉式選單（超醒目高對比版） -->
+          <div class="relative flex items-center">
+            <div class="relative flex items-center bg-white rounded-2xl shadow-lg border-2 border-amber-300 ring-2 ring-amber-400/40 transition-all duration-200 hover:scale-[1.02] hover:shadow-xl">
+              <!-- 左側醒目圖示與標籤 -->
+              <span class="pl-3.5 pr-1 text-indigo-600 font-black text-sm flex items-center gap-1.5 shrink-0 pointer-events-none">
+                <i class="fa-solid fa-compass text-amber-500 animate-pulse"></i>
+                <span class="hidden sm:inline text-xs text-slate-600 font-bold">切換頁籤：</span>
+              </span>
+              
+              <!-- 核心下拉選單 -->
+              <select id="main-nav-dropdown" onchange="switchTab(this.value)" class="bg-transparent text-slate-900 font-extrabold text-xs sm:text-sm pl-1 pr-9 py-2.5 outline-none cursor-pointer appearance-none">
+                <option value="agenda" class="text-slate-800 font-bold py-1">📘 互動聯絡簿</option>
+                <option value="news" class="text-slate-800 font-bold py-1">📢 最新公告與行事曆</option>
+                <option value="resources" class="text-slate-800 font-bold py-1">🎒 學習資源庫</option>
+                <option value="contact" class="text-slate-800 font-bold py-1">📇 聯絡資訊與課表</option>
+                <option value="comments" class="text-slate-800 font-bold py-1">💬 班級交流留言板</option>
+              </select>
+
+              <!-- 右側深色指示箭頭 -->
+              <div class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-indigo-600 text-xs font-black">
+                <i class="fa-solid fa-chevron-down"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- 教師分機卡片 -->
+          <div class="bg-white/15 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/20 text-center shadow-sm">
+            <div id="display-teacher-name" class="text-[10px] text-sky-200 font-medium">導師：黃老師</div>
+            <div id="display-teacher-ext" class="font-bold text-sm tracking-wide">分機 5207</div>
+          </div>
+
+<!-- 管理員按鈕 (已預設隱藏，訪客看不見) -->
+<button type="button" id="admin-toggle-btn" onclick="openLoginModal()" class="hidden bg-white/20 hover:bg-white/30 text-white p-2.5 rounded-2xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer border border-white/25 text-xs font-bold items-center gap-1.5">
+  <i class="fa-solid fa-user-gear"></i> <span id="admin-btn-text">管理員</span>
+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全局管理員提示列 (已登入時顯示) -->
+    <div id="admin-bar" class="hidden bg-emerald-600 text-white px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center justify-between shadow-md border border-emerald-500">
+      <div class="flex items-center gap-2">
+        <i class="fa-solid fa-unlock"></i> 已開啟管理員編輯模式（所有修改將自動同步至雲端）
+      </div>
+      <button type="button" onclick="logoutAdmin()" class="bg-emerald-800 hover:bg-emerald-900 px-3 py-1 rounded-xl text-[11px] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer">登出編輯</button>
+    </div>
+
+    <!-- 頁籤 1：互動聯絡簿 -->
+    <div id="content-agenda" class="space-y-5">
+      <div class="bg-white rounded-2xl p-4 sm:p-5 border-2 border-slate-200 shadow-md hover-lift">
+        <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+            <div class="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center font-bold shrink-0 mr-1 shadow-sm">
+              <i class="fa-solid fa-calendar-day"></i>
+            </div>
+            
+            <button type="button" onclick="shiftDate(-1)" class="bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer">
+              <i class="fa-solid fa-chevron-left text-[10px]"></i> 前
+            </button>
+            
+            <button type="button" onclick="goToToday()" class="bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer">
+              <i class="fa-solid fa-clock-rotate-left text-[10px]"></i> 今日
+            </button>
+            
+            <input type="date" id="agenda-date-picker" onchange="changeDate(this.value)" class="font-bold text-slate-800 text-xs sm:text-sm bg-slate-50 hover:bg-sky-50/50 border border-slate-300 hover:border-sky-400 rounded-xl px-2.5 py-1 outline-none focus:border-sky-500 shadow-sm transition-all duration-200 cursor-pointer">
+            
+            <button type="button" onclick="shiftDate(1)" class="bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700 border border-slate-300 rounded-xl px-3 py-1.5 text-xs font-bold flex items-center gap-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer">
+              後 <i class="fa-solid fa-chevron-right text-[10px]"></i>
+            </button>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <span id="day-of-week-text" class="text-sky-800 bg-sky-100/80 hover:bg-sky-100 px-3 py-1 rounded-xl font-bold text-xs border border-sky-200 shrink-0 transition-all duration-200 hover:-translate-y-0.5 cursor-default">星期一</span>
+
+            <span id="clothing-tag" class="text-amber-800 bg-amber-100/80 hover:bg-amber-100 px-3 py-1 rounded-xl font-bold text-xs border border-amber-200 shrink-0 flex items-center gap-1 shadow-sm transition-all duration-200 hover:-translate-y-0.5 cursor-default">
+              <i class="fa-solid fa-shirt text-amber-600"></i>
+              <span id="clothing-text">服裝：運動服</span>
+            </span>
+
+            <div class="flex flex-wrap items-center gap-1.5 ml-1">
+              <span class="text-xs font-extrabold text-slate-900">課表：</span>
+              <div id="today-schedule-pills" class="flex flex-wrap gap-1 items-center"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2 欄式配置：每日作業、攜帶物品、考試&複習 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <!-- 每日作業 -->
+        <div class="bg-white border-2 border-sky-200 border-l-4 border-l-sky-500 rounded-2xl p-5 space-y-3 shadow-md hover-lift overflow-hidden">
+          <div class="flex items-center justify-between border-b border-sky-100 pb-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-sky-600 text-white flex items-center justify-center text-sm shadow-sm">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </div>
+              <h3 class="font-bold text-slate-800 text-base">每日作業</h3>
+            </div>
+            <span id="display-homework-date" class="text-xs font-bold text-sky-800 bg-sky-100 border border-sky-200 px-2.5 py-1 rounded-full flex items-center gap-1">--/--</span>
+          </div>
+
+          <!-- 嚴謹防止破版的防溢出新增作業表單 -->
+          <div id="admin-add-hw-box" class="hidden bg-sky-50/70 p-3.5 rounded-2xl border border-sky-200 space-y-2.5">
+            <div class="text-xs font-bold text-sky-800 flex items-center gap-1">
+              <i class="fa-solid fa-plus-circle"></i> 新增作業（支援超連結與圖片）
+            </div>
+            <input type="text" id="new-hw-input" placeholder="輸入作業內容說明..." class="w-full text-xs border border-sky-200 rounded-xl p-2 outline-none bg-white box-border">
+            <input type="text" id="new-hw-link-input" placeholder="附加超連結網址 (例: https://..., 選填)" class="w-full text-xs border border-sky-200 rounded-xl p-2 outline-none bg-white box-border">
+            <div class="flex items-center gap-2 bg-white border border-sky-200 rounded-xl p-1.5 text-xs w-full overflow-hidden box-border">
+              <label class="bg-sky-100 hover:bg-sky-200 text-sky-800 font-bold px-2.5 py-1 rounded-lg cursor-pointer transition flex items-center gap-1.5 shrink-0">
+                <i class="fa-solid fa-image"></i> 選擇圖片
+                <input type="file" id="new-hw-img-input" accept="image/*" class="hidden" onchange="previewHwImage(this)">
+              </label>
+              <span id="hw-img-filename" class="text-slate-400 truncate text-[11px] min-w-0 flex-1">未選擇任何圖片</span>
+              <button type="button" id="hw-img-clear" onclick="clearHwImageInput()" class="hidden text-rose-500 hover:text-rose-700 px-1 text-xs shrink-0"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <button type="button" onclick="addHomework()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-3 py-2 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full">確認新增作業</button>
+          </div>
+          
+          <div id="homework-list" class="space-y-3"></div>
+        </div>
+
+        <!-- 攜帶物品 -->
+        <div class="bg-white border-2 border-amber-200 border-l-4 border-l-amber-500 rounded-2xl p-5 space-y-3 shadow-md hover-lift overflow-hidden">
+          <div class="flex items-center justify-between border-b border-amber-100 pb-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center text-sm shadow-sm">
+                <i class="fa-solid fa-bag-shopping"></i>
+              </div>
+              <h3 class="font-bold text-slate-800 text-base">攜帶物品</h3>
+            </div>
+            <span id="display-items-date" class="text-xs font-bold text-amber-800 bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-full flex items-center gap-1">--/--</span>
+          </div>
+
+          <div id="admin-add-item-box" class="hidden flex gap-2">
+            <input type="text" id="new-item-input" placeholder="輸入需攜帶物品..." class="flex-1 text-xs border-2 border-amber-200 rounded-xl px-3 py-2 outline-none focus:border-amber-500 min-w-0">
+            <button type="button" onclick="addItem()" class="bg-amber-500 hover:bg-amber-600 text-white text-xs px-3 py-2 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold shrink-0">新增</button>
+          </div>
+          
+          <div id="items-list" class="space-y-2.5"></div>
+        </div>
+
+        <!-- 考試&複習 -->
+        <div class="bg-white border-2 border-rose-200 border-l-4 border-l-rose-500 rounded-2xl p-5 space-y-3 shadow-md hover-lift overflow-hidden">
+          <div class="flex items-center justify-between border-b border-rose-100 pb-3">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center text-sm shadow-sm">
+                <i class="fa-solid fa-file-pen"></i>
+              </div>
+              <h3 class="font-bold text-slate-800 text-base">考試&複習</h3>
+            </div>
+            <span id="display-exams-date" class="text-xs font-bold text-rose-800 bg-rose-100 border border-rose-200 px-2.5 py-1 rounded-full flex items-center gap-1">--/--</span>
+          </div>
+
+          <div id="admin-add-exam-box" class="hidden flex gap-2">
+            <input type="text" id="new-exam-input" placeholder="輸入考試/複習範圍..." class="flex-1 text-xs border-2 border-rose-200 rounded-xl px-3 py-2 outline-none focus:border-rose-500 min-w-0">
+            <button type="button" onclick="addExam()" class="bg-rose-500 hover:bg-rose-600 text-white text-xs px-3 py-2 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold shrink-0">新增</button>
+          </div>
+          
+          <div id="exams-list" class="space-y-2.5"></div>
+        </div>
+      </div>
+    </div>
+
+<!-- 頁籤 2：最新公告與條列式行事曆 -->
+    <div id="content-news" class="hidden space-y-5">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        
+        <!-- 左側：最新公告消息 (佔 5 格) -->
+        <div class="lg:col-span-5 space-y-3">
+          <div class="bg-white border-2 border-amber-200 border-l-4 border-l-amber-500 rounded-2xl p-5 space-y-4 shadow-md hover-lift">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+                <i class="fa-solid fa-bullhorn text-amber-500"></i> 最新公告消息
+              </h3>
+              <!-- 最新公告類別篩選下拉選單 -->
+              <select id="news-category-filter" onchange="renderAnnouncements()" class="text-xs bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 font-bold px-2.5 py-1 rounded-xl outline-none transition cursor-pointer shadow-sm">
+                <option value="all">🔍 顯示全部公告</option>
+                <option value="班級公告">📢 班級公告</option>
+                <option value="校園資訊">🏫 校園資訊</option>
+                <option value="重要提醒">⚠️ 重要提醒</option>
+                <option value="其他">📌 其他</option>
+              </select>
+            </div>
+            
+            <div id="admin-add-news-box" class="hidden bg-amber-50 p-3.5 rounded-2xl border border-amber-200 space-y-2">
+              <div class="text-xs font-bold text-amber-800"><i class="fa-solid fa-plus-circle"></i> 新增最新公告</div>
+              <div class="flex gap-2">
+                <select id="news-category-select" class="text-xs border border-amber-200 rounded-xl p-2 outline-none bg-white font-medium text-slate-700">
+                  <option value="班級公告" selected>📢 班級公告</option>
+                  <option value="校園資訊">🏫 校園資訊</option>
+                  <option value="重要提醒">⚠️ 重要提醒</option>
+                  <option value="其他">📌 其他</option>
+                </select>
+                <input type="text" id="news-title-input" placeholder="公告標題" class="flex-1 text-xs border border-amber-200 rounded-xl p-2 outline-none min-w-0">
+              </div>
+              <textarea id="news-content-input" placeholder="公告內容詳細說明..." class="w-full text-xs border border-amber-200 rounded-xl p-2 outline-none h-16"></textarea>
+              <button type="button" onclick="addAnnouncement()" class="bg-amber-500 hover:bg-amber-600 text-white text-xs px-3 py-1.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full">發布公告</button>
+            </div>
+            
+            <div id="announcements-list" class="space-y-3"></div>
+          </div>
+        </div>
+
+        <!-- 右側：班級行事曆 (佔 7 格，支援條列/月曆切換) -->
+        <div class="lg:col-span-7 space-y-3">
+          <div class="bg-white border-2 border-sky-200 border-l-4 border-l-sky-500 rounded-2xl p-5 space-y-4 shadow-md hover-lift">
+            
+            <!-- 頂部標題與控制列 -->
+            <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 border-b border-slate-100 pb-2.5">
+<div class="flex flex-wrap items-center gap-2">
+  <h3 class="font-bold text-slate-800 text-base flex items-center gap-2 mr-1">
+    <i class="fa-solid fa-calendar-days text-sky-500"></i> 班級行事曆
+  </h3>
+
+  <!-- 條列 / 月曆 切換按鈕 -->
+  <div class="inline-flex bg-slate-100 p-0.5 rounded-xl text-xs font-bold text-slate-600">
+    <button type="button" id="cal-mode-list-btn" onclick="setCalendarMode('list')" class="flex items-center gap-1 px-2.5 py-1 rounded-lg transition bg-white text-sky-600 shadow-sm cursor-pointer">
+      <i class="fa-solid fa-list-ul"></i> 條列
+    </button>
+    <button type="button" id="cal-mode-grid-btn" onclick="setCalendarMode('grid')" class="flex items-center gap-1 px-2.5 py-1 rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer">
+      <i class="fa-solid fa-table-cells"></i> 月曆
+    </button>
+  </div>
+
+  <!-- 🌟 新增：Google 行事曆外部捷徑與訂閱按鈕 -->
+  <a href="https://calendar.google.com/calendar/embed?src=52cb7nsfde6gn7eus9v9voc848%40group.calendar.google.com&ctz=Asia%2FTaipei" 
+     target="_blank" 
+     rel="noopener noreferrer" 
+     title="在新分頁開啟或訂閱 403 Google 行事曆"
+     class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-600 border border-slate-200 hover:border-sky-300 shadow-sm transition-all duration-200 hover:-translate-y-0.5 cursor-pointer">
+    <i class="fa-brands fa-google text-red-500 text-[11px]"></i>
+    <span>Google 日曆</span>
+    <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-slate-400"></i>
+  </a>
+</div>
+
+              <!-- 篩選與前後日期工具列 -->
+              <div class="flex flex-wrap items-center gap-1.5">
+                <button type="button" onclick="shiftCalendarDate(-1)" class="bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700 border border-slate-300 rounded-xl px-2 py-1 text-xs font-bold transition cursor-pointer">
+                  <i class="fa-solid fa-chevron-left text-[10px]"></i> 前
+                </button>
+                <input type="date" id="calendar-date-picker" onchange="renderCalendarList()" class="font-bold text-slate-800 text-xs bg-slate-50 hover:bg-sky-50 border border-slate-300 rounded-xl px-2 py-1 outline-none transition cursor-pointer">
+                <button type="button" onclick="shiftCalendarDate(1)" class="bg-slate-100 hover:bg-sky-600 hover:text-white text-slate-700 border border-slate-300 rounded-xl px-2 py-1 text-xs font-bold transition cursor-pointer">
+                  後 <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+                <select id="calendar-type-filter" onchange="renderCalendarList()" class="text-xs bg-sky-50 hover:bg-sky-100 border border-sky-200 text-sky-900 font-bold px-2 py-1 rounded-xl outline-none transition cursor-pointer">
+                  <option value="all">🔍 全部類型</option>
+                  <option value="exam">📝 評量測驗</option>
+                  <option value="activity">🎒 戶外活動</option>
+                  <option value="notice">📢 班級活動</option>
+                  <option value="holiday">🎉 節慶假期</option>
+                </select>
+                <button type="button" onclick="resetCalendarFilter()" class="bg-sky-600 hover:bg-sky-700 text-white rounded-xl px-2.5 py-1 text-xs font-bold transition cursor-pointer">
+                  全部
+                </button>
+              </div>
+            </div>
+
+            <!-- 管理者新增行程區塊 -->
+            <div id="admin-add-event-box" class="hidden bg-sky-50 p-3.5 rounded-2xl border border-sky-200 space-y-2">
+              <div class="text-xs font-bold text-sky-800"><i class="fa-solid fa-plus-circle"></i> 新增行事曆行程</div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <input type="date" id="event-date-input" class="text-xs border border-sky-200 rounded-xl p-2 outline-none">
+                <input type="text" id="event-title-input" placeholder="行程名稱 (例: 期中考)" class="text-xs border border-sky-200 rounded-xl p-2 outline-none">
+                <select id="event-type-select" class="text-xs border border-sky-200 rounded-xl p-2 outline-none bg-white">
+                  <option value="exam">📝 評量測驗</option>
+                  <option value="activity">🎒 戶外活動</option>
+                  <option value="notice" selected>📢 班級活動</option>
+                  <option value="holiday">🎉 節慶假期</option>
+                </select>
+              </div>
+              <button type="button" onclick="addCalendarEvent()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-3 py-1.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full">新增至行事曆</button>
+            </div>
+
+            <!-- 行事曆內容渲染目標容器 -->
+            <div id="calendar-list" class="space-y-2.5"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- 頁籤 3：學習資源 -->
+    <div id="content-resources" class="hidden space-y-5">
+      <div class="bg-white border-2 border-indigo-200 border-l-4 border-l-indigo-500 rounded-2xl p-5 space-y-4 shadow-md hover-lift">
+        <h3 class="font-bold text-slate-800 text-base flex items-center gap-2 border-b border-slate-100 pb-2.5">
+          <i class="fa-solid fa-laptop-code text-indigo-500"></i> 線上學習平台
+        </h3>
+        
+        <div id="admin-add-platform-box" class="hidden bg-indigo-50 p-3.5 rounded-2xl border border-indigo-200 space-y-2">
+          <div class="text-xs font-bold text-indigo-800"><i class="fa-solid fa-plus-circle"></i> 新增學習平台連結</div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <input type="text" id="new-platform-title" placeholder="平台名稱" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none">
+            <input type="text" id="new-platform-desc" placeholder="說明" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none">
+            <input type="text" id="new-platform-url" placeholder="網址 (https://...)" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none">
+          </div>
+          <button type="button" onclick="addPlatform()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full sm:w-auto">新增平台</button>
+        </div>
+
+        <div id="platforms-list" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3.5"></div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div class="bg-white border-2 border-slate-200 odd:border-l-4 odd:border-l-sky-500 even:border-r-4 even:border-r-sky-500 rounded-2xl p-5 space-y-3 shadow-md hover-lift">
+          <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2 border-b pb-2"><i class="fa-solid fa-book text-sky-600"></i> 教科書版本</h4>
+          <div id="admin-add-textbook-box" class="hidden bg-sky-50 p-3 rounded-xl border border-sky-200 space-y-2">
+            <div class="text-xs font-bold text-sky-800"><i class="fa-solid fa-plus-circle"></i> 新增/修改教科書項目</div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <input type="text" id="textbook-subject-input" placeholder="科目/領域 (例: 數學)" class="text-xs border border-sky-200 rounded-xl p-2 outline-none">
+              <input type="text" id="textbook-publisher-input" placeholder="版本 (例: 南一)" class="text-xs border border-sky-200 rounded-xl p-2 outline-none">
+            </div>
+            <button type="button" onclick="addTextbook()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-3 py-1.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full">新增項目</button>
+          </div>
+          <ul id="textbook-list" class="text-xs space-y-2 text-slate-600"></ul>
+        </div>
+
+        <div class="bg-white border-2 border-slate-200 border-l-4 border-l-emerald-500 rounded-2xl p-5 space-y-3 shadow-md hover-lift">
+          <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2 border-b pb-2"><i class="fa-solid fa-file-arrow-down text-emerald-600"></i> 檔案與表單下載</h4>
+          <div id="admin-add-file-box" class="hidden bg-emerald-50 p-3 rounded-xl border border-emerald-200 space-y-2">
+            <div class="text-xs font-bold text-emerald-800"><i class="fa-solid fa-plus-circle"></i> 新增表單/檔案</div>
+            <input type="text" id="new-file-name" placeholder="檔案名稱 (例: 請假單.pdf)" class="text-xs border border-emerald-200 rounded-xl p-1.5 outline-none w-full">
+            <input type="text" id="new-file-url" placeholder="連結 (https://...)" class="text-xs border border-emerald-200 rounded-xl p-1.5 outline-none w-full">
+            <button type="button" onclick="addFile()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full">新增檔案</button>
+          </div>
+          <div id="files-list" class="space-y-2"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 頁籤 4：聯絡資訊與課表 -->
+    <div id="content-contact" class="hidden space-y-5">
+      <div class="bg-white border-2 border-indigo-200 border-l-4 border-l-indigo-500 rounded-2xl p-5 space-y-4 shadow-md hover-lift">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-2.5">
+          <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+            <i class="fa-solid fa-address-book text-indigo-500"></i> 聯絡資訊與管道
+          </h3>
+          <div class="flex items-center gap-2">
+            <label for="contact-teacher-filter" class="text-xs font-bold text-slate-600 shrink-0">選擇類別：</label>
+            <select id="contact-teacher-filter" onchange="renderContacts()" class="text-xs bg-indigo-50/80 hover:bg-indigo-100 border border-indigo-200 text-indigo-900 font-bold px-3 py-1.5 rounded-xl outline-none transition cursor-pointer shadow-sm">
+              <option value="all">🔍 顯示全部人員/項目</option>
+              <option value="班級導師">👨‍🏫 班級導師</option>
+              <option value="科任教師">🔬 科任教師</option>
+              <option value="處室行政">🏫 處室行政</option>
+              <option value="其他">📌 其他</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="admin-add-contact-box" class="hidden bg-indigo-50/70 p-4 rounded-2xl border border-indigo-200 space-y-3">
+          <div class="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
+            <i class="fa-solid fa-plus-circle"></i> 新增教師聯絡卡片
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <select id="contact-category-select" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none bg-white font-medium text-slate-700">
+              <option value="班級導師">👨‍🏫 班級導師</option>
+              <option value="科任教師">🔬 科任教師</option>
+              <option value="處室行政">🏫 處室行政</option>
+              <option value="其他">📌 其他</option>
+            </select>
+            <input type="text" id="contact-name-input" placeholder="姓名 (例: 黃老師)" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none bg-white">
+            <input type="text" id="contact-phone-input" placeholder="電話/分機 (例: (02)23113519 #5207)" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none bg-white">
+            <input type="text" id="contact-email-input" placeholder="電子信箱 (例: pes@hmes.tp.edu.tw)" class="text-xs border border-indigo-200 rounded-xl p-2 outline-none bg-white">
+          </div>
+          <button type="button" onclick="addContactCard()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 py-2 rounded-xl transition font-bold flex items-center gap-1.5 justify-center">
+            <i class="fa-solid fa-user-plus"></i> 新增聯絡卡片
+          </button>
+        </div>
+
+        <div id="contact-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs sm:text-sm text-slate-700"></div>
+      </div>
+      
+      <!-- 班級總課表區塊 -->
+      <div class="bg-white border-2 border-sky-200 border-l-4 border-l-sky-500 rounded-2xl p-5 space-y-4 shadow-md hover-lift">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+          <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+            <i class="fa-solid fa-table text-sky-500"></i> 班級總課表
+          </h3>
+          <span class="text-xs bg-sky-100 text-sky-800 font-bold border border-sky-200 px-2.5 py-1 rounded-full">每週課表一覽</span>
+        </div>
+
+        <div id="admin-edit-schedule-box" class="hidden bg-sky-50 p-3.5 rounded-2xl border border-sky-200 space-y-2">
+          <div class="text-xs font-bold text-sky-800"><i class="fa-solid fa-pen"></i> 快速修改課表科目</div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <select id="schedule-day-select" class="text-xs border border-sky-200 rounded-xl p-2 bg-white outline-none">
+              <option value="mon">星期一</option>
+              <option value="tue">星期二</option>
+              <option value="wed">星期三</option>
+              <option value="thu">星期四</option>
+              <option value="fri">星期五</option>
+            </select>
+            <select id="schedule-period-select" class="text-xs border border-sky-200 rounded-xl p-2 bg-white outline-none">
+              <option value="1">第 1 節</option>
+              <option value="2">第 2 節</option>
+              <option value="3">第 3 節</option>
+              <option value="4">第 4 節</option>
+              <option value="5">第 5 節</option>
+              <option value="6">第 6 節</option>
+              <option value="7">第 7 節</option>
+            </select>
+            <input type="text" id="schedule-subject-input" placeholder="科目名稱 (例: 數學)" class="text-xs border border-sky-200 rounded-xl p-2 outline-none">
+            <button type="button" onclick="updateScheduleCell()" class="bg-sky-600 hover:bg-sky-700 text-white text-xs px-3 py-1.5 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold">更新課表</button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-center text-xs sm:text-sm border-collapse min-w-[500px]">
+            <thead>
+              <tr class="bg-slate-100 text-slate-800 font-bold border-b border-slate-200">
+                <th class="p-2.5 border border-slate-200 bg-slate-200/50">節次</th>
+                <th class="p-2.5 border border-slate-200 bg-sky-50 text-sky-900">一 (運動服)</th>
+                <th class="p-2.5 border border-slate-200 bg-purple-50 text-purple-900">二 (運/制)</th>
+                <th class="p-2.5 border border-slate-200 bg-emerald-50 text-emerald-900">三 (便服-運動式)</th>
+                <th class="p-2.5 border border-slate-200 bg-purple-50 text-purple-900">四 (運/制)</th>
+                <th class="p-2.5 border border-slate-200 bg-amber-50 text-amber-900">五 (便服)</th>
+              </tr>
+            </thead>
+            <tbody id="schedule-tbody" class="divide-y divide-slate-200 text-slate-700"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 頁籤 5：獨立留言板區塊 -->
+    <div id="content-comments" class="hidden space-y-5">
+      <div id="comment-board-section" class="bg-white border-2 border-indigo-200 border-l-4 border-l-indigo-500 rounded-2xl p-5 space-y-4 shadow-md hover-lift">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+            <i class="fa-solid fa-comments text-indigo-500"></i> 班級交流留言板
+          </h3>
+          <span id="comment-count-tag" class="text-xs bg-indigo-100 text-indigo-800 font-bold px-2.5 py-1 rounded-full">0 則留言</span>
+        </div>
+
+        <div class="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input type="text" id="comment-author" placeholder="您的稱呼（例：403小明爸 / 黃老師）" class="text-xs border border-indigo-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-indigo-400 bg-white">
+            <div class="flex items-center gap-1 bg-white p-1.5 rounded-xl border border-indigo-200 text-xs">
+              <span class="text-slate-400 font-bold shrink-0 pl-1">快速心情:</span>
+              <button type="button" onclick="selectEmoji('❤️')" class="hover:bg-indigo-100 px-1.5 py-0.5 rounded transition">❤️</button>
+              <button type="button" onclick="selectEmoji('👍')" class="hover:bg-indigo-100 px-1.5 py-0.5 rounded transition">👍</button>
+              <button type="button" onclick="selectEmoji('🎉')" class="hover:bg-indigo-100 px-1.5 py-0.5 rounded transition">🎉</button>
+              <button type="button" onclick="selectEmoji('💪')" class="hover:bg-indigo-100 px-1.5 py-0.5 rounded transition">💪</button>
+              <span id="display-selected-emoji" class="ml-auto font-bold text-indigo-600 px-2">💬</span>
+            </div>
+          </div>
+          <textarea id="comment-text" placeholder="寫下想給班級、同學或老師的話..." class="w-full text-xs border border-indigo-200 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-indigo-400 bg-white h-20 resize-none"></textarea>
+          <button type="button" onclick="addComment()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-4 py-2 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer font-bold w-full sm:w-auto flex items-center justify-center gap-1">
+            <i class="fa-solid fa-paper-plane"></i> 發布留言
+          </button>
+        </div>
+
+        <div id="comments-list" class="space-y-3 pt-2"></div>
+      </div>
+    </div>
+
+    <div class="text-center text-xs text-slate-400 py-3 font-medium">
+      115學年度班級網誌組件 vs Gemin Vibe Coding    
+      @pes (西門黃老師) 版權所有
+    </div>
+
+  </div>
+
+  <!-- 管理員 Modal 彈窗 -->
+  <div id="login-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-slate-200">
+      <div class="flex justify-between items-center border-b pb-3">
+        <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+          <i class="fa-solid fa-lock text-sky-600"></i> 管理員登入
+        </h3>
+        <button type="button" onclick="closeLoginModal()" class="text-slate-400 hover:text-slate-600 transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <div class="space-y-2">
+        <label class="text-xs font-semibold text-slate-600">請輸入管理員密碼</label>
+        <input type="password" id="admin-password" placeholder="" class="w-full border-2 border-slate-200 rounded-xl p-2.5 text-sm outline-none focus:border-sky-500">
+        <p id="login-error" class="text-xs text-rose-500 hidden"><i class="fa-solid fa-circle-exclamation"></i> 密碼錯誤，請重新輸入！</p>
+      </div>
+      <div class="flex gap-2 justify-end pt-2">
+        <button type="button" onclick="closeLoginModal()" class="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 rounded-xl transition">取消</button>
+        <button type="button" onclick="verifyPassword()" class="px-4 py-2 text-xs font-bold bg-sky-600 text-white hover:bg-sky-700 rounded-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md cursor-pointer">登入驗證</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 圖片放大檢視 Modal (Lightbox) -->
+  <div id="image-modal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4" onclick="closeImageModal()">
+    <div class="relative max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl p-2 bg-white shadow-2xl" onclick="event.stopPropagation()">
+      <button type="button" onclick="closeImageModal()" class="absolute top-3 right-3 bg-slate-900/70 hover:bg-slate-900 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm z-10 transition"><i class="fa-solid fa-xmark"></i></button>
+      <img id="modal-img-element" src="" alt="作業圖片放大預覽" class="max-w-full max-h-[85vh] object-contain rounded-xl mx-auto block">
+    </div>
+  </div>
+
+  <script>
+const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw2Kzbm7OI8sDLUlpMNcoq_Zl86dTuBCCVEDK5yEnYkAAVTo18mFhkcfVnXkJ4Sd_9T/exec";
+    const ADMIN_PASSWORD_HASH = "c54dcf9e06513a0cd7bfe2303fa3a11e136db3eb6b09c51c69bc171fa8425ab3";
+    let isAdmin = false;
+
+    let currentUploadedImageBase64 = "";
+
+// 💡 強化防禦版：自動相容 event/this，安全壓縮圖片
+function previewHwImage(inputOrEvent) {
+  // 相容 onchange="previewHwImage(this)" 與 onchange="previewHwImage(event)"
+  const input = (inputOrEvent && inputOrEvent.target) ? inputOrEvent.target : inputOrEvent;
+  
+  if (input && input.files && input.files[0]) {
+    const file = input.files[0];
+
+    // 安全檢查：若非圖片檔案直接阻擋
+    if (!file.type.startsWith('image/')) {
+      alert("請選取圖片檔案（JPG、PNG、WebP 等）！");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const img = new Image();
+      img.onload = function() {
+        const maxDimension = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          }
+        } else {
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // 壓縮為 0.6 品質 JPEG (體積僅約 15~30KB，符合 Google 試算表規範)
+        currentUploadedImageBase64 = canvas.toDataURL('image/jpeg', 0.6);
+
+        const fnEl = document.getElementById('hw-img-filename');
+        if (fnEl) {
+          fnEl.innerText = `${file.name} (已就緒)`;
+          fnEl.className = "text-sky-700 font-bold truncate text-[11px] min-w-0 flex-1";
+        }
+        const clearBtn = document.getElementById('hw-img-clear');
+        if (clearBtn) clearBtn.classList.remove('hidden');
+      };
+      
+      img.onerror = function() {
+        alert("圖片讀取失敗，可能是格式不支援（例如部分 iPhone HEIC 檔），請轉換為 JPG 後再上傳！");
+      };
+
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+    function clearHwImageInput() {
+      currentUploadedImageBase64 = "";
+      const input = document.getElementById('new-hw-img-input');
+      if (input) input.value = "";
+      
+      const fnEl = document.getElementById('hw-img-filename');
+      if (fnEl) {
+        fnEl.innerText = "未選擇任何圖片";
+        fnEl.className = "text-slate-400 truncate text-[11px] min-w-0 flex-1";
+      }
+      const clearBtn = document.getElementById('hw-img-clear');
+      if (clearBtn) clearBtn.classList.add('hidden');
+    }
+
+    function openImageModal(imgSrc) {
+      const modalImg = document.getElementById('modal-img-element');
+      const modal = document.getElementById('image-modal');
+      if (modalImg) modalImg.src = imgSrc;
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeImageModal() {
+      const modal = document.getElementById('image-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function getTodayStr() {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    let appData = {
+      siteTitle: 'Pes CLass Website 115',
+      siteSubtitle: '｜ 四年 3 班 (403)',
+      siteSemester: '115 學年度第一學期',
+      teacherName: '黃老師',
+      teacherExt: '5207',
+      homeworkData: {
+        '2026-08-31': { 
+          clothing: '運動服', 
+          homework: [
+            { text: '讀國課L1', link: '', image: '' }
+          ], 
+          items: ['帶回條'],
+          exams: ['測驗', '複習']
+        }
+      },
+      schedule: [
+        { period: 1, mon: '國語', tue: '國語', wed: '本土語', thu: '綜合', fri: '國語' },
+        { period: 2, mon: '數學', tue: '數學', wed: '國語', thu: '綜合', fri: '自然' },
+        { period: 3, mon: '英語', tue: '自然', wed: '體育', thu: '社會', fri: '藝美' },
+        { period: 4, mon: '國語', tue: '自然', wed: '數學', thu: '數學', fri: '藝美' },
+        { period: 5, mon: '社會', tue: '探索', wed: '-', thu: '健康', fri: '-' },
+        { period: 6, mon: '社會', tue: '英語', wed: '-', thu: '英語', fri: '-' },
+        { period: 7, mon: '體育', tue: '電腦', wed: '-', thu: '雙音', fri: '-' }
+      ],
+      announcements: [
+        { id: 1, category: '班級公告', title: '開學提醒與放學時間說明', content: '每週三與週五為 12:40 放學，請準時接送孩子或提醒孩子返家安全。', date: '2026-08-31' }
+      ],
+      textbooks: [
+        { subject: '國語領域', publisher: '康軒' },
+        { subject: '鄉土語言 (閩/客)', publisher: '閩：真平 ｜ 客：康軒' },
+        { subject: '英語文', publisher: '翰林 (Here We Go 5.6)' },
+        { subject: '數學領域', publisher: '南一' },
+        { subject: '社會領域', publisher: '南一' },
+        { subject: '自然/健體/綜合', publisher: '康軒' },
+        { subject: '藝術領域', publisher: '翰林' }
+      ],
+      calendarList: [
+        { date: '2026-08-31', title: '115學年度第一學期 開學典禮', type: 'notice' },
+        { date: '2026-09-12', title: '學校日/親師懇談 (10:30-11:30)', type: 'notice' },
+        { date: '2026-09-28', title: '教師節敬師感恩活動', type: 'holiday' },
+        { date: '2026-09-30', title: '校外教學 (文山劇場)8:20-11:30', type: 'activity' },
+        { date: '2026-11-05', title: '期中考(國自英)', type: 'exam' },
+        { date: '2026-11-06', title: '期中考(數社)', type: 'exam' }
+      ],
+      contacts: [ ],
+      platformsData: [
+        { title: "臺北酷課雲", desc: "線上自主學習平台", url: "https://cooc.tp.edu.tw/" },
+        { title: "因材網", desc: "線上學習資源連結", url: "https://adl.edu.tw/HomePage/home/" },
+        { title: "酷AI", desc: "線上自主學習平台", url: "https://ailms.tp.edu.tw/" },  
+        { title: "教育部電子辭典", desc: "電子辭典", url: "https://www.edu.tw/Content_List.aspx?n=83D8D70FE4468412" },
+        { title: "教育部國語辭典簡編版", desc: "中年級適合", url: "https://dict.concised.moe.edu.tw/" }
+      ],
+      filesData: [
+        { name: "學生請假單.pdf", url: "https://drive.google.com/file/d/10KO7pNbp1J_cbIc5K4-rC5EQPhGjUneQ/view?usp=drive_link" },
+        { name: "學生外出單.pdf", url: "https://drive.google.com/file/d/1L_Uo2hdqT6Kmfg-ej7CO10b_THFLXZ6s/view?usp=drive_link" },
+        { name: "校園行動載具使用管理規範.pdf", url: "https://drive.google.com/file/d/1E5srxa9vtYPMA3mxhbgbvzF2IzDY42U3/view?usp=drive_link" },
+        { name: "學生保險申請注意事項.pdf", url: "https://drive.google.com/file/d/1WwfqbrUjiZ4d9LVBjA2M8LRNui-iTZiC/view?usp=drive_link" },
+        { name: "甲乙本(雲端資料)", url: "https://drive.google.com/drive/folders/1XerVi-RMXy5Gk2GMYIKT46byfyVYxtTa" },
+      ],
+      comments: []
+    };
+
+    function toggleComments() {
+      switchTab('comments');
+    }
+    
+    
+
+    function toggleAiChat() {
+      const win = document.getElementById('ai-chat-window');
+      win.classList.toggle('hidden');
+    }
+
+    function sendQuickPrompt(text) {
+      document.getElementById('ai-input').value = text;
+      sendAiMessage();
+    }
+
+    function handleAiKeyPress(e) {
+      if (e.key === 'Enter') sendAiMessage();
+    }
+
+    function sendAiMessage() {
+      const input = document.getElementById('ai-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      appendChatMessage(text, 'user');
+      input.value = '';
+
+      setTimeout(() => {
+        const reply = generateAiReply(text);
+        appendChatMessage(reply, 'bot');
+      }, 400);
+    }
+
+    function appendChatMessage(msg, sender) {
+      const container = document.getElementById('ai-chat-messages');
+      const div = document.createElement('div');
+      
+      if (sender === 'user') {
+        div.className = 'flex gap-2 justify-end';
+        div.innerHTML = `<div class="bg-indigo-600 text-white p-3 rounded-2xl rounded-tr-none max-w-[80%] shadow-sm leading-relaxed">${msg}</div>`;
+      } else {
+        div.className = 'flex gap-2';
+        div.innerHTML = `
+          <div class="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 text-xs shadow-sm">AI</div>
+          <div class="bg-white p-3 rounded-2xl rounded-tl-none border border-slate-200 text-slate-700 max-w-[80%] shadow-sm leading-relaxed">${msg}</div>
+        `;
+      }
+      
+      container.appendChild(div);
+      container.scrollTop = container.scrollHeight;
+    }
+
+function generateAiReply(query) {
+    const q = query.toLowerCase();
+    const todayStr = getTodayStr();
+
+    // 1. 【智能日期解析】支援「今天、明天、後天、昨天」動態計算
+    let targetDateObj = new Date();
+    if (q.includes('明天') || q.includes('明日')) {
+      targetDateObj.setDate(targetDateObj.getDate() + 1);
+    } else if (q.includes('後天')) {
+      targetDateObj.setDate(targetDateObj.getDate() + 2);
+    } else if (q.includes('昨天')) {
+      targetDateObj.setDate(targetDateObj.getDate() - 1);
+    } else if (!q.includes('今日') && !q.includes('今天')) {
+      // 若無特別提及，以當前畫面上選取的日期為準
+      const curKey = getCurDateKey();
+      if (curKey) {
+        const [cy, cm, cd] = curKey.split('-').map(Number);
+        targetDateObj = new Date(cy, cm - 1, cd);
+      }
+    }
+
+    const y = targetDateObj.getFullYear();
+    const m = String(targetDateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(targetDateObj.getDate()).padStart(2, '0');
+    const dateKey = `${y}-${m}-${d}`;
+    const dayIdx = targetDateObj.getDay();
+    const dayKey = dayKeys[dayIdx];
+
+    // 確保當日資料結構存在
+    ensureDateData(dateKey);
+    const curHW = appData.homeworkData[dateKey] || { homework: [], items: [], exams: [] };
+
+    // 2. 【服裝精準對照】優先呼叫四年 3 班專屬規則函式
+    const correctClothing = (typeof getScheduleClothing === 'function')
+      ? getScheduleClothing(dateKey)
+      : (defaultClothing[dayIdx] || '便服');
+
+    // --- 各項 AI 意圖識別 ---
+
+    // 【服裝查詢】
+    if (q.includes('服裝') || q.includes('穿什麼') || q.includes('穿著') || q.includes('穿')) {
+      return `👕 <b>${dateKey} (${dayNames[dayIdx]}) 服裝：</b><br>四年 3 班規定穿著為【<b>${correctClothing}</b>】。`;
+    }
+
+    // 【檔案下載】
+    if (q.includes('檔案') || q.includes('下載') || q.includes('表單') || q.includes('文件')) {
+      if (!appData.filesData || appData.filesData.length === 0) {
+        return `📁 目前網站上尚無提供下載的檔案或表單喔！`;
+      }
+      let fileReply = `📁 <b>班級檔案與表單下載：</b><br>點選下方連結即可於新頁面開啟/下載：<br><br>`;
+      fileReply += appData.filesData.map((f, i) => `${i+1}. <a href="${f.url}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:text-indigo-800 underline font-bold"><i class="fa-solid fa-file-arrow-down mr-1"></i>${f.name}</a>`).join('<br>');
+      return fileReply;
+    }
+
+    // 【總課表查詢】
+    if (q.includes('403課表') || q.includes('總課表') || q.includes('全週課表') || q.includes('每週課表')) {
+      if (!Array.isArray(appData.schedule)) return `📊 目前暫無每週總課表資料喔！`;
+      let scheduleText = `📊 <b>403 班級總課表（一～五）：</b><br>`;
+      const days = [
+        { key: 'mon', name: '星期一' },
+        { key: 'tue', name: '星期二' },
+        { key: 'wed', name: '星期三' },
+        { key: 'thu', name: '星期四' },
+        { key: 'fri', name: '星期五' }
+      ];
+      days.forEach(d => {
+        let dayLessons = [];
+        appData.schedule.forEach(s => {
+          const subj = s[d.key];
+          if (subj && subj !== '-') {
+            dayLessons.push(`${s.period}.${subj}`);
+          }
+        });
+        scheduleText += `• <b>${d.name}</b>：${dayLessons.length > 0 ? dayLessons.join('、') : '無全天課程'}<br>`;
+      });
+      return scheduleText;
+    }
+
+    // 【今日行事曆】
+    if (q.includes('今日行事曆') || q.includes('今天行事曆') || (q.includes('行事曆') && (q.includes('今日') || q.includes('今天')))) {
+      const todayEvents = (appData.calendarList || []).filter(e => e.date === todayStr);
+      if (todayEvents.length > 0) {
+        return `🗓️ <b>今日 (${todayStr}) 行事曆行程：</b><br>` + todayEvents.map(e => `• ${e.title}`).join('<br>');
+      } else {
+        const upcoming = [...(appData.calendarList || [])].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 3);
+        let reply = `🗓️ <b>今日 (${todayStr}) 尚無特定行事曆行程喔！</b>`;
+        if (upcoming.length > 0) {
+          reply += `<br><br>📌 <b>近期預定行程：</b><br>` + upcoming.map(e => `• <b>${e.date}</b>：${e.title}`).join('<br>');
+        }
+        return reply;
+      }
+    }
+
+    // 【行事曆 / 考試與行程】
+    if (q.includes('行事曆') || q.includes('行程') || q.includes('活動') || q.includes('考試') || q.includes('評量') || q.includes('複習') || q.includes('放假')) {
+      if (q.includes('複習') || q.includes('每日考試')) {
+        if (curHW.exams && curHW.exams.length > 0) {
+          return `✏️ <b>${dateKey} 考試&複習項目：</b><br>` + curHW.exams.map((ex, i) => `${i+1}. ${ex}`).join('<br>');
+        }
+      }
+
+      if (!appData.calendarList || appData.calendarList.length === 0) {
+        return `📅 目前網站上暫無行事曆行程紀錄喔！`;
+      }
+
+      if (q.includes('考試') || q.includes('評量')) {
+        const exams = appData.calendarList.filter(e => e.type === 'exam' || e.title.includes('考') || e.title.includes('評量'));
+        if (exams.length > 0) {
+          return `📝 <b>預定評量與考試行程：</b><br>` + exams.map(e => `• <b>${e.date}</b>：${e.title}`).join('<br>');
+        }
+      }
+
+      const sortedList = [...appData.calendarList].sort((a, b) => a.date.localeCompare(b.date));
+      return `📅 <b>班級條列行事曆行程：</b><br>` + sortedList.map(e => `• <b>${e.date}</b>：${e.title}`).join('<br>');
+    }
+
+    // 【公告查詢】
+    if (q.includes('班級公告')) {
+      const classNews = (appData.announcements || []).filter(a => a.category === '班級公告' || a.title.includes('班級'));
+      if (classNews.length > 0) {
+        return `📢 <b>【班級公告】最新消息：</b><br>` + classNews.map(a => `• <b>${a.title}</b> (${a.date})<br>&nbsp;&nbsp;${linkifyText(a.content)}`).join('<br><br>');
+      }
+      return `📢 目前暫無【班級公告】的最新消息喔！`;
+    }
+
+    if (q.includes('校園資訊') || q.includes('校園消息') || q.includes('學校資訊')) {
+      const campusNews = (appData.announcements || []).filter(a => a.category === '校園資訊' || a.title.includes('校園') || a.title.includes('學校'));
+      if (campusNews.length > 0) {
+        return `🏫 <b>【校園資訊】最新消息：</b><br>` + campusNews.map(a => `• <b>${a.title}</b> (${a.date})<br>&nbsp;&nbsp;${linkifyText(a.content)}`).join('<br><br>');
+      }
+      return `🏫 目前暫無【校園資訊】的最新消息喔！`;
+    }
+
+    if (q.includes('公告') || q.includes('最新公告') || q.includes('消息') || q.includes('最新消息')) {
+      if (!appData.announcements || appData.announcements.length === 0) return `📢 目前暫無最新公告紀錄。`;
+      return `📢 <b>最新公告消息一覽：</b><br>` + appData.announcements.slice(0, 5).map(a => `• <b>[${a.category || '公告'}] ${a.title}</b> (${a.date})<br>&nbsp;&nbsp;${linkifyText(a.content)}`).join('<br><br>');
+    }
+
+    // 【作業查詢】
+    if (q.includes('作業') || q.includes('功課')) {
+      if (!curHW.homework || curHW.homework.length === 0) return `📅 <b>${dateKey}</b> 目前沒有紀錄作業喔！`;
+      return `📝 <b>${dateKey} 作業項目：</b><br>` + curHW.homework.map((h, i) => {
+        const text = typeof h === 'string' ? h : h.text;
+        const link = typeof h === 'object' && h.link ? ` (<a href="${h.link}" target="_blank" class="text-sky-600 underline">連結</a>)` : '';
+        const img = typeof h === 'object' && h.image ? ` [含圖片]` : '';
+        return `${i+1}. ${text}${link}${img}`;
+      }).join('<br>');
+    }
+
+    // 【攜帶物品】
+    if (q.includes('帶') || q.includes('物品') || q.includes('東西')) {
+      if (!curHW.items || curHW.items.length === 0) return `🎒 <b>${dateKey}</b> 無需特別攜帶的物品紀錄！`;
+      return `🎒 <b>${dateKey} 需攜帶物品：</b><br>` + curHW.items.map((it, i) => `• ${it}`).join('<br>');
+    }
+
+    // 【當日課表】
+    if (q.includes('課表') || q.includes('上課')) {
+      if (dayKey === 'sat' || dayKey === 'sun') return `🎉 今天是週末，沒有排課喔！`;
+      if (!Array.isArray(appData.schedule)) return `📅 目前暫無課表資料喔！`;
+      let lessons = [];
+      appData.schedule.forEach(s => {
+        if (s[dayKey] && s[dayKey] !== '-') lessons.push(`第 ${s.period} 節：${s[dayKey]}`);
+      });
+      return `📅 <b>${dayNames[dayIdx]} 當日課表：</b><br>` + (lessons.join('<br>') || '本日暫無課程安排');
+    }
+
+    // 【聯絡資訊】
+    if (appData.contacts && appData.contacts.length > 0) {
+      const cleanQ = q.replace(/(請問|查詢|知道|告訴我|的|聯絡方式|資訊|資料|電話|號碼|分機)/g, '').trim().toLowerCase();
+
+      const matched = appData.contacts.filter(c => {
+        const name = (c.name || c.title || '').toLowerCase();
+        const category = (c.category || '').toLowerCase();
+        const phone = (c.phone || c.val || '').toLowerCase();
+        const email = (c.email || '').toLowerCase();
+
+        if (!cleanQ) return false;
+
+        return name.includes(cleanQ) || cleanQ.includes(name) ||
+               category.includes(cleanQ) || cleanQ.includes(category) ||
+               phone.includes(cleanQ) ||
+               email.includes(cleanQ) ||
+               (cleanQ.includes('自然') && (name.includes('自然') || category.includes('自然'))) ||
+               (cleanQ.includes('社會') && (name.includes('社會') || category.includes('社會'))) ||
+               (cleanQ.includes('導師') && (name.includes('導師') || category.includes('導師'))) ||
+               (cleanQ.includes('數學') && (name.includes('數學') || category.includes('數學'))) ||
+               (cleanQ.includes('英文') && (name.includes('英文') || category.includes('英文'))) ||
+               (cleanQ.includes('國語') && (name.includes('國語') || category.includes('國語')));
+      });
+
+      if (matched.length > 0) {
+        let text = `📞 <b>查找到相關聯絡資訊：</b><br>`;
+        text += matched.map(c => {
+          const categoryTag = c.category ? `[${c.category}] ` : '';
+          const nameStr = c.name || c.title || '聯絡人員';
+          let details = [];
+          if (c.phone) details.push(`電話: ${c.phone}`);
+          if (c.email) details.push(`信箱: ${c.email}`);
+          if (!c.phone && !c.email && c.val) details.push(c.val);
+
+          const contactDetail = details.length > 0 ? details.join(' / ') : '未提供聯絡方式';
+          return `• <b>${categoryTag}${nameStr}</b>：${contactDetail}`;
+        }).join('<br>');
+        return text;
+      }
+    }
+
+    if (q.includes('老師') || q.includes('導師') || q.includes('聯絡') || q.includes('電話') || q.includes('信箱') || q.includes('分機')) {
+      if (appData.contacts && appData.contacts.length > 0) {
+        let text = `📞 <b>班級聯絡管道一覽：</b><br>`;
+        text += appData.contacts.map(c => {
+          const categoryTag = c.category ? `[${c.category}] ` : '';
+          const nameStr = c.name || c.title || '聯絡人員';
+          const contactDetail = c.phone || c.val || c.email || '未提供聯絡方式';
+          return `• <b>${categoryTag}${nameStr}</b>：${contactDetail}`;
+        }).join('<br>');
+        return text;
+      }
+    }
+
+    return `😊 抱歉，我不太理解您的問題。<br>您可以嘗試點選上方快捷按鈕，或查詢「<b>班級導師</b>」、「<b>自然老師</b>」、「<b>檔案下載</b>」、「<b>今日行事曆</b>」、「<b>403課表</b>」或「<b>今日作業</b>」喔！`;
+  }
+
+// ==========================================
+    // 雲端同步與版面管理 核心防禦模組
+    // ==========================================
+
+    function showToast(msg, isLoading = false) {
+      const toast = document.getElementById('sync-toast');
+      const icon = document.getElementById('sync-icon');
+      const text = document.getElementById('sync-text');
+      
+      if (!toast || !text) return;
+
+      text.innerText = msg;
+      if (icon) {
+        if (isLoading) {
+          icon.className = 'fa-solid fa-spinner fa-spin text-sky-400';
+        } else {
+          icon.className = 'fa-solid fa-circle-check text-emerald-400';
+        }
+      }
+      toast.classList.remove('hidden');
+      if (!isLoading) {
+        setTimeout(() => {
+          if (toast) toast.classList.add('hidden');
+        }, 2500);
+      }
+    }
+
+    async function loadCloudData() {
+      if (!GAS_API_URL || GAS_API_URL.includes("YOUR_SCRIPT_ID_HERE")) {
+        console.warn("尚未設定 GAS_API_URL，使用本地預設資料。");
+        renderAllUI();
+        return;
+      }
+      showToast("同步雲端最新資料中...", true);
+      try {
+        const res = await fetch(GAS_API_URL, {
+          method: 'GET',
+          cache: 'no-cache'
+        });
+        const cloudData = await res.json();
+        
+        if (cloudData && typeof cloudData === 'object' && Object.keys(cloudData).length > 0) {
+          // 深度完全覆蓋（確保刪除的項目不會被舊快取殘留救回）
+          appData = JSON.parse(JSON.stringify(cloudData));
+          showToast("已載入雲端最新資料");
+        } else {
+          showToast("初始化雲端資料");
+        }
+      } catch (err) {
+        console.error("載入失敗:", err);
+        showToast("⚠️ 無法載入雲端，使用快取版本");
+      }
+      renderAllUI();
+    }
+
+async function saveCloudData() {
+      if (!GAS_API_URL || GAS_API_URL.includes("YOUR_SCRIPT_ID_HERE")) {
+        alert("請先設定有效的 GAS_API_URL 才能存至雲端！");
+        return;
+      }
+      
+      showToast("正在同步資料至雲端...", true);
+
+      try {
+        // 確保發送純淨的 JSON 字串
+        const payload = JSON.stringify(appData);
+
+        const response = await fetch(GAS_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: payload
+        });
+
+        // 檢查回應狀態
+        if (response.ok || response.type === 'opaque') {
+          showToast("雲端同步成功！", false);
+          // 注意：此處只更新各模組畫面，不要重新執行雲端下載 loadCloudData()
+          if (typeof renderHomework === 'function') renderHomework();
+          if (typeof renderItems === 'function') renderItems();
+          if (typeof renderExams === 'function') renderExams();
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+      } catch (err) {
+        console.error("儲存失敗:", err);
+        // 若瀏覽器安全限制擋住 response，進行二度容錯確認
+        showToast("已送出同步請求，請稍後重整確認！", false);
+      }
+    }
+
+function renderAllUI() {
+      renderSiteTitle();
+      
+      // 安全取得日期選擇器數值
+      const picker = document.getElementById('agenda-date-picker');
+      const curDate = (picker && picker.value) ? picker.value : (typeof getTodayStr === 'function' ? getTodayStr() : '');
+      
+      if (curDate && typeof changeDate === 'function') {
+        changeDate(curDate);
+      }
+      
+      // 確保其他模組存在才執行，避免單一模組報錯影響全站
+      if (typeof renderAnnouncements === 'function') renderAnnouncements();
+      if (typeof renderCalendarList === 'function') renderCalendarList();
+      if (typeof renderTextbooks === 'function') renderTextbooks();
+      if (typeof renderPlatforms === 'function') renderPlatforms();
+      if (typeof renderFiles === 'function') renderFiles();
+      if (typeof renderContacts === 'function') renderContacts();
+      if (typeof renderSchedule === 'function') renderSchedule();
+      if (typeof renderComments === 'function') renderComments();
+    }
+
+    function renderSiteTitle() {
+      if (!appData) return;
+
+      const title = appData.siteTitle || '403 班級網誌';
+      const sub = appData.siteSubtitle || '';
+      const semester = appData.siteSemester || '';
+      const teacher = appData.teacherName || '黃老師';
+      const ext = appData.teacherExt || '';
+
+      // 安全更新文字（防範 DOM 元素不存在的例外）
+      const elTitle = document.getElementById('display-site-title');
+      if (elTitle) elTitle.innerText = title;
+
+      const elSub = document.getElementById('display-site-subtitle');
+      if (elSub) {
+        elSub.innerText = sub ? (sub.startsWith('｜') ? sub : `｜ ${sub}`) : '';
+      }
+
+      const elPageTitle = document.getElementById('page-title');
+      if (elPageTitle) elPageTitle.innerText = `${title} ${sub}`.trim();
+
+      const elSemester = document.getElementById('display-site-semester');
+      if (elSemester) elSemester.innerText = semester;
+
+      const elTeacher = document.getElementById('display-teacher-name');
+      if (elTeacher) elTeacher.innerText = `導師：${teacher}`;
+
+      const elExt = document.getElementById('display-teacher-ext');
+      if (elExt) elExt.innerText = ext ? `分機 ${ext}` : '';
+    }
+
+    function saveSiteTitle() {
+      const elTitle = document.getElementById('edit-site-title-input');
+      const elSub = document.getElementById('edit-site-subtitle-input');
+      const elSem = document.getElementById('edit-site-semester-input');
+      const elTeacher = document.getElementById('edit-teacher-name-input');
+      const elExt = document.getElementById('edit-teacher-ext-input');
+
+      if (elTitle && elTitle.value.trim()) appData.siteTitle = elTitle.value.trim();
+      if (elSub) appData.siteSubtitle = elSub.value.trim();
+      if (elSem) appData.siteSemester = elSem.value.trim();
+      if (elTeacher) appData.teacherName = elTeacher.value.trim();
+      if (elExt) appData.teacherExt = elExt.value.trim();
+
+      // 立即重繪標題並同步至雲端
+      renderSiteTitle();
+      saveCloudData();
+    }
+    
+    async function sha256(str) {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function openLoginModal() {
+      if (isAdmin) {
+        logoutAdmin();
+      } else {
+        document.getElementById('admin-password').value = '';
+        document.getElementById('login-error').classList.add('hidden');
+        document.getElementById('login-modal').classList.remove('hidden');
+      }
+    }
+
+    function closeLoginModal() {
+      document.getElementById('login-modal').classList.add('hidden');
+    }
+
+    async function verifyPassword() {
+      const pwd = document.getElementById('admin-password').value;
+      const hash = await sha256(pwd);
+      if (hash === ADMIN_PASSWORD_HASH) {
+        isAdmin = true;
+        closeLoginModal();
+        toggleAdminUI(true);
+        showToast("已成功登入管理員模式");
+      } else {
+        document.getElementById('login-error').classList.remove('hidden');
+      }
+    }
+
+function logoutAdmin() {
+  isAdmin = false;
+  toggleAdminUI(false);
+  if (typeof showToast === 'function') {
+    showToast("已安全登出管理員模式");
+  }
+}
+function toggleAdminUI(show) {
+      // 確保全域管理員狀態同步
+      isAdmin = !!show;
+
+      // 需要切換顯示/隱藏的管理員面板 ID 清單
+      const adminElements = [
+        'admin-bar',
+        'admin-title-edit-box',
+        'admin-add-hw-box',
+        'admin-add-item-box',
+        'admin-add-exam-box',
+        'admin-add-news-box',
+        'admin-add-event-box',
+        'admin-add-platform-box',
+        'admin-add-textbook-box',
+        'admin-add-file-box',
+        'admin-add-contact-box',
+        'admin-edit-schedule-box'
+      ];
+
+      // 安全切換 hidden 樣式（自動跳過不存在的元素，防崩潰）
+      adminElements.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.classList.toggle('hidden', !show);
+        }
+      });
+
+      // 安全更新按鈕文字
+      const btnTextEl = document.getElementById('admin-btn-text');
+      if (btnTextEl) {
+        btnTextEl.innerText = show ? "登出" : "管理員";
+      }
+
+      // 重新渲染所有模組 UI，確保刪除垃圾桶等按鈕正確同步
+      if (typeof renderAllUI === 'function') {
+        renderAllUI();
+      }
+    }
+
+/**
+ * 五大分頁切換核心函式（全域防禦版）
+ */
+window.switchTab = function(tabId) {
+  try {
+    const tabList = ['agenda', 'news', 'resources', 'contact', 'comments'];
+
+    // 1. 隱藏所有分頁（同時使用 class 與 inline style 雙重確保隱藏）
+    tabList.forEach(t => {
+      const contentEl = document.getElementById(`content-${t}`);
+      if (contentEl) {
+        contentEl.classList.add('hidden');
+        contentEl.style.display = 'none'; // 雙重防禦，避免 CSS 權重問題
+      }
+      
+      // 安全檢查：若舊按鈕存在才處理，不存在則直接略過（絕不中斷報錯）
+      const oldTabBtn = document.getElementById(`tab-${t}`);
+      if (oldTabBtn) {
+        oldTabBtn.classList.remove('active');
+      }
+    });
+
+    // 2. 顯示目標分頁
+    const targetContent = document.getElementById(`content-${tabId}`);
+    if (targetContent) {
+      targetContent.classList.remove('hidden');
+      targetContent.style.display = 'block'; // 雙重防禦，強制顯示
+    } else {
+      console.warn(`找不到對應的分頁區塊：content-${tabId}`);
+    }
+
+    // 3. 同步頂部下拉選單的選取狀態
+    const navDropdown = document.getElementById('main-nav-dropdown');
+    if (navDropdown && navDropdown.value !== tabId) {
+      navDropdown.value = tabId;
+    }
+
+    // 4. 平滑滾動至頁面頂部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  } catch (error) {
+    console.error("切換頁籤時發生錯誤：", error);
+  }
+};
+    const dayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    const dayKeys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+
+    const defaultClothing = {
+      1: '運動服',
+      2: '運/制',
+      3: '便服-運動式',
+      4: '運/制',
+      5: '便服',
+      0: '休假',
+      6: '休假'
+    };
+
+    function shiftDate(offset) {
+      const picker = document.getElementById('agenda-date-picker');
+      const curVal = picker.value || getTodayStr();
+      const [y, m, d] = curVal.split('-').map(Number);
+      const cur = new Date(y, m - 1, d);
+      cur.setDate(cur.getDate() + offset);
+      
+      const iso = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
+      picker.value = iso;
+      changeDate(iso);
+    }
+
+    function goToToday() {
+      const today = getTodayStr();
+      document.getElementById('agenda-date-picker').value = today;
+      changeDate(today);
+    }
+
+function changeDate(dateStr) {
+      if (!dateStr) return;
+
+      // 內建防禦星期清單，避免全域變數漏宣告
+      const _dayNames = (typeof dayNames !== 'undefined') ? dayNames : ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+      const _dayKeys = (typeof dayKeys !== 'undefined') ? dayKeys : ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+      const _defaultClothing = (typeof defaultClothing !== 'undefined') ? defaultClothing : ['便服', '運動服', '便服', '便服', '運動服', '制服', '便服'];
+
+      const [y, m, d] = dateStr.split('-').map(Number);
+      const targetDate = new Date(y, m - 1, d);
+      const dayIdx = targetDate.getDay();
+
+      const dayTextEl = document.getElementById('day-of-week-text');
+      if (dayTextEl) dayTextEl.innerText = _dayNames[dayIdx] || '星期一';
+
+      ensureDateData(dateStr);
+  
+      // ✏️ 修改後：直接呼叫四年 3 班專屬規則函式！
+const clothingVal = getScheduleClothing(dateStr);
+  
+      const clothTextEl = document.getElementById('clothing-text');
+      if (clothTextEl) clothTextEl.innerText = `服裝：${clothingVal}`;
+
+      const dateParts = dateStr.split('-');
+      const formatted = `${dateParts[1]}/${dateParts[2]} (${_dayNames[dayIdx]})`;
+      
+      const isToday = (dateStr === getTodayStr());
+      const todayTag = isToday ? ' <span class="bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full ml-1 shadow-sm animate-pulse">今日</span>' : '';
+
+      const elHwDate = document.getElementById('display-homework-date');
+      const elItemDate = document.getElementById('display-items-date');
+      const elExamDate = document.getElementById('display-exams-date');
+      if (elHwDate) elHwDate.innerHTML = formatted + todayTag;
+      if (elItemDate) elItemDate.innerHTML = formatted + todayTag;
+      if (elExamDate) elExamDate.innerHTML = formatted + todayTag;
+
+      // 課表膠囊渲染 (安全防禦 appData.schedule)
+      const pillsContainer = document.getElementById('today-schedule-pills');
+      if (pillsContainer) {
+        pillsContainer.innerHTML = '';
+        const key = _dayKeys[dayIdx];
+        if (key === 'sat' || key === 'sun') {
+          pillsContainer.innerHTML = '<span class="text-xs text-slate-400 font-bold px-2 py-0.5 rounded-lg bg-slate-100">🎉 週末放假</span>';
+        } else if (Array.isArray(appData.schedule)) {
+          appData.schedule.forEach(s => {
+            const subj = s[key] || '-';
+            if (subj !== '-') {
+              const span = document.createElement('span');
+              span.className = 'text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200 px-2 py-0.5 rounded-lg shadow-sm hover:bg-sky-100 transition cursor-default';
+              span.innerText = `${s.period}.${subj}`;
+              pillsContainer.appendChild(span);
+            }
+          });
+        }
+      }
+
+      // 立即繪製三大清單
+      renderHomework();
+      renderItems();
+      renderExams();
+    }
+
+    function getCurDateKey() {
+      return document.getElementById('agenda-date-picker').value || getTodayStr();
+    }
+    
+    function getScheduleClothing(dateKey) {
+  try {
+    var dayOfWeek = 0;
+    
+    // 1. 防禦性解析傳入的日期格式 (支援 Date 物件 或 "2026/09/08"、"2026-09-08" 字串)
+    if (dateKey instanceof Date) {
+      dayOfWeek = dateKey.getDay();
+    } else if (typeof dateKey === 'string' && dateKey.trim() !== '') {
+      var parts = dateKey.trim().split(/[-/]/);
+      if (parts.length === 3) {
+        dayOfWeek = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10)).getDay();
+      } else {
+        var d = new Date(dateKey);
+        dayOfWeek = isNaN(d.getTime()) ? new Date().getDay() : d.getDay();
+      }
+    } else {
+      dayOfWeek = new Date().getDay();
+    }
+
+    // 2. 四年 3 班專屬服裝對照表
+    var clothingMap = {
+      1: '運動服',
+      2: '運/制',
+      3: '便服-運動式',
+      4: '運/制',
+      5: '便服',
+      6: '休假',
+      0: '休假'
+    };
+
+    return clothingMap[dayOfWeek] || '便服';
+  } catch (error) {
+    console.error("解析服裝時發生錯誤：", error);
+    return '便服';
+  }
+}
+
+function ensureDateData(dateKey) {
+      if (!appData.homeworkData) {
+        appData.homeworkData = {};
+      }
+      
+      const defaultCloth = (typeof getScheduleClothing === 'function') ? getScheduleClothing(dateKey) : '便服';
+
+      // 1. 若該日期完全無資料，初始化標準結構
+      if (!appData.homeworkData[dateKey]) {
+        appData.homeworkData[dateKey] = {
+          clothing: defaultCloth,
+          homework: [],
+          items: [],
+          exams: []
+        };
+        return;
+      }
+
+      // 2. 防禦性檢查：補齊可能遺漏的各項屬性
+      const dayData = appData.homeworkData[dateKey];
+
+      if (!dayData.clothing) {
+        dayData.clothing = defaultCloth;
+      }
+
+      if (!Array.isArray(dayData.items)) {
+        dayData.items = [];
+      }
+
+      if (!Array.isArray(dayData.exams)) {
+        dayData.exams = [];
+      }
+
+      if (Array.isArray(dayData.homework)) {
+        // 自我修復：將舊版字串格式的作業自動轉為標準物件格式
+        dayData.homework = dayData.homework.map(item => {
+          if (typeof item === 'string') {
+            return { text: item, link: '', image: '' };
+          }
+          return {
+            text: item.text || '',
+            link: item.link || '',
+            image: item.image || ''
+          };
+        });
+      } else {
+        dayData.homework = [];
+      }
+    }
+
+function toggleLocalCheck(storageKey, checkboxEl, textElId) {
+      const isChecked = checkboxEl.checked;
+      localStorage.setItem(storageKey, isChecked);
+      const textEl = document.getElementById(textElId);
+      if (textEl) {
+        if (isChecked) {
+          textEl.classList.add('line-through', 'text-slate-400', 'opacity-60');
+        } else {
+          textEl.classList.remove('line-through', 'text-slate-400', 'opacity-60');
+        }
+      }
+    }
+
+// ==========================================
+    // 1. 作業區塊 (Homework CRUD) - 完美修復版
+    // ==========================================
+    function renderHomework() {
+      const dateKey = getCurDateKey();
+      ensureDateData(dateKey);
+      const list = appData.homeworkData[dateKey].homework || [];
+      const container = document.getElementById('homework-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (list.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-400 italic py-2">本日無功課紀錄</div>';
+        return;
+      }
+
+      list.forEach((hwObj, idx) => {
+        const localKey = `hw_check_${dateKey}_${idx}`;
+        const isChecked = localStorage.getItem(localKey) === 'true';
+
+        const hwText = typeof hwObj === 'string' ? hwObj : (hwObj.text || '');
+        let hwLink = typeof hwObj === 'object' && hwObj.link ? hwObj.link.trim() : '';
+        const hwImg = typeof hwObj === 'object' && hwObj.image ? hwObj.image : '';
+
+        // 確保超連結具有協定開頭
+        if (hwLink && !/^https?:\/\//i.test(hwLink)) {
+          hwLink = 'https://' + hwLink;
+        }
+
+        const item = document.createElement('div');
+        item.className = 'bg-sky-50/60 hover:bg-sky-100/80 hover:-translate-y-0.5 hover:shadow-sm p-3 rounded-2xl border border-sky-100 text-xs text-slate-700 font-medium transition-all duration-200 space-y-2 overflow-hidden';
+        
+        // 組合內容：作業打勾文字 + 刪除按鈕
+        let htmlContent = `
+          <div class="flex items-start justify-between gap-2 min-w-0">
+            <label class="flex items-start gap-2.5 flex-1 cursor-pointer select-none min-w-0">
+              <input type="checkbox" onchange="toggleLocalCheck('${localKey}', this, 'hw-text-${idx}')" ${isChecked ? 'checked' : ''} class="mt-0.5 w-4 h-4 text-sky-600 rounded border-slate-300 focus:ring-sky-500 cursor-pointer accent-sky-600 shrink-0">
+              <span id="hw-text-${idx}" class="block leading-relaxed break-words flex-1 ${isChecked ? 'line-through text-slate-400 opacity-60' : ''}">${hwText}</span>
+            </label>
+            ${isAdmin ? `<button type="button" onclick="deleteHomework(${idx})" class="text-rose-400 hover:text-rose-600 p-1 transition shrink-0 ml-1" title="刪除作業"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+          </div>
+        `;
+
+        // 💡 修復點 1：補上超連結按鈕 (放在 label 外面避免誤觸打勾)
+        if (hwLink) {
+          htmlContent += `
+            <div class="pl-6">
+              <a href="${hwLink}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-[11px] text-sky-700 hover:text-sky-900 bg-white hover:bg-sky-100 border border-sky-200 px-2.5 py-1 rounded-lg transition font-bold shadow-xs">
+                <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-sky-500"></i> 開啟作業連結
+              </a>
+            </div>
+          `;
+        }
+
+        // 💡 修復點 2：正確輸出圖片縮圖，並移出 label 避免點圖時誤打勾
+        if (hwImg) {
+          htmlContent += `
+            <div class="pl-6 pt-1">
+              <img src="${hwImg}" alt="作業附圖" onclick="openImageModal(this.src)" class="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl border-2 border-white shadow-sm hover:scale-105 transition cursor-pointer" title="點擊放大圖片">
+            </div>
+          `;
+        }
+
+        item.innerHTML = htmlContent;
+        container.appendChild(item);
+      });
+    }
+
+    function addHomework() {
+      const input = document.getElementById('new-hw-input');
+      const linkInput = document.getElementById('new-hw-link-input');
+      const val = input ? input.value.trim() : '';
+      let linkVal = linkInput ? linkInput.value.trim() : '';
+
+      if (!val) {
+        alert("請輸入作業內容說明！");
+        return;
+      }
+
+      // 自動補齊 https:// 避免輸入 www.xxx 造成相對路徑錯誤
+      if (linkVal && !/^https?:\/\//i.test(linkVal)) {
+        linkVal = 'https://' + linkVal;
+      }
+
+      const dateKey = getCurDateKey();
+      ensureDateData(dateKey);
+
+      if (!Array.isArray(appData.homeworkData[dateKey].homework)) {
+        appData.homeworkData[dateKey].homework = [];
+      }
+
+      appData.homeworkData[dateKey].homework.push({
+        text: val,
+        link: linkVal,
+        image: typeof currentUploadedImageBase64 !== 'undefined' ? currentUploadedImageBase64 : ''
+      });
+
+      if (input) input.value = '';
+      if (linkInput) linkInput.value = '';
+      if (typeof clearHwImageInput === 'function') clearHwImageInput();
+
+      renderHomework(); // 立即更新介面
+      saveCloudData();  // 觸發雲端儲存
+    }
+
+    function deleteHomework(idx) {
+      const dateKey = getCurDateKey();
+      if (appData.homeworkData && appData.homeworkData[dateKey] && Array.isArray(appData.homeworkData[dateKey].homework)) {
+        appData.homeworkData[dateKey].homework.splice(idx, 1);
+        renderHomework(); // 立即更新介面
+        saveCloudData();  // 觸發雲端儲存
+      }
+    }
+
+    // ==========================================
+    // 2. 攜帶物品區塊 (Items CRUD)
+    // ==========================================
+    function renderItems() {
+      const dateKey = getCurDateKey();
+      ensureDateData(dateKey);
+      const list = appData.homeworkData[dateKey].items || [];
+      const container = document.getElementById('items-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (list.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-400 italic py-2">本日無需攜帶物品紀錄</div>';
+        return;
+      }
+
+      list.forEach((it, idx) => {
+        const localKey = `item_check_${dateKey}_${idx}`;
+        const isChecked = localStorage.getItem(localKey) === 'true';
+
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between bg-amber-50/60 hover:bg-amber-100/80 hover:-translate-y-0.5 hover:shadow-sm p-2.5 rounded-xl border border-amber-100 text-xs text-slate-700 font-medium transition-all duration-200 select-none overflow-hidden';
+        item.innerHTML = `
+          <label class="flex items-center gap-2.5 flex-1 cursor-pointer min-w-0">
+            <input type="checkbox" onchange="toggleLocalCheck('${localKey}', this, 'item-text-${idx}')" ${isChecked ? 'checked' : ''} class="w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500 cursor-pointer accent-amber-500 shrink-0">
+            <span id="item-text-${idx}" class="truncate ${isChecked ? 'line-through text-slate-400 opacity-60' : ''}">${it}</span>
+          </label>
+          ${isAdmin ? `<button type="button" onclick="deleteItem(${idx})" class="text-rose-400 hover:text-rose-600 px-1.5 py-0.5 rounded transition shrink-0 ml-2" title="刪除項目"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function addItem() {
+      const input = document.getElementById('new-item-input');
+      const val = input ? input.value.trim() : '';
+      if (!val) return;
+
+      const dateKey = getCurDateKey();
+      ensureDateData(dateKey);
+
+      if (!Array.isArray(appData.homeworkData[dateKey].items)) {
+        appData.homeworkData[dateKey].items = [];
+      }
+
+      appData.homeworkData[dateKey].items.push(val);
+      if (input) input.value = '';
+
+      renderItems();   // 立即更新介面
+      saveCloudData(); // 觸發雲端儲存
+    }
+
+    function deleteItem(idx) {
+      const dateKey = getCurDateKey();
+      if (appData.homeworkData && appData.homeworkData[dateKey] && Array.isArray(appData.homeworkData[dateKey].items)) {
+        appData.homeworkData[dateKey].items.splice(idx, 1);
+        renderItems();   // 立即更新介面
+        saveCloudData(); // 觸發雲端儲存
+      }
+    }
+
+    // ==========================================
+    // 3. 測驗與複習區塊 (Exams CRUD)
+    // ==========================================
+    function renderExams() {
+      const dateKey = getCurDateKey();
+      ensureDateData(dateKey);
+      const list = appData.homeworkData[dateKey].exams || [];
+      const container = document.getElementById('exams-list');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (list.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-400 italic py-2">本日無考試或複習紀錄</div>';
+        return;
+      }
+
+      list.forEach((ex, idx) => {
+        const localKey = `exam_check_${dateKey}_${idx}`;
+        const isChecked = localStorage.getItem(localKey) === 'true';
+
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between bg-rose-50/60 hover:bg-rose-100/80 hover:-translate-y-0.5 hover:shadow-sm p-2.5 rounded-xl border border-rose-100 text-xs text-slate-700 font-medium transition-all duration-200 select-none overflow-hidden';
+        item.innerHTML = `
+          <label class="flex items-center gap-2.5 flex-1 cursor-pointer min-w-0">
+            <input type="checkbox" onchange="toggleLocalCheck('${localKey}', this, 'exam-text-${idx}')" ${isChecked ? 'checked' : ''} class="w-4 h-4 text-rose-600 rounded border-slate-300 focus:ring-rose-500 cursor-pointer accent-rose-500 shrink-0">
+            <span id="exam-text-${idx}" class="truncate ${isChecked ? 'line-through text-slate-400 opacity-60' : ''}">${ex}</span>
+          </label>
+          ${isAdmin ? `<button type="button" onclick="deleteExam(${idx})" class="text-rose-400 hover:text-rose-600 px-1.5 py-0.5 rounded transition shrink-0 ml-2" title="刪除測驗"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function addExam() {
+      const input = document.getElementById('new-exam-input');
+      const val = input ? input.value.trim() : '';
+      if (!val) return;
+
+      const dateKey = getCurDateKey();
+      ensureDateData(dateKey);
+
+      if (!Array.isArray(appData.homeworkData[dateKey].exams)) {
+        appData.homeworkData[dateKey].exams = [];
+      }
+
+      appData.homeworkData[dateKey].exams.push(val);
+      if (input) input.value = '';
+
+      renderExams();   // 立即更新介面
+      saveCloudData(); // 觸發雲端儲存
+    }
+
+    function deleteExam(idx) {
+      const dateKey = getCurDateKey();
+      if (appData.homeworkData && appData.homeworkData[dateKey] && Array.isArray(appData.homeworkData[dateKey].exams)) {
+        appData.homeworkData[dateKey].exams.splice(idx, 1);
+        renderExams();   // 立即更新介面
+        saveCloudData(); // 觸發雲端儲存
+      }
+    }
+
+// 【強效全能版】自動將文字中的網址轉為可點擊超連結
+    function linkifyText(text) {
+      if (!text) return '';
+      // 支援 http://、https:// 與 www. 開頭，並主動排除中文字與標點符號
+      const urlRegex = /(https?:\/\/[^\s<>\u4e00-\u9fa5\uff01-\uffee，。、]+|www\.[^\s<>\u4e00-\u9fa5\uff01-\uffee，。、]+)/gi;
+      
+      return String(text).replace(urlRegex, (matchedUrl) => {
+        let fullUrl = matchedUrl;
+        // 若以 www. 開頭，自動補上 https://
+        if (!/^https?:\/\//i.test(fullUrl)) {
+          fullUrl = 'https://' + fullUrl;
+        }
+        return `<a href="${fullUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" class="text-blue-600 hover:text-blue-800 underline font-bold break-all inline-flex items-center gap-1 mx-0.5 relative z-10 cursor-pointer">${matchedUrl} <i class="fa-solid fa-arrow-up-right-from-square text-[9px] pointer-events-none"></i></a>`;
+      });
+    }
+
+/* =========================================================
+   【模組 4：資訊與資源模組】最新公告核心邏輯 (支援超連結自動解析)
+   ========================================================= */
+
+// 1. 超連結自動解析輔助函式 (含防禦性安全機制與防冒泡)
+function linkifyText(text) {
+  if (!text) return '';
+  
+  // 安全防禦：轉義 HTML 特殊字元，防止 XSS 攻擊
+  const safeText = String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+  // 正則比對標準網址 (支援 http, https)
+  const urlRegex = /(https?:\/\/[^\s\u4e00-\u9fa5<]+)/g;
+
+  // 替換為美化且安全的 <a> 標籤
+  return safeText.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" class="text-sky-600 hover:text-sky-800 underline underline-offset-2 font-medium break-all inline-flex items-center gap-0.5 transition-colors cursor-pointer"><i class="fa-solid fa-arrow-up-right-from-square text-[10px] ml-0.5"></i>${url}</a>`;
+  });
+}
+
+// 2. 渲染公告清單
+function renderAnnouncements() {
+  const container = document.getElementById('announcements-list');
+  const filterEl = document.getElementById('news-category-filter');
+  const selectedCat = filterEl ? filterEl.value : 'all';
+
+  if (!container) return;
+  container.innerHTML = '';
+
+  // 空狀態安全檢查
+  if (!appData.announcements || !Array.isArray(appData.announcements) || appData.announcements.length === 0) {
+    container.innerHTML = '<div class="text-xs text-slate-400 italic py-2">目前尚無最新公告</div>';
+    return;
+  }
+
+  // 自動補齊歷史資料遺漏之唯一 id (Self-healing ID)
+  appData.announcements.forEach((ann, idx) => {
+    if (!ann.id) ann.id = Date.now() + '_' + idx;
+  });
+
+  const filtered = appData.announcements.filter(ann => {
+    if (selectedCat === 'all') return true;
+    return (ann.category || '公告') === selectedCat;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="text-xs text-slate-400 italic py-2 text-center">該分類下無公告紀錄</div>';
+    return;
+  }
+
+  filtered.forEach((ann) => {
+    const card = document.createElement('div');
+    card.className = 'bg-amber-50/40 hover:bg-amber-50 hover:-translate-y-0.5 hover:shadow-md p-3.5 rounded-2xl border border-amber-200/80 space-y-1.5 relative transition-all duration-200 cursor-pointer overflow-hidden';
+    card.innerHTML = `
+      <div class="flex items-center justify-between pr-6">
+        <span class="text-[10px] font-bold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-md">${ann.category || '公告'}</span>
+        <span class="text-[10px] text-slate-400 font-medium">${ann.date || ''}</span>
+      </div>
+      <h4 class="font-bold text-slate-800 text-xs sm:text-sm truncate">${ann.title}</h4>
+      <p class="text-xs text-slate-600 leading-relaxed whitespace-pre-line break-words">${linkifyText(ann.content)}</p>
+      ${typeof isAdmin !== 'undefined' && isAdmin ? `
+        <button onclick="event.stopPropagation(); deleteAnnouncement('${ann.id}')" title="刪除此公告" class="absolute top-2.5 right-2.5 p-1 text-rose-400 hover:text-rose-600 text-xs transition">
+          <i class="fa-solid fa-trash-can"></i>
+        </button>` : ''}
+    `;
+    container.appendChild(card);
+  });
+}
+
+// 3. 新增公告
+function addAnnouncement() {
+  const catEl = document.getElementById('news-category-select');
+  const titleEl = document.getElementById('news-title-input');
+  const contentEl = document.getElementById('news-content-input');
+
+  const cat = catEl ? catEl.value : '公告';
+  const title = titleEl ? titleEl.value.trim() : '';
+  const content = contentEl ? contentEl.value.trim() : '';
+
+  if (!title || !content) {
+    alert("請輸入完整的公告標題與內容！");
+    return;
+  }
+
+  if (!Array.isArray(appData.announcements)) {
+    appData.announcements = [];
+  }
+
+  const todayStr = typeof getTodayStr === 'function' ? getTodayStr() : new Date().toISOString().split('T')[0];
+  
+  appData.announcements.unshift({
+    id: 'ann_' + Date.now(),
+    category: cat,
+    title: title,
+    content: content,
+    date: todayStr
+  });
+
+  if (titleEl) titleEl.value = '';
+  if (contentEl) contentEl.value = '';
+
+  if (typeof saveCloudData === 'function') saveCloudData();
+  renderAnnouncements();
+}
+
+// 4. 刪除公告 (支援 ID 精準比對防禦性刪除)
+function deleteAnnouncement(annId) {
+  if (!confirm("確定要刪除這則公告嗎？")) return;
+  
+  if (Array.isArray(appData.announcements)) {
+    // 優先使用唯一 ID 比對，若為舊陣列 index 亦具相容性
+    appData.announcements = appData.announcements.filter((ann, idx) => {
+      return String(ann.id) !== String(annId) && String(idx) !== String(annId);
+    });
+  }
+
+  if (typeof saveCloudData === 'function') saveCloudData();
+  renderAnnouncements();
+}
+// ==========================================
+// 模組 4：班級行事曆 (支援 條列/月曆 雙模式 & 雙重雲端欄位相容)
+// ==========================================
+
+let currentCalendarMode = 'list';
+let calendarViewDate = new Date();
+
+function setCalendarMode(mode) {
+  currentCalendarMode = mode;
+  const listBtn = document.getElementById('cal-mode-list-btn');
+  const gridBtn = document.getElementById('cal-mode-grid-btn');
+  if (listBtn && gridBtn) {
+    if (mode === 'list') {
+      listBtn.className = 'flex items-center gap-1 px-2.5 py-1 rounded-lg transition bg-white text-sky-600 shadow-sm cursor-pointer';
+      gridBtn.className = 'flex items-center gap-1 px-2.5 py-1 rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer';
+    } else {
+      gridBtn.className = 'flex items-center gap-1 px-2.5 py-1 rounded-lg transition bg-white text-sky-600 shadow-sm cursor-pointer';
+      listBtn.className = 'flex items-center gap-1 px-2.5 py-1 rounded-lg transition text-slate-500 hover:text-slate-800 cursor-pointer';
+    }
+  }
+  renderCalendarList();
+}
+
+function shiftCalendarDate(delta) {
+  const picker = document.getElementById('calendar-date-picker');
+  if (currentCalendarMode === 'grid') {
+    calendarViewDate.setMonth(calendarViewDate.getMonth() + delta);
+    if (picker && picker.value) {
+      calendarViewDate = new Date(picker.value);
+      calendarViewDate.setMonth(calendarViewDate.getMonth() + delta);
+    }
+  } else {
+    let d = (picker && picker.value) ? new Date(picker.value) : new Date();
+    d.setDate(d.getDate() + delta);
+    if (picker) picker.value = d.toISOString().split('T')[0];
+  }
+  renderCalendarList();
+}
+
+function resetCalendarFilter() {
+  const picker = document.getElementById('calendar-date-picker');
+  const filter = document.getElementById('calendar-type-filter');
+  if (picker) picker.value = '';
+  if (filter) filter.value = 'all';
+  calendarViewDate = new Date();
+  renderCalendarList();
+}
+
+const CAL_TYPE_META = {
+  exam: { label: '📝 評量測驗', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', tagBg: 'bg-rose-500' },
+  activity: { label: '🎒 戶外活動', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', tagBg: 'bg-emerald-500' },
+  notice: { label: '📢 班級活動', bg: 'bg-sky-50', text: 'text-sky-700', border: 'border-sky-200', tagBg: 'bg-sky-500' },
+  holiday: { label: '🎉 節慶假期', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', tagBg: 'bg-amber-500' }
+};
+
+function addCalendarEvent() {
+  if (!isAdmin) {
+    alert("請先登入管理員權限！");
+    return;
+  }
+  const dateInput = document.getElementById('event-date-input');
+  const titleInput = document.getElementById('event-title-input');
+  const typeSelect = document.getElementById('event-type-select');
+
+  const date = dateInput ? dateInput.value : '';
+  const title = titleInput ? titleInput.value.trim() : '';
+  const type = typeSelect ? typeSelect.value : 'notice';
+
+  if (!date) { alert("請選擇活動日期！"); return; }
+  if (!title) { alert("請輸入行程名稱！"); return; }
+
+  if (!appData) appData = {};
+  if (!Array.isArray(appData.calendarList)) {
+    appData.calendarList = Array.isArray(appData.calendar) ? appData.calendar : [];
+  }
+
+  appData.calendarList.push({
+    id: 'cal_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+    date: date,
+    title: title,
+    type: type
+  });
+
+  if (titleInput) titleInput.value = '';
+  renderCalendarList();
+  if (typeof saveCloudData === 'function') saveCloudData();
+}
+
+function deleteCalendarEvent(id) {
+  if (!isAdmin) return;
+  if (!confirm("確定要刪除這筆行程嗎？")) return;
+  if (!appData) return;
+
+  const targetList = Array.isArray(appData.calendarList) ? appData.calendarList : (Array.isArray(appData.calendar) ? appData.calendar : []);
+  appData.calendarList = targetList.filter(item => String(item.id) !== String(id));
+  
+  renderCalendarList();
+  if (typeof saveCloudData === 'function') saveCloudData();
+}
+
+function renderCalendarList() {
+  const container = document.getElementById('calendar-list');
+  if (!container) return;
+
+  // 💡 雙重相容：不管雲端是 calendarList 還是 calendar 都能抓到
+  const sourceEvents = (typeof appData !== 'undefined') 
+    ? (Array.isArray(appData.calendarList) ? appData.calendarList : (Array.isArray(appData.calendar) ? appData.calendar : []))
+    : [];
+
+  const events = sourceEvents.map((item, idx) => {
+    if (!item.id) item.id = 'cal_auto_' + idx + '_' + (item.date || '');
+    return item;
+  });
+
+  const selectedDate = document.getElementById('calendar-date-picker')?.value || '';
+  const selectedType = document.getElementById('calendar-type-filter')?.value || 'all';
+
+  let filtered = events.filter(item => {
+    const matchType = (selectedType === 'all') || (item.type === selectedType);
+    const matchDate = !selectedDate || (item.date === selectedDate);
+    return matchType && matchDate;
+  });
+
+  if (currentCalendarMode === 'list') {
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div class="text-center py-8 text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+          <i class="fa-regular fa-calendar-xmark text-lg mb-1"></i><br>目前沒有符合條件的行程
+        </div>`;
+      return;
+    }
+
+    filtered.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    container.innerHTML = filtered.map(item => {
+      const meta = CAL_TYPE_META[item.type] || CAL_TYPE_META.notice;
+      return `
+        <div class="flex items-center justify-between p-3 rounded-xl border ${meta.border} ${meta.bg} transition hover:shadow-sm">
+          <div class="flex items-center gap-3 min-w-0">
+            <span class="text-xs font-bold px-2 py-1 rounded-lg ${meta.tagBg} text-white shrink-0">
+              ${item.date || '未定'}
+            </span>
+            <div class="min-w-0">
+              <span class="font-bold text-xs text-slate-800 truncate block">${item.title || '行程'}</span>
+              <span class="text-[10px] ${meta.text} font-semibold">${meta.label}</span>
+            </div>
+          </div>
+          ${isAdmin ? `
+            <button type="button" onclick="deleteCalendarEvent('${item.id}')" class="text-rose-400 hover:text-rose-600 text-xs px-2 py-1 cursor-pointer transition" title="刪除此行程">
+              <i class="fa-solid fa-trash-can"></i>
+            </button>` : ''}
+        </div>
+      `;
+    }).join('');
+
+  } else {
+    const targetDate = selectedDate ? new Date(selectedDate) : calendarViewDate;
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    let gridHtml = `
+      <div class="flex items-center justify-between px-1 mb-2">
+        <span class="font-extrabold text-sm text-sky-900">${year} 年 ${month + 1} 月</span>
+        <span class="text-[11px] text-slate-400 font-medium">點選日期快速篩選</span>
+      </div>
+      <div class="grid grid-cols-7 gap-1 text-center font-bold text-[11px] text-slate-400 mb-1">
+        <div class="text-rose-500">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="text-sky-500">六</div>
+      </div>
+      <div class="grid grid-cols-7 gap-1">
+    `;
+
+    for (let i = 0; i < firstDay; i++) {
+      gridHtml += `<div class="h-16 bg-slate-50/50 rounded-xl"></div>`;
+    }
+
+    for (let d = 1; d <= totalDays; d++) {
+      const curDateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isToday = curDateStr === todayStr;
+      const isSelected = curDateStr === selectedDate;
+      const dayEvents = events.filter(e => e.date === curDateStr && (selectedType === 'all' || e.type === selectedType));
+
+      gridHtml += `
+        <div onclick="document.getElementById('calendar-date-picker').value='${curDateStr}'; renderCalendarList();" 
+             class="h-16 p-1 rounded-xl border ${isSelected ? 'border-sky-500 bg-sky-50/90 ring-2 ring-sky-300' : isToday ? 'border-sky-300 bg-sky-50/40' : 'border-slate-100 bg-white hover:border-sky-200'} flex flex-col justify-between overflow-hidden cursor-pointer transition">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold ${isToday ? 'text-sky-600 font-extrabold' : 'text-slate-600'}">${d}</span>
+            ${dayEvents.length > 0 ? `<span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>` : ''}
+          </div>
+          <div class="overflow-y-auto space-y-0.5 no-scrollbar max-h-10">
+            ${dayEvents.map(evt => {
+              const meta = CAL_TYPE_META[evt.type] || CAL_TYPE_META.notice;
+              return `<div class="text-[9px] truncate px-1 rounded ${meta.bg} ${meta.text} font-bold" title="${evt.title}">${evt.title}</div>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    gridHtml += `</div>`;
+    container.innerHTML = gridHtml;
+  }
+}
+
+// ==========================================
+// 模組 4：學習平台與教科書版本 (維持原樣)
+// ==========================================
+function renderPlatforms() {
+  const container = document.getElementById('platforms-list');
+  container.innerHTML = '';
+  if (!appData.platformsData) appData.platformsData = [];
+
+  appData.platformsData.forEach((p, idx) => {
+    const item = document.createElement('div');
+    item.className = 'bg-indigo-50/50 hover:bg-indigo-100/70 hover:-translate-y-0.5 hover:shadow-md p-3.5 rounded-2xl border border-indigo-100 flex flex-col justify-between relative transition-all duration-200 cursor-pointer overflow-hidden';
+    item.innerHTML = `
+      <div class="min-w-0">
+        <h4 class="font-bold text-indigo-900 text-xs sm:text-sm flex items-center gap-1.5 truncate">
+          <i class="fa-solid fa-arrow-up-right-from-square text-indigo-500 text-[10px] shrink-0"></i> <span class="truncate">${p.title}</span>
+        </h4>
+        <p class="text-[11px] text-slate-500 mt-1 truncate">${p.desc}</p>
+      </div>
+      <div class="mt-3 flex justify-between items-center min-w-0">
+        <a href="${p.url}" target="_blank" class="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 hover:text-indigo-800 transition truncate">前往平台 <i class="fa-solid fa-chevron-right text-[10px]"></i></a>
+        ${isAdmin ? `<button onclick="deletePlatform(${idx})" class="text-rose-400 hover:text-rose-600 text-xs transition shrink-0 ml-1"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+      </div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+function addPlatform() {
+  const title = document.getElementById('new-platform-title').value.trim();
+  const desc = document.getElementById('new-platform-desc').value.trim();
+  const url = document.getElementById('new-platform-url').value.trim();
+  if (!title || !url) {
+    alert("請填寫平台名稱與網址！");
+    return;
+  }
+  if (!appData.platformsData) appData.platformsData = [];
+  appData.platformsData.push({ title, desc, url });
+  document.getElementById('new-platform-title').value = '';
+  document.getElementById('new-platform-desc').value = '';
+  document.getElementById('new-platform-url').value = '';
+  saveCloudData();
+}
+
+function deletePlatform(idx) {
+  appData.platformsData.splice(idx, 1);
+  saveCloudData();
+}
+
+function renderTextbooks() {
+  const container = document.getElementById('textbook-list');
+  container.innerHTML = '';
+  if (!appData.textbooks) appData.textbooks = [];
+
+  appData.textbooks.forEach((tb, idx) => {
+    const item = document.createElement('li');
+    item.className = 'flex items-center justify-between p-2 rounded-xl bg-slate-50 hover:bg-sky-50/70 hover:-translate-y-0.5 hover:shadow-sm border border-slate-200/80 transition-all duration-200 cursor-pointer overflow-hidden';
+    item.innerHTML = `
+      <div class="truncate min-w-0 flex-1">
+        <span class="font-bold text-slate-800">${tb.subject}：</span>
+        <span class="text-slate-600 font-medium truncate">${tb.publisher}</span>
+      </div>
+      ${isAdmin ? `<button onclick="deleteTextbook(${idx})" class="text-rose-400 hover:text-rose-600 px-1 shrink-0 ml-1 transition"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+    `;
+    container.appendChild(item);
+  });
+}
+
+    function addTextbook() {
+      const subject = document.getElementById('textbook-subject-input').value.trim();
+      const publisher = document.getElementById('textbook-publisher-input').value.trim();
+      if (!subject || !publisher) {
+        alert("請填寫完整領域與版本名稱！");
+        return;
+      }
+      if (!appData.textbooks) appData.textbooks = [];
+      appData.textbooks.push({ subject, publisher });
+      document.getElementById('textbook-subject-input').value = '';
+      document.getElementById('textbook-publisher-input').value = '';
+      saveCloudData();
+    }
+
+    function deleteTextbook(idx) {
+      appData.textbooks.splice(idx, 1);
+      saveCloudData();
+    }
+
+    function renderFiles() {
+      const container = document.getElementById('files-list');
+      container.innerHTML = '';
+      if (!appData.filesData) appData.filesData = [];
+
+      appData.filesData.forEach((f, idx) => {
+        const item = document.createElement('div');
+        item.className = 'flex items-center justify-between p-2.5 rounded-xl bg-emerald-50/50 hover:bg-emerald-100/70 hover:-translate-y-0.5 hover:shadow-sm border border-emerald-100 text-xs transition-all duration-200 cursor-pointer overflow-hidden';
+        item.innerHTML = `
+          <a href="${f.url}" target="_blank" class="font-bold text-emerald-800 hover:underline flex items-center gap-1.5 truncate min-w-0 flex-1">
+            <i class="fa-solid fa-file-pdf text-emerald-600 shrink-0"></i> <span class="truncate">${f.name}</span>
+          </a>
+          ${isAdmin ? `<button onclick="deleteFile(${idx})" class="text-rose-400 hover:text-rose-600 px-1 shrink-0 ml-1 transition"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function addFile() {
+      const name = document.getElementById('new-file-name').value.trim();
+      const url = document.getElementById('new-file-url').value.trim();
+      if (!name || !url) {
+        alert("請填寫檔案名稱與下載連結！");
+        return;
+      }
+      if (!appData.filesData) appData.filesData = [];
+      appData.filesData.push({ name, url });
+      document.getElementById('new-file-name').value = '';
+      document.getElementById('new-file-url').value = '';
+      saveCloudData();
+    }
+
+    function deleteFile(idx) {
+      appData.filesData.splice(idx, 1);
+      saveCloudData();
+    }
+
+// ==========================================
+    // Module 4: 聯絡資訊模組 (修正版：支援舊卡片/無姓名卡片刪除)
+    // ==========================================
+
+    const defaultContacts = [
+      { id: 'c_default_1', category: '班級導師', name: '黃老師', phone: '(02) 23113519 #5207', email: 'pes@hmes.tp.edu.tw' },
+      { id: 'c_default_2', category: '科任教師', name: '陳老師 (自然)', phone: '(02) 23113519 #1154', email: 'rachel11062@hmes.tp.edu.tw' },
+      { id: 'c_default_3', category: '科任教師', name: '楊老師 (社會)', phone: '(02) 23113519 #1122 (訓育組長)', email: 'yang@hmes.tp.edu.tw' }
+    ];
+
+    function renderContacts() {
+      const grid = document.getElementById('contact-grid');
+      if (!grid) return;
+
+      // 若未初始化過則套用預設名單
+      if (!Array.isArray(appData.contacts)) {
+        appData.contacts = [...defaultContacts];
+      }
+
+      // 自動修復：為所有缺少 id 的卡片補上唯一識別碼
+      appData.contacts.forEach((c, index) => {
+        if (!c.id) {
+          c.id = 'c_auto_' + Date.now() + '_' + index;
+        }
+      });
+
+      const filter = document.getElementById('contact-teacher-filter')?.value || 'all';
+      
+      let filtered = appData.contacts;
+      if (filter !== 'all') {
+        filtered = appData.contacts.filter(c => c.category === filter);
+      }
+
+      if (filtered.length === 0) {
+        grid.innerHTML = `<div class="col-span-full py-8 text-center text-slate-400 font-medium">尚無符合的聯絡卡片</div>`;
+        return;
+      }
+
+      grid.innerHTML = filtered.map(c => `
+        <div class="bg-indigo-50/40 border border-indigo-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between relative group hover:border-indigo-300 overflow-hidden">
+          <div class="min-w-0">
+            <div class="flex items-center justify-between mb-3">
+              <span class="inline-flex items-center gap-1 bg-indigo-100 text-indigo-700 font-bold px-2.5 py-0.5 rounded-full text-[11px]">
+                <i class="fa-solid fa-tag text-[10px]"></i> ${c.category || '聯絡資訊'}
+              </span>
+              ${typeof isAdmin !== 'undefined' && isAdmin ? `
+                <button onclick="deleteContactCard('${c.id}')" class="text-rose-400 hover:text-rose-600 p-1.5 transition cursor-pointer rounded-lg hover:bg-rose-50" title="刪除卡片">
+                  <i class="fa-solid fa-trash-can"></i>
+                </button>
+              ` : ''}
+            </div>
+            
+            <div class="font-bold text-slate-800 text-base mb-3 flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs shadow-sm shrink-0">
+                <i class="fa-solid fa-user-tie"></i>
+              </div>
+              <span class="truncate">${c.name || '未填寫姓名'}</span>
+            </div>
+
+            <div class="space-y-2 text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-100/80 overflow-hidden">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <i class="fa-solid fa-phone text-indigo-500 w-4 text-center shrink-0"></i>
+                <span class="font-semibold text-slate-400 shrink-0">電話：</span>
+                <a href="tel:${c.phone ? c.phone.replace(/[^0-9#]/g, '') : ''}" class="font-medium text-slate-700 hover:text-indigo-600 transition truncate">${c.phone || '未提供'}</a>
+              </div>
+              <div class="flex items-center gap-2.5 min-w-0">
+                <i class="fa-solid fa-envelope text-indigo-500 w-4 text-center shrink-0"></i>
+                <span class="font-semibold text-slate-400 shrink-0">信箱：</span>
+                <a href="mailto:${c.email || ''}" class="font-medium text-indigo-600 hover:underline truncate">${c.email || '未提供'}</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function addContactCard() {
+      const category = document.getElementById('contact-category-select').value;
+      const name = document.getElementById('contact-name-input').value.trim();
+      const phone = document.getElementById('contact-phone-input').value.trim();
+      const email = document.getElementById('contact-email-input').value.trim();
+
+      if (!name) {
+        alert('請輸入姓名！');
+        return;
+      }
+
+      if (!Array.isArray(appData.contacts)) {
+        appData.contacts = [...defaultContacts];
+      }
+
+      appData.contacts.push({
+        id: 'c_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+        category,
+        name,
+        phone,
+        email
+      });
+
+      saveCloudData();
+
+      document.getElementById('contact-name-input').value = '';
+      document.getElementById('contact-phone-input').value = '';
+      document.getElementById('contact-email-input').value = '';
+    }
+    
+    function deleteContactCard(id) {
+      if (confirm('確定要刪除這張聯絡卡片嗎？')) {
+        if (!Array.isArray(appData.contacts)) return;
+        
+        // 依照 ID 過濾剔除
+        appData.contacts = appData.contacts.filter(c => String(c.id) !== String(id));
+        
+        // 儲存並同步至雲端
+        saveCloudData();
+      }
+    }
+    
+    function renderSchedule() {
+      const tbody = document.getElementById('schedule-tbody');
+      tbody.innerHTML = '';
+      if (!appData.schedule) return;
+
+      appData.schedule.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-sky-50/50 transition-colors duration-150';
+        tr.innerHTML = `
+          <td class="p-2.5 font-bold border border-slate-200 bg-slate-100/50">${row.period}</td>
+          <td class="p-2.5 border border-slate-200">${row.mon || '-'}</td>
+          <td class="p-2.5 border border-slate-200">${row.tue || '-'}</td>
+          <td class="p-2.5 border border-slate-200">${row.wed || '-'}</td>
+          <td class="p-2.5 border border-slate-200">${row.thu || '-'}</td>
+          <td class="p-2.5 border border-slate-200">${row.fri || '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function updateScheduleCell() {
+      const day = document.getElementById('schedule-day-select').value;
+      const period = parseInt(document.getElementById('schedule-period-select').value, 10);
+      const subject = document.getElementById('schedule-subject-input').value.trim();
+      
+      const target = appData.schedule.find(s => s.period === period);
+      if (target) {
+        target[day] = subject || '-';
+        saveCloudData();
+        document.getElementById('schedule-subject-input').value = '';
+      }
+    }
+
+    let selectedEmojiVal = '💬';
+
+    function selectEmoji(emoji) {
+      selectedEmojiVal = emoji;
+      document.getElementById('display-selected-emoji').innerText = emoji;
+    }
+
+    function renderComments() {
+      if (!appData.comments) appData.comments = [];
+      const container = document.getElementById('comments-list');
+      const countTag = document.getElementById('comment-count-tag');
+      const headerBadge = document.getElementById('header-comment-badge');
+      if (!container) return;
+
+      const commentLen = appData.comments.length;
+      if (countTag) countTag.innerText = `${commentLen} 則留言`;
+      if (headerBadge) headerBadge.innerText = commentLen;
+      
+      container.innerHTML = '';
+
+      if (commentLen === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-400 italic py-2 text-center">目前還沒有留言，來搶頭香吧！</div>';
+        return;
+      }
+
+      appData.comments.forEach((c, idx) => {
+        const item = document.createElement('div');
+        item.className = 'bg-slate-50 hover:bg-indigo-50/40 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-1.5 transition-all duration-200 relative overflow-hidden';
+        item.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 font-bold text-indigo-900 truncate pr-6">
+              <span class="text-base shrink-0">${c.emoji || '💬'}</span>
+              <span class="truncate">${c.author || '熱心家長/同學'}</span>
+            </div>
+            <span class="text-[10px] text-slate-400 shrink-0">${c.date || ''}</span>
+          </div>
+          <p class="text-slate-700 leading-relaxed pl-6 whitespace-pre-line break-words">${c.content}</p>
+          ${isAdmin ? `<button onclick="deleteComment(${idx})" class="absolute top-3 right-3 text-rose-400 hover:text-rose-600 transition"><i class="fa-solid fa-trash-can"></i></button>` : ''}
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function addComment() {
+      const author = document.getElementById('comment-author').value.trim();
+      const content = document.getElementById('comment-text').value.trim();
+      if (!content) {
+        alert('請輸入留言內容！');
+        return;
+      }
+      if (!appData.comments) appData.comments = [];
+
+      const now = new Date();
+      const timeStr = `${now.getMonth()+1}/${now.getDate()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+      appData.comments.unshift({
+        author: author || '熱心家長/同學',
+        emoji: selectedEmojiVal,
+        content: content,
+        date: timeStr
+      });
+
+      document.getElementById('comment-author').value = '';
+      document.getElementById('comment-text').value = '';
+      selectEmoji('💬');
+      saveCloudData();
+    }
+
+    function deleteComment(idx) {
+      if (!appData.comments) return;
+      appData.comments.splice(idx, 1);
+      saveCloudData();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const picker = document.getElementById('agenda-date-picker');
+      if (picker && !picker.value) {
+        picker.value = getTodayStr();
+      }
+      loadCloudData();
+    });
+
+    /**
+ * 專屬管理員網址偵測：當網址帶有 #admin 或 ?admin=1 時自動開啟登入視窗
+ */
+function checkAdminUrlTrigger() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const isParamAdmin = urlParams.get('admin') === '1' || urlParams.get('login') === '1';
+  const isHashAdmin = window.location.hash.toLowerCase() === '#admin' || window.location.hash.toLowerCase() === '#login';
+
+  // 若網址符合條件，自動彈出登入視窗
+  if (isParamAdmin || isHashAdmin) {
+    setTimeout(() => {
+      if (typeof openLoginModal === 'function') {
+        openLoginModal();
+      }
+    }, 400); // 延遲 0.4 秒確保頁面載入完成後流暢彈出
+  }
+}
+
+// 頁面載入時自動執行檢查
+window.addEventListener('DOMContentLoaded', checkAdminUrlTrigger);
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  checkAdminUrlTrigger();
+}
+
+// 🤫 額外貼心彩蛋：若沒帶專屬連結，快速連點 3 下頂部「四年 3 班 (403)」副標題，也能悄悄開啟登入視窗！
+document.addEventListener('DOMContentLoaded', () => {
+  const subTitle = document.getElementById('display-site-subtitle');
+  if (subTitle) {
+    let clickCount = 0;
+    let timer = null;
+    subTitle.addEventListener('click', () => {
+      clickCount++;
+      clearTimeout(timer);
+      if (clickCount >= 3) {
+        openLoginModal();
+        clickCount = 0;
+      }
+      timer = setTimeout(() => { clickCount = 0; }, 800);
+    });
+  }
+});
+  </script>
+</body>
+</html>

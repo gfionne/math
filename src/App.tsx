@@ -13,6 +13,7 @@ import {
   ExternalLink,
   FileText,
   GalleryHorizontalEnd,
+  GraduationCap,
   Layers,
   LayoutGrid,
   List,
@@ -25,7 +26,9 @@ import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
 import {
+  Class403Tab,
   InteractiveEmbedModal,
+  InteractiveStageTab,
   XimenScratchTab,
 } from './components/InteractiveEmbedModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
@@ -157,7 +160,7 @@ export default function App() {
     isOpen: boolean;
     url: string;
     title: string;
-    initialTab: XimenScratchTab;
+    initialTab: InteractiveStageTab;
   }>({
     isOpen: false,
     url: './ximen-scratch.html',
@@ -176,6 +179,15 @@ export default function App() {
       isOpen: true,
       url: './ximen-scratch.html',
       title: '百年西門 Scratch 舞台秀互動學習網',
+      initialTab: tab,
+    });
+  }, []);
+
+  const openClass403Stage = useCallback((tab: Class403Tab = 'agenda') => {
+    setInteractiveStage({
+      isOpen: true,
+      url: './class-403.html',
+      title: '四年 3 班 (403) 班級網站｜Pes Class 115',
       initialTab: tab,
     });
   }, []);
@@ -264,6 +276,7 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ximenParam = params.get('ximen');
+    const class403Param = params.get('class403');
     if (
       ximenParam === 'map' ||
       ximenParam === 'gallery' ||
@@ -271,6 +284,14 @@ export default function App() {
       ximenParam === 'naming'
     ) {
       openXimenStage(ximenParam);
+    } else if (
+      class403Param === 'agenda' ||
+      class403Param === 'news' ||
+      class403Param === 'resources' ||
+      class403Param === 'contact' ||
+      class403Param === 'comments'
+    ) {
+      openClass403Stage(class403Param);
     }
 
     const sheetParam = params.get('sheet');
@@ -289,7 +310,7 @@ export default function App() {
         localStorage.removeItem(PUBLIC_SHEET_STORAGE_KEY);
       }
     }
-  }, [loadPublicSheet, openXimenStage]);
+  }, [loadPublicSheet, openXimenStage, openClass403Stage]);
 
   // Real-time Firestore listener so edits on either AI Studio or GitHub Pages sync immediately
   useEffect(() => {
@@ -1226,12 +1247,27 @@ export default function App() {
               type="button"
               onClick={() => openXimenStage('map')}
               className={`hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                interactiveStage.isOpen
+                interactiveStage.isOpen &&
+                interactiveStage.url.includes('ximen-scratch.html')
                   ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                   : ''
               }`}
             >
               互動專題
+            </button>
+            <button
+              type="button"
+              onClick={() => openClass403Stage('agenda')}
+              className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                interactiveStage.isOpen &&
+                interactiveStage.url.includes('class-403.html')
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                  : 'text-stone-700'
+              }`}
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+              <span className="hidden lg:inline">403 班級網站</span>
+              <span className="lg:hidden">403 班網</span>
             </button>
           </nav>
 
@@ -1552,71 +1588,142 @@ export default function App() {
           </div>
         </section>
 
-        {/* Integrated Interactive Topic Showcase Strip */}
+        {/* Integrated Interactive Topic & Class 403 Hub Showcase Strip */}
         <section
-          aria-label="跨域互動專題展示"
+          aria-label="跨域互動專題與班級入口展示"
           className="border-b border-stone-200 bg-[#F7F4EE]"
         >
-          <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="space-y-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                <span className="font-semibold text-[#1E3A8A]">
-                  跨領域互動學習專題
-                </span>
-                <span aria-hidden="true" className="text-stone-400">
-                  ·
-                </span>
-                <span className="font-mono-tabular text-stone-600">
-                  401–404 年段實作資源
-                </span>
+          <div className="max-w-7xl mx-auto px-6 py-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {/* Left Hub: Ximen Scratch Interactive Learning Site */}
+            <div className="bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                  <span className="font-semibold text-[#1E3A8A]">
+                    跨領域互動學習專題
+                  </span>
+                  <span aria-hidden="true" className="text-stone-400">
+                    ·
+                  </span>
+                  <span className="font-mono-tabular text-stone-600">
+                    401–404 年段實作資源
+                  </span>
+                </div>
+                <h2 className="font-editorial text-lg font-bold text-stone-950">
+                  百年西門 Scratch 舞台秀互動學習網
+                </h2>
+                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                  提供西門町互動商圈地圖座標微調、標準圖庫匯出、Scratch 3.0 積木步驟與分班命名檢核表。
+                </p>
               </div>
-              <h2 className="font-editorial text-lg sm:text-xl font-bold text-stone-950">
-                百年西門 Scratch 舞台秀互動學習網
-              </h2>
-              <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                提供西門町互動商圈地圖座標微調、標準圖庫匯出、Scratch 3.0 積木步驟與分班命名檢核表。
-              </p>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(
+                    [
+                      {id: 'map', label: '互動地圖'},
+                      {id: 'gallery', label: '專案圖庫'},
+                      {id: 'blocks', label: '積木教學'},
+                      {id: 'naming', label: '命名檢核'},
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => openXimenStage(tab.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openXimenStage('map')}
+                    className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <MonitorPlay className="w-3.5 h-3.5" />
+                    <span>開啟學習網</span>
+                  </button>
+
+                  <a
+                    href="./ximen-scratch.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <span>獨立分頁</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                {(
-                  [
-                    {id: 'map', label: '互動地圖'},
-                    {id: 'gallery', label: '專案圖庫'},
-                    {id: 'blocks', label: '積木教學'},
-                    {id: 'naming', label: '命名檢核'},
-                  ] as const
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => openXimenStage(tab.id)}
-                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+            {/* Right Hub: Class 403 Website (Pes Class 115) */}
+            <div className="bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                  <span className="font-semibold text-[#1E3A8A]">
+                    四年 3 班專屬班務系統
+                  </span>
+                  <span aria-hidden="true" className="text-stone-400">
+                    ·
+                  </span>
+                  <span className="font-mono-tabular text-stone-600">
+                    Pes Class 115 · 分機 5207
+                  </span>
+                </div>
+                <h2 className="font-editorial text-lg font-bold text-stone-950">
+                  403 班級網站與互動聯絡簿
+                </h2>
+                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                  每日作業與服裝提醒、雙模式行事曆、線上學習資源與請假表單下載、每週課表及班級交流留言板。
+                </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => openXimenStage('map')}
-                className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-              >
-                <MonitorPlay className="w-3.5 h-3.5" />
-                <span>開啟互動學習網</span>
-              </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {(
+                    [
+                      {id: 'agenda', label: '互動聯絡簿'},
+                      {id: 'news', label: '公告行事曆'},
+                      {id: 'resources', label: '學習資源庫'},
+                      {id: 'contact', label: '課表與聯絡'},
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => openClass403Stage(tab.id)}
+                      className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
-              <a
-                href="./ximen-scratch.html"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-              >
-                <span>獨立分頁</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openClass403Stage('agenda')}
+                    className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <GraduationCap className="w-3.5 h-3.5" />
+                    <span>開啟 403 班網</span>
+                  </button>
+
+                  <a
+                    href="./class-403.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <span>獨立分頁</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
         </section>
