@@ -14,7 +14,10 @@ export const ConfirmActionModal: React.FC<ConfirmActionModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!state?.isOpen) return;
+    if (!state?.isOpen) {
+      setSubmitting(false);
+      return;
+    }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !submitting) {
         onClose();

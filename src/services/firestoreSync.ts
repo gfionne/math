@@ -216,9 +216,28 @@ export async function saveSharedSiteConfig(
     payload.hiddenOfficialAssetIds = sanitizedHiddenIds;
   }
 
+  writeCachedSharedSiteConfig(config);
+
+  const timeoutError = new Error(
+    '雲端即時設定資料庫暫時無回應（可能已達今日免費讀取／寫入額度上限），設定已寫入 Google Sheet 與本機快取。',
+  );
+
+  let timerId: ReturnType<typeof setTimeout> | undefined;
   try {
-    await setDoc(doc(db, SITE_CONFIG_COLLECTION, SITE_CONFIG_DOC_ID), payload);
+    await Promise.race([
+      setDoc(doc(db, SITE_CONFIG_COLLECTION, SITE_CONFIG_DOC_ID), payload),
+      new Promise<never>((_, reject) => {
+        timerId = setTimeout(() => reject(timeoutError), 5000);
+      }),
+    ]);
   } catch (error) {
+    if (error === timeoutError) {
+      throw timeoutError;
+    }
     handleFirestoreError(error, OperationType.WRITE, SITE_CONFIG_PATH);
+  } finally {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+    }
   }
 }

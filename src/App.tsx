@@ -1155,13 +1155,22 @@ export default function App() {
           );
           setSheetMeta({...sheetMeta, tabs: updatedTabs});
           setSiteSettings(nextSettings);
+          void saveSiteConfig({
+            spreadsheetId: sheetMeta.spreadsheetId,
+            tabName: sheetMeta.activeTab,
+            ...nextSettings,
+          });
           if (auth.currentUser) {
-            await saveSharedSiteConfig({
-              spreadsheetId: sheetMeta.spreadsheetId,
-              tabName: sheetMeta.activeTab,
-              ...nextSettings,
-              hiddenOfficialAssetIds,
-            });
+            try {
+              await saveSharedSiteConfig({
+                spreadsheetId: sheetMeta.spreadsheetId,
+                tabName: sheetMeta.activeTab,
+                ...nextSettings,
+                hiddenOfficialAssetIds,
+              });
+            } catch (cloudErr: any) {
+              console.warn('Firestore 雲端設定同步略過：', cloudErr);
+            }
           }
         } catch (err: any) {
           setSyncError(err?.message || '寫入 Settings 分頁失敗。');

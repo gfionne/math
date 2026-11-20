@@ -764,8 +764,26 @@ export async function saveSiteSettingsToSheet(
     (t) => t.title.toLowerCase() === SETTINGS_TAB_NAME.toLowerCase(),
   );
 
+  const fetchWithTimeout = async (
+    input: string,
+    init: RequestInit,
+  ): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      return await fetch(input, {...init, signal: controller.signal});
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error('連線 Google Sheets 逾時，請檢查網路後再試。');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   if (!hasSettingsTab) {
-    const addRes = await fetch(
+    const addRes = await fetchWithTimeout(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
         spreadsheetId,
       )}:batchUpdate`,
@@ -821,7 +839,7 @@ export async function saveSiteSettingsToSheet(
   ];
 
   const range = encodeURIComponent(`${escapeA1SheetName(targetTabName)}!A1:B${rows.length}`);
-  const writeRes = await fetch(
+  const writeRes = await fetchWithTimeout(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
       spreadsheetId,
     )}/values/${range}?valueInputOption=USER_ENTERED`,
