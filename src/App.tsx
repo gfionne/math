@@ -1938,8 +1938,18 @@ export default function App() {
             <div className="font-editorial text-sm font-semibold text-stone-900">
               {siteSettings.siteTitle} | {siteSettings.siteSubtitle}
             </div>
-            <div>
-              支援靜態 GitHub Pages 託管 · 可連結 Google Sheets 試算表作為即時資料庫
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>© {new Date().getFullYear()} pes 版權所有 · All Rights Reserved.</span>
+              <span className="text-stone-300" aria-hidden="true">|</span>
+              <span>
+                聯絡信箱：
+                <a
+                  href="mailto:pes@hmes.tp.edu.tw"
+                  className="text-stone-700 hover:text-[#1E3A8A] underline decoration-stone-300 hover:decoration-[#1E3A8A] underline-offset-2 transition-colors"
+                >
+                  pes@hmes.tp.edu.tw
+                </a>
+              </span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
