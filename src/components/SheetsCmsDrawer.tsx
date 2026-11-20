@@ -491,15 +491,15 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl bg-[#FBF9F5] border-l border-stone-200 h-full flex flex-col shadow-2xl"
+        className="w-full max-w-3xl min-w-0 bg-[#FBF9F5] border-l border-stone-200 h-full flex flex-col shadow-2xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Drawer Header */}
-        <div className="px-6 py-4 bg-white border-b border-stone-200 flex items-center justify-between gap-4">
-          <div>
+        <div className="px-4 sm:px-6 py-4 bg-white border-b border-stone-200 flex items-center justify-between gap-3 sm:gap-4 shrink-0">
+          <div className="min-w-0">
             <h2
               id="cms-drawer-title"
-              className="font-editorial text-xl font-semibold text-stone-950"
+              className="font-editorial text-lg sm:text-xl font-semibold text-stone-950"
             >
               Google Sheets 資料庫與發布中心
             </h2>
@@ -518,7 +518,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
         </div>
 
         {/* Segmented Tab Bar */}
-        <div className="px-6 py-3 bg-[#F7F4EE] border-b border-stone-200 flex items-center gap-2 overflow-x-auto">
+        <div className="px-4 sm:px-6 py-3 bg-[#F7F4EE] border-b border-stone-200 flex items-center gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('sheets')}
@@ -586,7 +586,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
         </div>
 
         {/* Drawer Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-6">
           {syncError && (
             <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900 leading-relaxed">
               <strong className="font-semibold block mb-1">連線或存取錯誤</strong>
@@ -642,23 +642,23 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     <div className="text-xs text-stone-600">
                       沒有現成的試算表？可一鍵在您的 Google 雲端硬碟建立標準格式資料庫（可選空白從零開始，或預先寫入示範文章）。
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                       <button
                         type="button"
                         onClick={() => onCreateNewSheet(false)}
                         disabled={isSyncing}
-                        className="px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                        className="w-full sm:w-auto max-w-full px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center justify-center gap-1.5 transition-colors text-center leading-snug"
                       >
-                        <FilePlus2 className="w-3.5 h-3.5" />
+                        <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
                         <span>建立空白試算表（從零開始）</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => onCreateNewSheet(true)}
                         disabled={isSyncing}
-                        className="px-3.5 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 disabled:opacity-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                        className="w-full sm:w-auto max-w-full px-3.5 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 transition-colors text-center leading-snug"
                       >
-                        <FilePlus2 className="w-3.5 h-3.5" />
+                        <FilePlus2 className="w-3.5 h-3.5 shrink-0" />
                         <span>建立含示範文章試算表</span>
                       </button>
                     </div>
@@ -861,13 +861,13 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
 
                 <div className="p-4 bg-[#F7F4EE] border border-stone-200 rounded-lg space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                    <div>
+                    <div className="min-w-0">
                       <span className="text-stone-500 block mb-0.5">目前專案預設試算表 ID：</span>
                       <code className="font-mono-tabular font-semibold text-stone-900 bg-white px-2 py-1 rounded border border-stone-200 block truncate">
                         {currentConfigId || '尚未設定'}
                       </code>
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <span className="text-stone-500 block mb-0.5">預設工作表分頁：</span>
                       <code className="font-mono-tabular font-semibold text-stone-900 bg-white px-2 py-1 rounded border border-stone-200 block truncate">
                         {currentConfigTab || 'Posts'}
@@ -882,14 +882,14 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     </div>
                   )}
 
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 pt-1">
                     <button
                       type="button"
                       onClick={handleSaveToSiteConfig}
                       disabled={isSavingConfig || (!activeSpreadsheetId && !sheetInput.trim())}
-                      className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-300 transition-colors inline-flex items-center gap-1.5 whitespace-nowrap shadow-xs"
+                      className="w-full sm:w-auto max-w-full px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-300 transition-colors inline-flex items-center justify-center gap-1.5 text-center leading-snug shadow-xs"
                     >
-                      <Save className="w-3.5 h-3.5" />
+                      <Save className="w-3.5 h-3.5 shrink-0" />
                       <span>
                         {isSavingConfig
                           ? '正在同步兩端預設設定...'
@@ -900,9 +900,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     <button
                       type="button"
                       onClick={handleDownloadSiteConfig}
-                      className="px-3 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                      className="w-full sm:w-auto max-w-full px-3 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center justify-center gap-1.5 text-center leading-snug"
                     >
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-3.5 h-3.5 shrink-0" />
                       <span>下載 site-config.json 備份</span>
                     </button>
                   </div>
@@ -952,7 +952,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                             slug: uniqueSlug,
                           });
                         }}
-                        className="px-2.5 py-1 text-xs font-medium text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-md hover:border-[#1E3A8A]/40 transition-colors whitespace-nowrap shrink-0"
+                        className="max-w-full px-2.5 py-1 text-xs font-medium text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-md hover:border-[#1E3A8A]/40 transition-colors text-center leading-snug"
                       >
                         帶入「百年西門 Scratch」專題範本
                       </button>
@@ -1191,7 +1191,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                           setFormState({...formState, coverImageUrl: e.target.value})
                         }
                         placeholder="https://... 封面圖片網址（可由上方按鈕上傳 Drive 自動填入）"
-                        className="flex-1 px-3 py-2 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                        className="flex-1 min-w-0 px-3 py-2 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
                   </div>
@@ -1199,7 +1199,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   {/* RichFormat Visual Article Editor */}
                   <div className="sm:col-span-2 space-y-1.5">
                     <label className="block text-xs font-medium text-stone-700 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex flex-wrap items-center gap-1.5">
                         <span className="font-semibold text-stone-900">文章內文 (RichFormat 富文本視覺化編輯器)</span>
                         <span className="text-[11px] text-stone-500 font-normal">· 支援標題、清單、表格、Drive 圖檔上傳與物件內嵌</span>
                       </span>
@@ -1217,7 +1217,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                       <label className="block text-xs font-medium text-stone-700">
                         嵌入資源連結（Drive / Forms / 站內 HTML）
                       </label>
@@ -1263,7 +1263,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     />
                   </div>
 
-                  <div className="sm:col-span-2 flex items-center justify-between pt-2">
+                  <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-2">
                     <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1282,7 +1282,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     <button
                       type="submit"
                       disabled={isSyncing}
-                      className="px-5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 transition-colors whitespace-nowrap shrink-0"
+                      className="w-full sm:w-auto max-w-full px-5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 transition-colors text-center leading-snug"
                     >
                       {isNewPost
                         ? dataSourceMode === 'sheets-api'
@@ -1316,7 +1316,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         <div className="text-sm font-medium text-stone-900 truncate">
                           {p.title}
                         </div>
-                        <div className="text-xs text-stone-500 mt-0.5 flex items-center gap-2">
+                        <div className="text-xs text-stone-500 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           <span className="font-mono-tabular">{p.academicYear}</span>
                           <span>·</span>
                           <span>{formatCategoryDisplay(p.category)}</span>
@@ -1384,13 +1384,13 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     value={rssUrl}
                     onChange={(e) => setRssUrl(e.target.value)}
                     placeholder="https://ximen-math.blogspot.com/feeds/posts/default?max-results=500"
-                    className="flex-1 px-3.5 py-2 text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                    className="flex-1 min-w-0 px-3.5 py-2 text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                   />
                   <button
                     type="button"
                     onClick={handleFetchRss}
                     disabled={isFetchingRss || !rssUrl.trim()}
-                    className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                    className="w-full sm:w-auto max-w-full px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center justify-center gap-1.5 transition-colors text-center leading-snug shrink-0"
                   >
                     <RefreshCw
                       className={`w-3.5 h-3.5 ${
@@ -1542,8 +1542,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     })}
                   </div>
 
-                  <div className="px-6 py-4 bg-[#F7F4EE] border-t border-stone-200 flex items-center justify-between gap-4">
-                    <span className="text-xs text-stone-600">
+                  <div className="px-6 py-4 bg-[#F7F4EE] border-t border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <span className="text-xs text-stone-600 min-w-0">
                       {dataSourceMode === 'sheets-api'
                         ? `將批次新增至試算表「${sheetMeta?.title}」`
                         : '將匯入至目前頁面預覽（可再匯出 JSON/CSV）'}
@@ -1552,7 +1552,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       type="button"
                       disabled={rssPostsToImport.length === 0 || isSyncing}
                       onClick={() => onBatchImportPosts(rssPostsToImport)}
-                      className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 transition-colors whitespace-nowrap shrink-0"
+                      className="w-full sm:w-auto max-w-full px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 transition-colors text-center leading-snug shrink-0"
                     >
                       {dataSourceMode === 'sheets-api'
                         ? `批次寫入 Google Sheet (${rssPostsToImport.length} 篇)`
@@ -1588,7 +1588,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                           siteTitle: sheetMeta.title,
                         }))
                       }
-                      className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/5 border border-[#1E3A8A]/20 rounded-lg hover:bg-[#1E3A8A]/10 whitespace-nowrap shrink-0"
+                      className="max-w-full px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/5 border border-[#1E3A8A]/20 rounded-lg hover:bg-[#1E3A8A]/10 text-center leading-snug"
                     >
                       套用試算表名稱：{sheetMeta.title}
                     </button>
@@ -1747,13 +1747,13 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   </div>
                 )}
 
-                <div className="pt-2 flex flex-wrap items-center gap-3">
+                <div className="pt-2 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3">
                   <button
                     type="submit"
                     disabled={isSavingSettings}
-                    className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="w-full sm:w-auto max-w-full px-4 py-2.5 sm:py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center justify-center gap-1.5 transition-colors text-center leading-snug"
                   >
-                    <Save className="w-3.5 h-3.5" />
+                    <Save className="w-3.5 h-3.5 shrink-0" />
                     <span>
                       {isSavingSettings
                         ? '正在即時同步...'
@@ -1766,9 +1766,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       type="button"
                       onClick={() => onSyncSettingsToSheet(settingsDraft)}
                       disabled={isSyncing}
-                      className="px-4 py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      className="w-full sm:w-auto max-w-full px-4 py-2.5 sm:py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 transition-colors text-center leading-snug"
                     >
-                      <Sheet className="w-3.5 h-3.5" />
+                      <Sheet className="w-3.5 h-3.5 shrink-0" />
                       <span>同時寫入 Google Sheet（Settings 分頁）</span>
                     </button>
                   )}
@@ -1922,9 +1922,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     <p className="text-emerald-900">
                       設定檔位於專案最外層的 <code className="font-mono-tabular bg-white px-1.5 py-0.5 rounded border border-emerald-200 font-semibold">site-config.json</code>。您只需在「Google Sheets 連線」分頁點擊<strong>「將目前連線試算表設為全站預設」</strong>，系統就會自動更新該檔案。接著在 AI Studio 按下 Commit & Push，部署至 GitHub Pages 時 Actions 會自動建置並發布，<strong>一氣呵成，完全不需開啟 GitHub 網站手動設定 Variables</strong>！
                     </p>
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
                       <span className="text-emerald-800">目前預設 ID：</span>
-                      <code className="bg-white border border-emerald-200 px-2 py-0.5 rounded font-mono-tabular font-semibold text-emerald-950">
+                      <code className="bg-white border border-emerald-200 px-2 py-0.5 rounded font-mono-tabular font-semibold text-emerald-950 break-all">
                         {currentConfigId || '尚未設定'}
                       </code>
                     </div>
@@ -1939,9 +1939,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     </p>
                     <div>1. 前往 GitHub Repository → <strong>Settings → Secrets and variables → Actions → Variables</strong></div>
                     <div>2. 點擊 <strong>New repository variable</strong></div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span>• 變數名稱：</span>
-                      <code className="bg-white border border-stone-300 px-2 py-0.5 rounded font-mono-tabular font-semibold">VITE_DEFAULT_SHEET_ID</code>
+                      <code className="bg-white border border-stone-300 px-2 py-0.5 rounded font-mono-tabular font-semibold break-all">VITE_DEFAULT_SHEET_ID</code>
                       <button
                         type="button"
                         onClick={() => copyText('VITE_DEFAULT_SHEET_ID', 'var_name')}
@@ -1956,7 +1956,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
 
               {/* GitHub Pages Deployment Workflow */}
               <section className="bg-white border border-stone-200 rounded-xl p-6 space-y-3">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-editorial text-base font-semibold text-stone-900">
                     GitHub Pages 自動部署工作流（.github/workflows/deploy.yml）
                   </h3>
