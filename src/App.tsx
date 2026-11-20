@@ -84,6 +84,22 @@ import {
 } from './types/journal';
 
 const PUBLIC_SHEET_STORAGE_KEY = 'pesmath_public_sheet_id';
+const HIDDEN_OFFICIAL_ASSETS_STORAGE_KEY =
+  'pesmath_ximen_hidden_official_assets_v1';
+
+function readLocalHiddenOfficialAssetIds(): string[] {
+  try {
+    const raw = localStorage.getItem(HIDDEN_OFFICIAL_ASSETS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((id): id is string => typeof id === 'string');
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return [];
+}
 
 export default function App() {
   // Data & Source State
@@ -114,6 +130,9 @@ export default function App() {
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [galleryAuthError, setGalleryAuthError] = useState<string | null>(null);
+  const [hiddenOfficialAssetIds, setHiddenOfficialAssetIds] = useState<string[]>(
+    () => readLocalHiddenOfficialAssetIds(),
+  );
 
   // Filter & View State
   const [searchQuery, setSearchQuery] = useState('');
@@ -289,6 +308,18 @@ export default function App() {
           autoDynamicTitle: cloudCfg.autoDynamicTitle,
           autoTitleFromSheet: cloudCfg.autoTitleFromSheet,
         });
+
+        if (cloudCfg.hiddenOfficialAssetIds !== undefined) {
+          setHiddenOfficialAssetIds(cloudCfg.hiddenOfficialAssetIds);
+          try {
+            localStorage.setItem(
+              HIDDEN_OFFICIAL_ASSETS_STORAGE_KEY,
+              JSON.stringify(cloudCfg.hiddenOfficialAssetIds),
+            );
+          } catch {
+            // ignore storage errors
+          }
+        }
 
         if (!sheetParam && cloudCfg.spreadsheetId) {
           const nextKey = `${cloudCfg.spreadsheetId}|${cloudCfg.tabName}`;
@@ -955,6 +986,7 @@ export default function App() {
           spreadsheetId: activeId,
           tabName: activeTab,
           ...nextSettings,
+          hiddenOfficialAssetIds,
         });
         cloudSynced = true;
       } catch (err: any) {
@@ -1006,6 +1038,7 @@ export default function App() {
           spreadsheetId: cleanId,
           tabName: cleanTab,
           ...siteSettings,
+          hiddenOfficialAssetIds,
         });
         cloudSynced = true;
       } catch (err: any) {
@@ -1077,6 +1110,7 @@ export default function App() {
               spreadsheetId: sheetMeta.spreadsheetId,
               tabName: sheetMeta.activeTab,
               ...nextSettings,
+              hiddenOfficialAssetIds,
             });
           }
         } catch (err: any) {
@@ -1992,6 +2026,38 @@ export default function App() {
         onTeacherSignIn={handleSignIn}
         onStudentSignIn={handleStudentSignIn}
         onSignOut={handleSignOut}
+        hiddenOfficialAssetIds={hiddenOfficialAssetIds}
+        onUpdateHiddenOfficialAssets={async (nextIds) => {
+          setHiddenOfficialAssetIds(nextIds);
+          try {
+            localStorage.setItem(
+              HIDDEN_OFFICIAL_ASSETS_STORAGE_KEY,
+              JSON.stringify(nextIds),
+            );
+          } catch {
+            // ignore storage error
+          }
+          if (auth.currentUser && isTeacherAdmin) {
+            try {
+              const activeId = sheetMeta?.spreadsheetId || publicSheetId || '';
+              const activeTab = sheetMeta?.activeTab || publicTabName || 'Posts';
+              await saveSharedSiteConfig({
+                spreadsheetId: activeId,
+                tabName: activeTab,
+                ...siteSettings,
+                hiddenOfficialAssetIds: nextIds,
+              });
+              return {synced: true};
+            } catch (err) {
+              return {
+                synced: false,
+                errorMessage:
+                  err instanceof Error ? err.message : '雲端同步失敗',
+              };
+            }
+          }
+          return {synced: false};
+        }}
       />
 
       {/* Google Sheets CMS & Architecture Drawer */}

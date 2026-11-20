@@ -27,6 +27,10 @@ interface InteractiveEmbedModalProps {
   onTeacherSignIn: () => void;
   onStudentSignIn: () => void;
   onSignOut: () => void;
+  hiddenOfficialAssetIds: string[];
+  onUpdateHiddenOfficialAssets: (
+    nextIds: string[],
+  ) => Promise<{synced: boolean; errorMessage?: string}>;
 }
 
 function buildTabbedUrl(
@@ -73,6 +77,8 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
   onTeacherSignIn,
   onStudentSignIn,
   onSignOut,
+  hiddenOfficialAssetIds,
+  onUpdateHiddenOfficialAssets,
 }) => {
   const [activeTab, setActiveTab] = useState<XimenScratchTab>(initialTab);
   const [customMapBg, setCustomMapBg] = useState<{
@@ -218,34 +224,47 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
         </header>
 
         {/* Embedded Interactive Site Viewport or Role-Gated React Gallery Center */}
-        <div className="flex-1 min-h-0 bg-white">
-          {isXimenSite && activeTab === 'gallery' ? (
-            <XimenGalleryPanel
-              user={user}
-              isTeacher={isTeacher}
-              hasAccessToken={hasAccessToken}
-              isSigningIn={isSigningIn}
-              authError={authError}
-              onClearAuthError={onClearAuthError}
-              onTeacherSignIn={onTeacherSignIn}
-              onStudentSignIn={onStudentSignIn}
-              onSignOut={onSignOut}
-              onApplyMapBackground={(imageUrl, displayName) => {
-                setCustomMapBg({url: imageUrl, name: displayName});
-                setActiveTab('map');
-                setTimeout(() => {
-                  try {
-                    iframeRef.current?.contentWindow?.postMessage(
-                      {type: 'XIMEN_SET_MAP_BG', url: imageUrl, name: displayName},
-                      window.location.origin,
-                    );
-                  } catch {
-                    // Fallback handled via query params on iframe src update
-                  }
-                }, 150);
-              }}
-            />
-          ) : (
+        <div className="flex-1 min-h-0 bg-white relative">
+          {isXimenSite && (
+            <div
+              className={
+                activeTab === 'gallery' ? 'h-full w-full block' : 'hidden'
+              }
+            >
+              <XimenGalleryPanel
+                user={user}
+                isTeacher={isTeacher}
+                hasAccessToken={hasAccessToken}
+                isSigningIn={isSigningIn}
+                authError={authError}
+                onClearAuthError={onClearAuthError}
+                onTeacherSignIn={onTeacherSignIn}
+                onStudentSignIn={onStudentSignIn}
+                onSignOut={onSignOut}
+                hiddenOfficialAssetIds={hiddenOfficialAssetIds}
+                onUpdateHiddenOfficialAssets={onUpdateHiddenOfficialAssets}
+                onApplyMapBackground={(imageUrl, displayName) => {
+                  setCustomMapBg({url: imageUrl, name: displayName});
+                  setActiveTab('map');
+                  setTimeout(() => {
+                    try {
+                      iframeRef.current?.contentWindow?.postMessage(
+                        {
+                          type: 'XIMEN_SET_MAP_BG',
+                          url: imageUrl,
+                          name: displayName,
+                        },
+                        window.location.origin,
+                      );
+                    } catch {
+                      // Fallback handled via query params on iframe src update
+                    }
+                  }, 150);
+                }}
+              />
+            </div>
+          )}
+          {(!isXimenSite || activeTab !== 'gallery') && (
             <iframe
               ref={iframeRef}
               key={iframeSrc}

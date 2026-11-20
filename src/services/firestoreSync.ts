@@ -61,9 +61,21 @@ export function handleFirestoreError(
   throw new Error(JSON.stringify(errInfo));
 }
 
+export function isFirestoreQuotaError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? '');
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('quota exceeded') ||
+    lower.includes('quota limit exceeded') ||
+    lower.includes('resource-exhausted') ||
+    lower.includes('free daily read units')
+  );
+}
+
 export interface SharedCloudSiteConfig extends SiteSettings {
   spreadsheetId: string;
   tabName: string;
+  hiddenOfficialAssetIds?: string[];
 }
 
 const SITE_CONFIG_COLLECTION = 'siteConfig';
@@ -101,6 +113,14 @@ export function subscribeSharedSiteConfig(
         return;
       }
       const d = snap.data();
+      const hiddenIds = Array.isArray(d.hiddenOfficialAssetIds)
+        ? d.hiddenOfficialAssetIds
+            .filter((id): id is string => typeof id === 'string')
+            .map((id) => id.trim().slice(0, 64))
+            .filter(Boolean)
+            .slice(0, 50)
+        : undefined;
+
       onUpdate({
         spreadsheetId: String(d.spreadsheetId ?? ''),
         tabName: String(d.tabName ?? 'Posts') || 'Posts',
@@ -110,6 +130,7 @@ export function subscribeSharedSiteConfig(
         heroDescription: String(d.heroDescription ?? ''),
         autoDynamicTitle: Boolean(d.autoDynamicTitle ?? true),
         autoTitleFromSheet: Boolean(d.autoTitleFromSheet ?? true),
+        ...(hiddenIds !== undefined ? {hiddenOfficialAssetIds: hiddenIds} : {}),
       });
     },
     (error) => {
@@ -134,7 +155,17 @@ export async function saveSharedSiteConfig(
     throw new Error('請先完成 Google 登入授權，才能同步設定至雲端資料庫。');
   }
 
-  const payload = {
+  const sanitizedHiddenIds = Array.isArray(config.hiddenOfficialAssetIds)
+    ? Array.from(
+        new Set(
+          config.hiddenOfficialAssetIds
+            .map((id) => String(id).trim().slice(0, 64))
+            .filter(Boolean),
+        ),
+      ).slice(0, 50)
+    : undefined;
+
+  const payload: Record<string, unknown> = {
     spreadsheetId: config.spreadsheetId.trim().slice(0, 200),
     tabName: (config.tabName.trim() || 'Posts').slice(0, 100),
     siteTitle: (config.siteTitle.trim() || 'PesMath 數學知識庫').slice(0, 120),
@@ -146,6 +177,10 @@ export async function saveSharedSiteConfig(
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
   };
+
+  if (sanitizedHiddenIds !== undefined) {
+    payload.hiddenOfficialAssetIds = sanitizedHiddenIds;
+  }
 
   try {
     await setDoc(doc(db, SITE_CONFIG_COLLECTION, SITE_CONFIG_DOC_ID), payload);

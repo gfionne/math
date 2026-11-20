@@ -66,7 +66,8 @@ service cloud.firestore {
         'autoDynamicTitle',
         'autoTitleFromSheet',
         'updatedAt',
-        'updatedByUid'
+        'updatedByUid',
+        'hiddenOfficialAssetIds'
       ]) &&
       data.spreadsheetId is string && data.spreadsheetId.size() <= 200 &&
       data.tabName is string && data.tabName.size() >= 1 && data.tabName.size() <= 100 &&
@@ -78,7 +79,16 @@ service cloud.firestore {
       data.autoTitleFromSheet is bool &&
       data.updatedAt is timestamp &&
       data.updatedByUid is string && isValidId(data.updatedByUid) &&
-      data.updatedByUid == request.auth.uid;
+      data.updatedByUid == request.auth.uid &&
+      (!('hiddenOfficialAssetIds' in data) || (
+        data.hiddenOfficialAssetIds is list &&
+        data.hiddenOfficialAssetIds.size() <= 50 &&
+        (data.hiddenOfficialAssetIds.size() == 0 || (
+          data.hiddenOfficialAssetIds[0] is string &&
+          data.hiddenOfficialAssetIds[0].size() >= 1 &&
+          data.hiddenOfficialAssetIds[0].size() <= 64
+        ))
+      ));
     }
 
     function isValidAdminUser(data) {
@@ -155,7 +165,8 @@ service cloud.firestore {
           'autoDynamicTitle',
           'autoTitleFromSheet',
           'updatedAt',
-          'updatedByUid'
+          'updatedByUid',
+          'hiddenOfficialAssetIds'
         ]);
 
       allow delete: if false;

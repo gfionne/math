@@ -4,6 +4,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Download,
+  ExternalLink,
   FolderOpen,
   FolderUp,
   ImagePlus,
@@ -11,6 +12,7 @@ import {
   LogOut,
   Map as MapIcon,
   RefreshCw,
+  RotateCcw,
   ShieldCheck,
   Trash2,
   Upload,
@@ -32,6 +34,9 @@ import {
   OfficialXimenAsset,
 } from '../utils/ximenOfficialAssets';
 
+const FIRESTORE_QUOTA_CONSOLE_URL =
+  'https://console.firebase.google.com/project/my-project-1150619/firestore/databases/ai-studio-remixpesmath-473fb20f-daf7-4243-a072-b92491e2a632/data?openUpgradeDialog=true';
+
 interface XimenGalleryPanelProps {
   user: User | null;
   isTeacher: boolean;
@@ -43,6 +48,10 @@ interface XimenGalleryPanelProps {
   onStudentSignIn: () => void;
   onSignOut: () => void;
   onApplyMapBackground: (imageUrl: string, displayName: string) => void;
+  hiddenOfficialAssetIds: string[];
+  onUpdateHiddenOfficialAssets: (
+    nextIds: string[],
+  ) => Promise<{synced: boolean; errorMessage?: string}>;
 }
 
 const IMAGE_EXTENSIONS_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
@@ -193,9 +202,13 @@ function extractRelativeFolder(file: File, fallbackFolder: string): string {
 
 const OfficialAssetCard: React.FC<{
   asset: OfficialXimenAsset;
+  isTeacher?: boolean;
+  isDeleting?: boolean;
   onDownloaded: (msg: string) => void;
-}> = ({asset, onDownloaded}) => {
+  onDelete?: (asset: OfficialXimenAsset) => void;
+}> = ({asset, isTeacher, isDeleting, onDownloaded, onDelete}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -249,6 +262,46 @@ const OfficialAssetCard: React.FC<{
           <Download className="w-3.5 h-3.5" />
           <span>下載 PNG 圖檔</span>
         </button>
+
+        {isTeacher && onDelete && (
+          <div className="pt-2 border-t border-stone-100">
+            {confirmDelete ? (
+              <div className="flex items-center justify-between gap-1.5 text-xs">
+                <span className="text-red-700 font-medium">確定刪除？</span>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => {
+                      setConfirmDelete(false);
+                      onDelete(asset);
+                    }}
+                    className="px-2.5 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-60"
+                  >
+                    {isDeleting ? '刪除中' : '確認'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeleting}
+                    onClick={() => setConfirmDelete(false)}
+                    className="px-2 py-1 text-xs font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-md"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="w-full py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 rounded-lg inline-flex items-center justify-center gap-1 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>刪除元件</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -265,6 +318,8 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
   onStudentSignIn,
   onSignOut,
   onApplyMapBackground,
+  hiddenOfficialAssetIds,
+  onUpdateHiddenOfficialAssets,
 }) => {
   const isSchoolStudent = Boolean(
     user && user.emailVerified && isHmesStudentEmail(user.email),
@@ -296,6 +351,10 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
     null,
   );
   const [isDeletingFolder, setIsDeletingFolder] = useState(false);
+  const [isUpdatingOfficialAssets, setIsUpdatingOfficialAssets] =
+    useState(false);
+  const [confirmDeleteAllOfficial, setConfirmDeleteAllOfficial] =
+    useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const singleOrMultiFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -375,16 +434,73 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
     });
   }, [galleryItems, activeFolder, searchKeyword]);
 
+  const hiddenOfficialSet = useMemo(
+    () => new Set(hiddenOfficialAssetIds),
+    [hiddenOfficialAssetIds],
+  );
+
+  const visibleOfficialAssets = useMemo(
+    () => OFFICIAL_XIMEN_ASSETS.filter((a) => !hiddenOfficialSet.has(a.id)),
+    [hiddenOfficialSet],
+  );
+
   const filteredOfficialAssets = useMemo(() => {
     if (activeFolder !== 'ALL' && activeFolder !== 'OFFICIAL') return [];
     const kw = searchKeyword.trim().toLowerCase();
-    if (!kw) return OFFICIAL_XIMEN_ASSETS;
-    return OFFICIAL_XIMEN_ASSETS.filter(
+    if (!kw) return visibleOfficialAssets;
+    return visibleOfficialAssets.filter(
       (a) =>
         a.title.toLowerCase().includes(kw) ||
         a.filename.toLowerCase().includes(kw),
     );
-  }, [activeFolder, searchKeyword]);
+  }, [activeFolder, searchKeyword, visibleOfficialAssets]);
+
+  const handleDeleteOfficialAsset = async (asset: OfficialXimenAsset) => {
+    if (!isTeacher) return;
+    setIsUpdatingOfficialAssets(true);
+    setGalleryError(null);
+    const nextIds = Array.from(new Set([...hiddenOfficialAssetIds, asset.id]));
+    const res = await onUpdateHiddenOfficialAssets(nextIds);
+    setIsUpdatingOfficialAssets(false);
+    if (res.synced) {
+      setStatusMessage(`已從圖庫刪除官方元件「${asset.title}」。`);
+    } else {
+      setStatusMessage(
+        `已從目前畫面刪除官方元件「${asset.title}」${res.errorMessage ? '（雲端資料庫目前達額度上限，已暫存於本機）' : ''}。`,
+      );
+    }
+  };
+
+  const handleDeleteAllOfficialAssets = async () => {
+    if (!isTeacher) return;
+    setIsUpdatingOfficialAssets(true);
+    setGalleryError(null);
+    const allIds = OFFICIAL_XIMEN_ASSETS.map((a) => a.id);
+    const res = await onUpdateHiddenOfficialAssets(allIds);
+    setIsUpdatingOfficialAssets(false);
+    setConfirmDeleteAllOfficial(false);
+    if (activeFolder === 'OFFICIAL') {
+      setActiveFolder('ALL');
+    }
+    if (res.synced) {
+      setStatusMessage('已刪除全部官方標準元件。');
+    } else {
+      setStatusMessage('已從目前畫面刪除全部官方標準元件。');
+    }
+  };
+
+  const handleRestoreOfficialAssets = async () => {
+    if (!isTeacher) return;
+    setIsUpdatingOfficialAssets(true);
+    setGalleryError(null);
+    const res = await onUpdateHiddenOfficialAssets([]);
+    setIsUpdatingOfficialAssets(false);
+    if (res.synced) {
+      setStatusMessage('已恢復顯示全部 12 項官方標準元件。');
+    } else {
+      setStatusMessage('已恢復顯示全部 12 項官方標準元件。');
+    }
+  };
 
   const handleUploadFiles = async (
     fileList: FileList | null,
@@ -814,9 +930,44 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
             role="alert"
             className="bg-red-50 border border-red-200 text-red-900 rounded-xl px-4 py-3 text-xs sm:text-sm flex items-start justify-between gap-3"
           >
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2 min-w-0">
               <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-              <span>{galleryError || authError}</span>
+              <div className="space-y-1.5 min-w-0">
+                <p>
+                  {(galleryError || authError || '').startsWith(
+                    'Firestore_QUOTA_EXCEEDED:',
+                  )
+                    ? (galleryError || authError || '').replace(
+                        'Firestore_QUOTA_EXCEEDED:',
+                        '',
+                      )
+                    : galleryError || authError}
+                </p>
+                {(galleryError || authError || '').includes(
+                  'Firestore_QUOTA_EXCEEDED:',
+                ) && (
+                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                    <a
+                      href={FIRESTORE_QUOTA_CONSOLE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-red-800 underline hover:text-red-950"
+                    >
+                      <span>開啟 Firebase 資料庫額度設定</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a
+                      href="https://firebase.google.com/pricing#cloud-firestore"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-medium text-red-700 underline hover:text-red-950"
+                    >
+                      <span>查看 Spark / Enterprise 免費額度說明</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
             </div>
             <button
               type="button"
@@ -904,45 +1055,63 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
               </div>
 
               <div className="md:col-span-5 flex flex-wrap items-center gap-2">
-                <label
-                  className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
-                    uploadProgress || !hasAccessToken
-                      ? 'bg-stone-200 text-stone-500 cursor-not-allowed'
-                      : 'bg-[#1E3A8A] hover:bg-[#172554] text-white'
-                  }`}
-                >
-                  <ImagePlus className="w-4 h-4 shrink-0" />
-                  <span>上傳圖片（可多選）</span>
-                  <input
-                    ref={singleOrMultiFileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    disabled={Boolean(uploadProgress) || !hasAccessToken}
-                    onChange={(e) => handleUploadFiles(e.target.files, false)}
-                    className="hidden"
-                  />
-                </label>
+                {!hasAccessToken ? (
+                  <button
+                    type="button"
+                    onClick={onTeacherSignIn}
+                    disabled={isSigningIn}
+                    className="w-full h-10 px-4 rounded-lg text-xs font-semibold bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 text-white inline-flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4 shrink-0" />
+                    <span>
+                      {isSigningIn
+                        ? '授權連線中...'
+                        : '啟用 Google Drive 權限以開始上傳圖片或資料夾'}
+                    </span>
+                  </button>
+                ) : (
+                  <>
+                    <label
+                      className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap ${
+                        uploadProgress
+                          ? 'bg-stone-200 text-stone-500 cursor-not-allowed'
+                          : 'bg-[#1E3A8A] hover:bg-[#172554] text-white'
+                      }`}
+                    >
+                      <ImagePlus className="w-4 h-4 shrink-0" />
+                      <span>上傳圖片（可多選）</span>
+                      <input
+                        ref={singleOrMultiFileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={Boolean(uploadProgress)}
+                        onChange={(e) => handleUploadFiles(e.target.files, false)}
+                        className="hidden"
+                      />
+                    </label>
 
-                <label
-                  className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap border ${
-                    uploadProgress || !hasAccessToken
-                      ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed'
-                      : 'bg-[#F7F4EE] hover:bg-stone-200/70 text-stone-900 border-stone-300'
-                  }`}
-                >
-                  <FolderUp className="w-4 h-4 shrink-0 text-[#1E3A8A]" />
-                  <span>上傳整個資料夾</span>
-                  <input
-                    ref={folderInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    disabled={Boolean(uploadProgress) || !hasAccessToken}
-                    onChange={(e) => handleUploadFiles(e.target.files, true)}
-                    className="hidden"
-                  />
-                </label>
+                    <label
+                      className={`flex-1 min-w-[140px] h-10 px-3.5 rounded-lg text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap border ${
+                        uploadProgress
+                          ? 'bg-stone-100 text-stone-400 border-stone-200 cursor-not-allowed'
+                          : 'bg-[#F7F4EE] hover:bg-stone-200/70 text-stone-900 border-stone-300'
+                      }`}
+                    >
+                      <FolderUp className="w-4 h-4 shrink-0 text-[#1E3A8A]" />
+                      <span>上傳整個資料夾</span>
+                      <input
+                        ref={folderInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        disabled={Boolean(uploadProgress)}
+                        onChange={(e) => handleUploadFiles(e.target.files, true)}
+                        className="hidden"
+                      />
+                    </label>
+                  </>
+                )}
               </div>
             </div>
 
@@ -984,7 +1153,7 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                     : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
                 }`}
               >
-                全部圖庫 ({folderSummaries.total + OFFICIAL_XIMEN_ASSETS.length})
+                全部圖庫 ({folderSummaries.total + visibleOfficialAssets.length})
               </button>
 
               {folderSummaries.folders.map(([folder, count]) => (
@@ -1019,17 +1188,19 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => setActiveFolder('OFFICIAL')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                  activeFolder === 'OFFICIAL'
-                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                    : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
-                }`}
-              >
-                官方標準元件 ({OFFICIAL_XIMEN_ASSETS.length})
-              </button>
+              {visibleOfficialAssets.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveFolder('OFFICIAL')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                    activeFolder === 'OFFICIAL'
+                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                      : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                  }`}
+                >
+                  官方標準元件 ({visibleOfficialAssets.length})
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -1232,21 +1403,83 @@ export const XimenGalleryPanel: React.FC<XimenGalleryPanelProps> = ({
           </section>
         )}
 
-        {/* Official 12 Standard Scratch Components */}
-        {filteredOfficialAssets.length > 0 && (
+        {/* Official Standard Scratch Components (Deletable & Restorable by Teachers) */}
+        {(filteredOfficialAssets.length > 0 ||
+          (isTeacher && hiddenOfficialAssetIds.length > 0)) && (
           <section className="space-y-3 pt-2">
-            <h4 className="font-editorial text-base font-bold text-stone-950">
-              官方標準舞台與按鈕圖庫（{filteredOfficialAssets.length} 項標準元件）
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {filteredOfficialAssets.map((asset) => (
-                <OfficialAssetCard
-                  key={asset.id}
-                  asset={asset}
-                  onDownloaded={(msg) => setStatusMessage(msg)}
-                />
-              ))}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-editorial text-base font-bold text-stone-950">
+                官方標準舞台與按鈕圖庫（{filteredOfficialAssets.length} 項標準元件）
+              </h4>
+
+              {isTeacher && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {hiddenOfficialAssetIds.length > 0 && (
+                    <button
+                      type="button"
+                      disabled={isUpdatingOfficialAssets}
+                      onClick={handleRestoreOfficialAssets}
+                      className="px-3 py-1 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/5 hover:bg-[#1E3A8A]/10 border border-[#1E3A8A]/20 rounded-lg inline-flex items-center gap-1.5 transition-colors disabled:opacity-60"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>
+                        恢復官方預設元件（已刪除 {hiddenOfficialAssetIds.length}{' '}
+                        項）
+                      </span>
+                    </button>
+                  )}
+
+                  {filteredOfficialAssets.length > 0 &&
+                    (confirmDeleteAllOfficial ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-red-700">
+                          確定刪除全部官方元件？
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isUpdatingOfficialAssets}
+                          onClick={handleDeleteAllOfficialAssets}
+                          className="px-2.5 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-md disabled:opacity-60"
+                        >
+                          確認全部刪除
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isUpdatingOfficialAssets}
+                          onClick={() => setConfirmDeleteAllOfficial(false)}
+                          className="px-2 py-1 text-xs font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-md"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteAllOfficial(true)}
+                        className="px-3 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg inline-flex items-center gap-1 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>全部刪除官方元件</span>
+                      </button>
+                    ))}
+                </div>
+              )}
             </div>
+
+            {filteredOfficialAssets.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {filteredOfficialAssets.map((asset) => (
+                  <OfficialAssetCard
+                    key={asset.id}
+                    asset={asset}
+                    isTeacher={isTeacher}
+                    isDeleting={isUpdatingOfficialAssets}
+                    onDownloaded={(msg) => setStatusMessage(msg)}
+                    onDelete={handleDeleteOfficialAsset}
+                  />
+                ))}
+              </div>
+            )}
           </section>
         )}
       </div>
