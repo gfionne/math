@@ -590,12 +590,7 @@
         <button type="button" onclick="closeLoginModal()" class="text-slate-400 hover:text-slate-600 transition cursor-pointer"><i class="fa-solid fa-xmark text-lg"></i></button>
       </div>
       <div class="space-y-2.5 text-xs text-slate-600 leading-relaxed">
-        <p>為確保班網資料安全（即使網頁置於 GitHub 或 Blogspot），編輯功能僅限授權教師的 Google 帳號登入使用：</p>
-        <div class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] text-slate-700 space-y-1">
-          <div class="font-bold text-slate-800">授權管理員帳號：</div>
-          <div>• g.fionne@gmail.com</div>
-          <div>• pes@hmes.tp.edu.tw</div>
-        </div>
+        <p>編輯功能僅限已授權之教師 Google 帳號登入使用，登入後將由雲端驗證身分並同步所有修改。</p>
         <p id="login-error" class="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-2.5 hidden"></p>
       </div>
       <div class="flex gap-2 justify-end pt-1">
@@ -617,7 +612,22 @@
 
   <script>
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw2Kzbm7OI8sDLUlpMNcoq_Zl86dTuBCCVEDK5yEnYkAAVTo18mFhkcfVnXkJ4Sd_9T/exec";
-    const ALLOWED_CLASS_ADMINS = ["g.fionne@gmail.com", "pes@hmes.tp.edu.tw"];
+    const ALLOWED_ADMIN_EMAIL_HASHES = [
+      "5b5ed0f539acd210f0a11f3119f38c9eb1e591b8081637f99349e079e0f0b334",
+      "9cc14a7d2a613d0a9aed2bf53c632477aa501f7cf4a3cc83a1d1001d9ed29ad4"
+    ];
+
+    async function isAllowedClassAdminEmail(email) {
+      const normalized = String(email || "").trim().toLowerCase();
+      if (!normalized || !window.crypto || !window.crypto.subtle) return false;
+      try {
+        const buf = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalized));
+        const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+        return ALLOWED_ADMIN_EMAIL_HASHES.includes(hex);
+      } catch {
+        return false;
+      }
+    }
     const FIREBASE_CONFIG = {
       apiKey: "AIzaSyCnM3MKmML7l2UVL1L42m0HHeX6Tv1rAjk",
       authDomain: "my-project-1150619.firebaseapp.com",
@@ -1076,9 +1086,10 @@ function generateAiReply(query) {
       }
       toast.classList.remove('hidden');
       if (!isLoading) {
+        const duration = String(msg).startsWith('⚠️') ? 5500 : 2500;
         setTimeout(() => {
           if (toast) toast.classList.add('hidden');
-        }, 2500);
+        }, duration);
       }
     }
 
@@ -1119,7 +1130,7 @@ function generateAiReply(query) {
     async function getFreshTeacherIdToken() {
       if (firebaseAuth && firebaseAuth.currentUser) {
         const email = String(firebaseAuth.currentUser.email || "").trim().toLowerCase();
-        if (firebaseAuth.currentUser.emailVerified && ALLOWED_CLASS_ADMINS.includes(email)) {
+        if (firebaseAuth.currentUser.emailVerified && (await isAllowedClassAdminEmail(email))) {
           try {
             return await firebaseAuth.currentUser.getIdToken();
           } catch (e) {
@@ -1127,7 +1138,7 @@ function generateAiReply(query) {
           }
         }
       }
-      if (parentBridgedToken && ALLOWED_CLASS_ADMINS.includes(parentBridgedEmail)) {
+      if (parentBridgedToken && (await isAllowedClassAdminEmail(parentBridgedEmail))) {
         return parentBridgedToken;
       }
       return "";
@@ -1170,17 +1181,16 @@ async function saveCloudData() {
 
         if (response.ok || response.type === 'opaque') {
           if (response.type !== 'opaque') {
-            try {
-              const resText = await response.text();
-              if (resText) {
-                const parsed = JSON.parse(resText);
-                if (parsed && parsed.ok === false) {
-                  throw new Error(parsed.error || "雲端驗證未通過");
-                }
+            const resText = await response.text();
+            if (resText) {
+              let parsed = null;
+              try {
+                parsed = JSON.parse(resText);
+              } catch {
+                parsed = null;
               }
-            } catch (parseErr) {
-              if (parseErr && parseErr.message && parseErr.message.includes("驗證")) {
-                throw parseErr;
+              if (parsed && parsed.ok === false) {
+                throw new Error(parsed.error || parsed.message || "雲端驗證未通過");
               }
             }
           }
@@ -1267,9 +1277,7 @@ function renderAllUI() {
     function updateAdminStatusIndicators() {
       const barText = document.getElementById('admin-bar-text');
       if (barText) {
-        barText.innerText = currentAdminEmail
-          ? `已開啟管理員編輯模式（登入帳號：${currentAdminEmail}）`
-          : '已開啟管理員編輯模式（所有修改將自動同步至雲端）';
+        barText.innerText = '已開啟管理員編輯模式（所有修改將自動同步至雲端）';
       }
       const v2Badge = document.getElementById('gas-v2-badge');
       if (v2Badge) {
@@ -1317,10 +1325,10 @@ function renderAllUI() {
         const result = await firebaseAuth.signInWithPopup(googleProvider);
         const signedUser = result.user;
         const email = String(signedUser && signedUser.email ? signedUser.email : '').trim().toLowerCase();
-        if (!signedUser || !signedUser.emailVerified || !ALLOWED_CLASS_ADMINS.includes(email)) {
+        if (!signedUser || !signedUser.emailVerified || !(await isAllowedClassAdminEmail(email))) {
           await firebaseAuth.signOut();
           if (errEl) {
-            errEl.innerText = `帳號「${email || '未知'}」不在 403 班網管理員白名單內，請改用 g.fionne@gmail.com 或 pes@hmes.tp.edu.tw 登入。`;
+            errEl.innerText = '此帳號未具備 403 班網管理員編輯權限，請改用已授權的教師 Google 帳號登入。';
             errEl.classList.remove('hidden');
           }
           return;
@@ -1328,7 +1336,7 @@ function renderAllUI() {
         currentAdminEmail = email;
         closeLoginModal();
         toggleAdminUI(true);
-        showToast(`已使用 ${email} 開啟編輯模式`);
+        showToast('已開啟教師編輯模式');
       } catch (err) {
         console.warn('Google 教師登入失敗：', err);
         const msg = err && err.code === 'auth/unauthorized-domain'
@@ -2510,9 +2518,14 @@ function renderTextbooks() {
             if (response.type !== 'opaque') {
               const resText = await response.text();
               if (resText) {
-                const parsed = JSON.parse(resText);
+                let parsed = null;
+                try {
+                  parsed = JSON.parse(resText);
+                } catch {
+                  parsed = null;
+                }
                 if (parsed && parsed.ok === false) {
-                  throw new Error(parsed.error || "留言寫入未通過驗證");
+                  throw new Error(parsed.error || parsed.message || "留言寫入未通過驗證");
                 }
               }
             }
@@ -2548,10 +2561,10 @@ function renderTextbooks() {
     }
 
     if (firebaseAuth) {
-      firebaseAuth.onAuthStateChanged((user) => {
+      firebaseAuth.onAuthStateChanged(async (user) => {
         if (user && user.emailVerified) {
           const email = String(user.email || '').trim().toLowerCase();
-          if (ALLOWED_CLASS_ADMINS.includes(email)) {
+          if (await isAllowedClassAdminEmail(email)) {
             currentAdminEmail = email;
             if (!isAdmin) {
               toggleAdminUI(true);
@@ -2561,7 +2574,7 @@ function renderTextbooks() {
             return;
           }
         }
-        if (parentBridgedToken && ALLOWED_CLASS_ADMINS.includes(parentBridgedEmail)) {
+        if (parentBridgedToken && (await isAllowedClassAdminEmail(parentBridgedEmail))) {
           currentAdminEmail = parentBridgedEmail;
           if (!isAdmin) toggleAdminUI(true);
           return;
@@ -2591,7 +2604,7 @@ function renderTextbooks() {
       loadCloudData();
     });
 
-    window.addEventListener('message', (event) => {
+    window.addEventListener('message', async (event) => {
       if (event.origin !== window.location.origin) return;
       const data = event.data;
       if (data && data.type === 'CLASS403_SWITCH_TAB' && typeof data.tab === 'string') {
@@ -2599,7 +2612,7 @@ function renderTextbooks() {
       }
       if (data && data.type === 'CLASS403_PARENT_AUTH') {
         const email = String(data.email || '').trim().toLowerCase();
-        if (data.signedIn && data.idToken && ALLOWED_CLASS_ADMINS.includes(email)) {
+        if (data.signedIn && data.idToken && (await isAllowedClassAdminEmail(email))) {
           parentBridgedEmail = email;
           parentBridgedToken = data.idToken;
           currentAdminEmail = email;
