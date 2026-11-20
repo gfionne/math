@@ -1208,27 +1208,144 @@ export default function App() {
       : '內建示範資料庫 (可即時切換試算表)';
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#FBF9F5] text-[#1C1917]">
-      {/* Strict 3-Zone Top Navigation Bar */}
+    <div className="min-h-screen flex flex-col bg-[#FBF9F5] text-[#1C1917] overflow-x-clip">
+      {/* Responsive Navigation Bar (Single-row on lg+, 2-row compact on mobile/tablet) */}
       <header className="sticky top-0 z-30 bg-[#FBF9F5]/95 backdrop-blur-sm border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 md:gap-8">
-          {/* Zone 1: Single-line Brand Wordmark */}
-          <a
-            href="#top"
-            onClick={(e) => {
-              e.preventDefault();
-              setSelectedYear('全部年度');
-              setSelectedCategory('全部分類');
-              setViewMode('swipe');
-              window.scrollTo({top: 0, behavior: 'smooth'});
-            }}
-            className="font-editorial text-lg sm:text-xl font-bold tracking-tight text-stone-950 whitespace-nowrap shrink-0"
-          >
-            {siteSettings.siteTitle}
-          </a>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="h-14 lg:h-16 flex items-center justify-between gap-3 min-w-0">
+            {/* Zone 1: Single-line Brand Wordmark */}
+            <a
+              href="#top"
+              onClick={(e) => {
+                e.preventDefault();
+                setSelectedYear('全部年度');
+                setSelectedCategory('全部分類');
+                setViewMode('swipe');
+                window.scrollTo({top: 0, behavior: 'smooth'});
+              }}
+              className="font-editorial text-base sm:text-xl font-bold tracking-tight text-stone-950 truncate min-w-0"
+            >
+              {siteSettings.siteTitle}
+            </a>
 
-          {/* Zone 2: 5 Single-line Text Nav Links */}
-          <nav className="flex items-center gap-1.5 md:gap-2 text-sm font-medium text-stone-600">
+            {/* Zone 2: Desktop Single-line Text Nav Links */}
+            <nav className="hidden lg:flex items-center gap-1.5 text-sm font-medium text-stone-600 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedYear('全部年度');
+                  setSelectedCategory('全部分類');
+                  setSearchQuery('');
+                  setViewMode('swipe');
+                  setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0});
+                }}
+                title="像 LINE 新聞一樣：左右滑看同主題文章，上下滑切換不同主題"
+                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                  immersiveSwipe.isOpen
+                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                    : 'text-stone-800 font-medium'
+                }`}
+              >
+                <GalleryHorizontalEnd className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                <span>滑動快覽</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory('全部分類');
+                  setViewMode('grid');
+                  scrollToSection('journal-catalog');
+                }}
+                className="px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+              >
+                期刊專欄
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory('教學資源');
+                  setViewMode('grid');
+                  scrollToSection('journal-catalog');
+                }}
+                className="px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+              >
+                教學資源
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedCategory('學力檢測');
+                  setViewMode('grid');
+                  scrollToSection('journal-catalog');
+                }}
+                className="px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+              >
+                學力檢測
+              </button>
+              <button
+                type="button"
+                onClick={() => openXimenStage('map')}
+                className={`px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                  interactiveStage.isOpen &&
+                  interactiveStage.url.includes('ximen-scratch.html')
+                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                    : ''
+                }`}
+              >
+                互動專題
+              </button>
+              <button
+                type="button"
+                onClick={() => openClass403Stage('agenda')}
+                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                  interactiveStage.isOpen &&
+                  interactiveStage.url.includes('class-403.html')
+                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                    : 'text-stone-700'
+                }`}
+              >
+                <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                <span>403 班級網站</span>
+              </button>
+            </nav>
+
+            {/* Zone 3: 1 Primary CTA */}
+            <div className="flex items-center shrink-0">
+              {user && hasAccessToken ? (
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openDrawer('editor')}
+                    className="px-3 sm:px-3.5 py-1.5 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                  >
+                    管理後台
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="px-2 sm:px-2.5 py-1.5 text-xs font-medium text-stone-600 rounded-lg hover:bg-stone-200/60 hover:text-stone-900 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                  >
+                    登出
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleSignIn}
+                  disabled={isSigningIn}
+                  className="px-3 sm:px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] hover:bg-[#F7F4EE] hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                >
+                  {isSigningIn ? '登入中...' : '教師登入'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Mobile & Tablet Compact Scrollable Quick Nav */}
+          <nav
+            aria-label="行動版快速導覽"
+            className="flex lg:hidden items-center gap-1.5 overflow-x-auto pb-2 pt-1.5 border-t border-stone-200/70 text-xs sm:text-sm font-medium text-stone-600"
+          >
             <button
               type="button"
               onClick={() => {
@@ -1238,8 +1355,7 @@ export default function App() {
                 setViewMode('swipe');
                 setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0});
               }}
-              title="像 LINE 新聞一樣：左右滑看同主題文章，上下滑切換不同主題"
-              className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                 immersiveSwipe.isOpen
                   ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                   : 'text-stone-800 font-medium'
@@ -1250,41 +1366,21 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setSelectedCategory('全部分類');
-                setViewMode('grid');
-                scrollToSection('journal-catalog');
-              }}
-              className="hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+              onClick={() => openClass403Stage('agenda')}
+              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                interactiveStage.isOpen &&
+                interactiveStage.url.includes('class-403.html')
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                  : 'text-stone-700'
+              }`}
             >
-              期刊專欄
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCategory('教學資源');
-                setViewMode('grid');
-                scrollToSection('journal-catalog');
-              }}
-              className="hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-            >
-              教學資源
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCategory('學力檢測');
-                setViewMode('grid');
-                scrollToSection('journal-catalog');
-              }}
-              className="hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-            >
-              學力檢測
+              <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+              <span>403 班網</span>
             </button>
             <button
               type="button"
               onClick={() => openXimenStage('map')}
-              className={`hidden md:inline-flex px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+              className={`px-2.5 py-1 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                 interactiveStage.isOpen &&
                 interactiveStage.url.includes('ximen-scratch.html')
                   ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
@@ -1295,50 +1391,38 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => openClass403Stage('agenda')}
-              className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                interactiveStage.isOpen &&
-                interactiveStage.url.includes('class-403.html')
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : 'text-stone-700'
-              }`}
+              onClick={() => {
+                setSelectedCategory('全部分類');
+                setViewMode('grid');
+                scrollToSection('journal-catalog');
+              }}
+              className="px-2.5 py-1 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
             >
-              <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
-              <span className="hidden lg:inline">403 班級網站</span>
-              <span className="lg:hidden">403 班網</span>
+              期刊專欄
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory('教學資源');
+                setViewMode('grid');
+                scrollToSection('journal-catalog');
+              }}
+              className="px-2.5 py-1 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+            >
+              教學資源
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategory('學力檢測');
+                setViewMode('grid');
+                scrollToSection('journal-catalog');
+              }}
+              className="px-2.5 py-1 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+            >
+              學力檢測
             </button>
           </nav>
-
-          {/* Zone 3: 1 Primary CTA */}
-          <div className="flex items-center shrink-0">
-            {user && hasAccessToken ? (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openDrawer('editor')}
-                  className="px-3.5 py-1.5 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                >
-                  管理後台
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="px-2.5 py-1.5 text-xs font-medium text-stone-600 rounded-lg hover:bg-stone-200/60 hover:text-stone-900 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                >
-                  登出
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSignIn}
-                disabled={isSigningIn}
-                className="px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] hover:bg-[#F7F4EE] hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-              >
-                {isSigningIn ? '登入中...' : '教師登入'}
-              </button>
-            )}
-          </div>
         </div>
       </header>
 
@@ -1379,34 +1463,34 @@ export default function App() {
       <main id="top" className="flex-1">
         {/* Editorial Masthead + Prominent First-Screen Search + Compact Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
-          <div className="max-w-7xl mx-auto px-6 py-7 lg:py-9">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-7 lg:py-9">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
               {/* Left Column: Brand Masthead, Prominent Search & Top Topic Quick Links */}
-              <div className="lg:col-span-7 flex flex-col justify-center gap-5">
-                <div className="space-y-2.5">
+              <div className="lg:col-span-7 min-w-0 flex flex-col justify-center gap-5">
+                <div className="space-y-2.5 min-w-0">
                   {siteSettings.siteSubtitle.trim() && (
-                    <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500">
+                    <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500 break-words">
                       {siteSettings.siteSubtitle}
                     </p>
                   )}
-                  <h1 className="font-editorial text-3xl sm:text-4xl lg:text-[42px] font-semibold text-stone-950 leading-[1.18] text-balance">
+                  <h1 className="font-editorial text-2xl sm:text-4xl lg:text-[42px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
                     {siteSettings.heroHeading}
                   </h1>
                   {siteSettings.heroDescription.trim() && (
-                    <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl">
+                    <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl break-words">
                       {siteSettings.heroDescription}
                     </p>
                   )}
                 </div>
 
                 {/* First-Screen Unified Search & Academic Year Bar */}
-                <div className="space-y-3">
+                <div className="space-y-3 min-w-0">
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
                       scrollToSection('journal-catalog');
                     }}
-                    className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all"
+                    className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all min-w-0"
                   >
                     <div className="relative flex-1 min-w-0">
                       <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1415,17 +1499,17 @@ export default function App() {
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder={`搜尋 ${posts.length} 篇教案、學力檢測、會議紀錄或作者...`}
-                        className="w-full h-10 pl-9 pr-3 text-sm text-stone-900 placeholder:text-stone-400 bg-transparent focus:outline-none"
+                        className="w-full h-10 pl-9 pr-3 text-sm text-stone-900 placeholder:text-stone-400 bg-transparent focus:outline-none min-w-0"
                       />
                     </div>
 
-                    <div className="flex items-center gap-2 sm:border-l sm:border-stone-200 sm:pl-2 shrink-0">
+                    <div className="flex items-center gap-2 sm:border-l sm:border-stone-200 sm:pl-2 min-w-0 shrink-0">
                       <select
                         id="academic-year-select"
                         aria-label="篩選學年度"
                         value={selectedYear}
                         onChange={(e) => setSelectedYear(e.target.value)}
-                        className="h-10 pl-2.5 pr-7 text-xs font-medium text-stone-800 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
+                        className="flex-1 sm:flex-initial min-w-0 h-10 pl-2.5 pr-7 text-xs font-medium text-stone-800 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
                       >
                         {availableYears.map((yr) => (
                           <option key={yr} value={yr}>
@@ -1507,7 +1591,7 @@ export default function App() {
 
               {/* Right Column: Compact Featured Spotlight */}
               {featuredSpotlightPost ? (
-                <div className="lg:col-span-5 flex">
+                <div className="lg:col-span-5 min-w-0 flex">
                   <article
                     onClick={() => setActivePost(featuredSpotlightPost)}
                     className="group w-full cursor-pointer bg-[#FBF9F5] border border-stone-200 rounded-xl overflow-hidden flex flex-col justify-between shadow-[0_2px_10px_rgba(28,25,23,0.04)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-[#1E3A8A]/50 hover:shadow-[0_14px_28px_-6px_rgba(30,58,138,0.15)] active:translate-y-0 active:scale-[0.99]"
@@ -1631,9 +1715,9 @@ export default function App() {
           aria-label="跨域互動專題與班級入口展示"
           className="border-b border-stone-200 bg-[#F7F4EE]"
         >
-          <div className="max-w-7xl mx-auto px-6 py-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
             {/* Left Hub: Ximen Scratch Interactive Learning Site */}
-            <div className="bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+            <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
               <div className="space-y-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   <span className="font-semibold text-[#1E3A8A]">
@@ -1699,7 +1783,7 @@ export default function App() {
             </div>
 
             {/* Right Hub: Class 403 Website (Pes Class 115) */}
-            <div className="bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+            <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
               <div className="space-y-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   <span className="font-semibold text-[#1E3A8A]">
