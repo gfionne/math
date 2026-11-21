@@ -14,6 +14,7 @@ interface TopicSwipeFeedProps {
   onOpenImmersive: (topicIndex: number, cardIndex: number) => void;
   isFilteredToSingleCategory: boolean;
   onResetCategoryFilter: () => void;
+  checkPostLocked?: (post: JournalPost) => boolean;
 }
 
 interface TopicCarouselRowProps {
@@ -21,6 +22,7 @@ interface TopicCarouselRowProps {
   topicIndex: number;
   onSelectPost: (post: JournalPost) => void;
   onOpenImmersive: (topicIndex: number, cardIndex: number) => void;
+  checkPostLocked?: (post: JournalPost) => boolean;
 }
 
 const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
@@ -28,6 +30,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
   topicIndex,
   onSelectPost,
   onOpenImmersive,
+  checkPostLocked,
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
   const [activeCardIdx, setActiveCardIdx] = useState(0);
@@ -219,7 +222,11 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
               className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex"
             >
               <div className="w-full flex flex-col">
-                <ArticleCard post={post} onSelect={onSelectPost} />
+                <ArticleCard
+                  post={post}
+                  onSelect={onSelectPost}
+                  isLocked={checkPostLocked ? checkPostLocked(post) : false}
+                />
               </div>
             </div>
           ))}
@@ -279,6 +286,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
   onOpenImmersive,
   isFilteredToSingleCategory,
   onResetCategoryFilter,
+  checkPostLocked,
 }) => {
   return (
     <div className="space-y-10">
@@ -303,6 +311,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
             topicIndex={idx}
             onSelectPost={onSelectPost}
             onOpenImmersive={onOpenImmersive}
+            checkPostLocked={checkPostLocked}
           />
         ))}
       </div>

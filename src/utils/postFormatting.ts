@@ -141,3 +141,16 @@ export function groupPostsByTopic(
     posts: topicPosts,
   }));
 }
+
+export function isPostLocked(
+  post: JournalPost,
+  lockedCategories: string[] = [],
+  isSchoolAuthorized = false,
+): boolean {
+  if (isSchoolAuthorized) return false;
+  if (post.status === 'Restricted') return true;
+  if (lockedCategories.length === 0) return false;
+  const postCats = parseCategories(post.category);
+  return postCats.some((cat) => lockedCategories.includes(cat));
+}
+

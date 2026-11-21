@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
+  Lock,
   MonitorPlay,
   Table2,
   Video,
@@ -19,11 +20,13 @@ import {
 interface FeaturedSpotlightProps {
   posts: JournalPost[];
   onSelectPost: (post: JournalPost) => void;
+  checkPostLocked?: (post: JournalPost) => boolean;
 }
 
 export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
   posts,
   onSelectPost,
+  checkPostLocked,
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [failedImageSlugs, setFailedImageSlugs] = useState<Record<string, boolean>>({});
@@ -37,8 +40,9 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
   if (posts.length === 0) return null;
 
   const currentPost = posts[activeIndex] ?? posts[0];
+  const isLocked = checkPostLocked ? checkPostLocked(currentPost) : false;
   const hasCover = Boolean(
-    currentPost.coverImageUrl && !failedImageSlugs[currentPost.slug],
+    !isLocked && currentPost.coverImageUrl && !failedImageSlugs[currentPost.slug],
   );
   const embedMeta = currentPost.embedUrl
     ? inferEmbedProvider(currentPost.embedUrl)
@@ -202,6 +206,17 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
                 </span>
               </>
             )}
+            {isLocked && (
+              <>
+                <span aria-hidden="true" className="text-white/45">
+                  ·
+                </span>
+                <span className="inline-flex items-center gap-1 font-semibold text-[#FDE68A] whitespace-nowrap shrink-0">
+                  <Lock className="w-3 h-3" />
+                  <span>校內限定</span>
+                </span>
+              </>
+            )}
           </div>
 
           {posts.length > 1 && (
@@ -240,9 +255,9 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
             <span aria-hidden="true" className="mx-1.5 text-white/40">
               ·
             </span>
-            {readMins} 分鐘閱讀
+            {isLocked ? '限 @hmes.tp.edu.tw' : `${readMins} 分鐘閱讀`}
           </span>
-          {embedMeta && (
+          {!isLocked && embedMeta && (
             <span className="font-medium text-[#FDE68A] inline-flex items-center gap-1 truncate">
               {renderEmbedIcon()}
               <span className="truncate">{embedMeta.provider}</span>
@@ -267,23 +282,41 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
             </button>
           </h2>
 
-          <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed line-clamp-2 sm:line-clamp-3">
-            {currentPost.summary ||
-              '點擊進入本期專欄全文，探索西門數學教育實踐、共備紀錄與互動學習資源。'}
-          </p>
-
-          {currentPost.embedUrl && (
-            <div className="pt-1">
-              <div className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 flex items-center justify-between gap-2.5 text-xs text-blue-50 group-hover:bg-white/15 group-hover:border-[#FDE68A]/40 transition-colors">
-                <div className="flex items-center gap-2 min-w-0">
-                  {renderEmbedIcon()}
+          {isLocked ? (
+            <>
+              <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed line-clamp-2 sm:line-clamp-3">
+                此篇為校內社群限定專題，需登入 @hmes.tp.edu.tw 學校帳號後方可檢視完整摘要、內文與雲端教學附件。
+              </p>
+              <div className="pt-1">
+                <div className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 flex items-center gap-2 text-xs text-[#FDE68A]">
+                  <Lock className="w-3.5 h-3.5 shrink-0" />
                   <span className="truncate font-medium">
-                    {currentPost.embedLabel || '開啟隨附互動資源與雲端教材'}
+                    @hmes.tp.edu.tw 校內限定閱讀內容
                   </span>
                 </div>
-                <ExternalLink className="w-3.5 h-3.5 text-blue-200/80 shrink-0" />
               </div>
-            </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs sm:text-sm text-blue-100/90 leading-relaxed line-clamp-2 sm:line-clamp-3">
+                {currentPost.summary ||
+                  '點擊進入本期專欄全文，探索西門數學教育實踐、共備紀錄與互動學習資源。'}
+              </p>
+
+              {currentPost.embedUrl && (
+                <div className="pt-1">
+                  <div className="px-3 py-2 rounded-lg bg-white/10 border border-white/15 flex items-center justify-between gap-2.5 text-xs text-blue-50 group-hover:bg-white/15 group-hover:border-[#FDE68A]/40 transition-colors">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {renderEmbedIcon()}
+                      <span className="truncate font-medium">
+                        {currentPost.embedLabel || '開啟隨附互動資源與雲端教材'}
+                      </span>
+                    </div>
+                    <ExternalLink className="w-3.5 h-3.5 text-blue-200/80 shrink-0" />
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -298,7 +331,8 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
           </div>
 
           <span className="px-3.5 py-2 rounded-lg font-semibold text-[#0C1D47] bg-[#FBF9F5] group-hover:bg-[#FDE68A] inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 shadow-xs transition-all duration-200">
-            <span>點擊閱讀焦點</span>
+            {isLocked && <Lock className="w-3.5 h-3.5" />}
+            <span>{isLocked ? '登入解鎖' : '點擊閱讀焦點'}</span>
             <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </span>
         </div>

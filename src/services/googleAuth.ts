@@ -56,9 +56,19 @@ export function isClass403AdminEmail(email?: string | null): boolean {
   return (CLASS_403_ADMIN_EMAILS as readonly string[]).includes(normalized);
 }
 
-export function isHmesStudentEmail(email?: string | null): boolean {
+export function isHmesSchoolEmail(email?: string | null): boolean {
   const normalized = (email ?? '').trim().toLowerCase();
   return /^[^@]+@hmes\.tp\.edu\.tw$/.test(normalized);
+}
+
+export const isHmesStudentEmail = isHmesSchoolEmail;
+
+export function isSchoolMemberAuthorized(
+  user: User | null,
+  isTeacherAdmin: boolean,
+): boolean {
+  if (!user || !user.emailVerified) return false;
+  return isTeacherAdmin || isHmesSchoolEmail(user.email);
 }
 
 export async function checkIsTeacherAdmin(user: User | null): Promise<boolean> {
@@ -109,20 +119,20 @@ export const googleSignIn = async (): Promise<{
   }
 };
 
-export const studentGoogleSignIn = async (): Promise<User> => {
+export const schoolGoogleSignIn = async (): Promise<User> => {
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, studentProvider);
     const signedUser = result.user;
     const isTeacher = await checkIsTeacherAdmin(signedUser);
-    const isSchoolStudent = isHmesStudentEmail(signedUser.email);
+    const isSchoolMember = isHmesSchoolEmail(signedUser.email);
 
-    if (!isTeacher && !isSchoolStudent) {
+    if (!isTeacher && !isSchoolMember) {
       const emailLabel = signedUser.email || '未知帳號';
       await auth.signOut();
       cachedAccessToken = null;
       throw new Error(
-        `您目前選擇的帳號（${emailLabel}）非 @${SCHOOL_DOMAIN} 學校網域帳號，請改用 @${SCHOOL_DOMAIN} 信箱重新登入。`,
+        `您目前選擇的帳號（${emailLabel}）非 @${SCHOOL_DOMAIN} 學校網域帳號，請改用 @${SCHOOL_DOMAIN} 學校信箱重新登入。`,
       );
     }
 
@@ -132,6 +142,8 @@ export const studentGoogleSignIn = async (): Promise<User> => {
     isSigningIn = false;
   }
 };
+
+export const studentGoogleSignIn = schoolGoogleSignIn;
 
 export const getAccessToken = (): string | null => cachedAccessToken;
 

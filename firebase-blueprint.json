@@ -2,7 +2,7 @@
   "entities": {
     "SiteConfig": {
       "title": "SiteConfig",
-      "description": "Shared real-time website branding, title configuration, and connected Google Sheet pointer synchronized across AI Studio and GitHub Pages.",
+      "description": "Shared real-time website branding, title configuration, access lock settings, and connected Google Sheet pointer synchronized across AI Studio and GitHub Pages.",
       "type": "object",
       "properties": {
         "spreadsheetId": {
@@ -59,6 +59,14 @@
         "hiddenOfficialAssetIds": {
           "type": "array",
           "description": "Optional bounded list of official Ximen asset IDs deleted or hidden by teachers."
+        },
+        "lockedCategories": {
+          "type": "array",
+          "description": "Optional bounded list of journal categories restricted to @hmes.tp.edu.tw school members and admins."
+        },
+        "lockedNavOptions": {
+          "type": "array",
+          "description": "Optional bounded list of feature/navigation option IDs restricted to @hmes.tp.edu.tw school members and admins."
         }
       },
       "required": [
@@ -76,7 +84,7 @@
     },
     "AdminUser": {
       "title": "AdminUser",
-      "description": "Authorized co-teacher or administrator allowed to update shared siteConfig.",
+      "description": "Authorized co-teacher or administrator allowed to update shared siteConfig and manage community meetings.",
       "type": "object",
       "properties": {
         "email": {
@@ -186,6 +194,156 @@
         "uploadedByUid",
         "createdAt"
       ]
+    },
+    "MeetingSession": {
+      "title": "MeetingSession",
+      "description": "Community teacher meeting session visible only to verified @hmes.tp.edu.tw school members and admins, managed by admins.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Meeting title.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "meetingDate": {
+          "type": "string",
+          "description": "Scheduled date/time string.",
+          "minLength": 4,
+          "maxLength": 40
+        },
+        "academicYear": {
+          "type": "string",
+          "description": "Academic year label.",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "location": {
+          "type": "string",
+          "description": "Physical room or online venue.",
+          "maxLength": 160
+        },
+        "agendaSummary": {
+          "type": "string",
+          "description": "Private community teacher agenda or meeting notes.",
+          "maxLength": 1000
+        },
+        "meetUrl": {
+          "type": "string",
+          "description": "Optional HTTPS Google Meet or handout URL.",
+          "maxLength": 500
+        },
+        "linkedPostSlug": {
+          "type": "string",
+          "description": "Optional slug of a related journal article.",
+          "maxLength": 160
+        },
+        "isOpen": {
+          "type": "boolean",
+          "description": "Whether check-in is currently open for community teachers."
+        },
+        "createdByName": {
+          "type": "string",
+          "description": "Non-PII organizer display label.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "createdByUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the creating admin.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last updated."
+        }
+      },
+      "required": [
+        "title",
+        "meetingDate",
+        "academicYear",
+        "location",
+        "agendaSummary",
+        "meetUrl",
+        "linkedPostSlug",
+        "isOpen",
+        "createdByName",
+        "createdByUid",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "MeetingCheckin": {
+      "title": "MeetingCheckin",
+      "description": "Teacher attendance check-in record keyed deterministically by {meetingId}_{userUid}. Contains teacher email PII so reads are strictly isolated to the record owner or admins.",
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string",
+          "description": "Parent MeetingSession ID.",
+          "minLength": 1,
+          "maxLength": 90,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "meetingTitle": {
+          "type": "string",
+          "description": "Snapshot of the meeting title.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "userUid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the checking-in teacher.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userName": {
+          "type": "string",
+          "description": "Display name of the teacher.",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "userEmail": {
+          "type": "string",
+          "description": "Verified institutional or admin email.",
+          "minLength": 5,
+          "maxLength": 200
+        },
+        "roleOrNote": {
+          "type": "string",
+          "description": "Optional teaching grade or attendance remark.",
+          "maxLength": 120
+        },
+        "checkedInAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of initial check-in."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "meetingId",
+        "meetingTitle",
+        "userUid",
+        "userName",
+        "userEmail",
+        "roleOrNote",
+        "checkedInAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -206,6 +364,18 @@
         "$ref": "#/entities/XimenGalleryItem"
       },
       "description": "Role-gated gallery images readable/downloadable by @hmes.tp.edu.tw school members and teachers, writable/deletable only by teachers/admins."
+    },
+    "/meetings/{meetingId}": {
+      "schema": {
+        "$ref": "#/entities/MeetingSession"
+      },
+      "description": "Community teacher meeting sessions readable only by verified @hmes.tp.edu.tw school members and admins; created/updated/deleted only by admins."
+    },
+    "/meetingCheckins/{checkinId}": {
+      "schema": {
+        "$ref": "#/entities/MeetingCheckin"
+      },
+      "description": "Deterministic ({meetingId}_{uid}) attendance check-in records. School members may create/update/delete their own record while the meeting is open; reads/lists are isolated to the owner or admins to prevent PII scraping."
     }
   }
 }

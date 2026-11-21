@@ -75,7 +75,17 @@ function parseStatus(val: unknown): PostStatus {
   const s = String(val ?? '')
     .trim()
     .toLowerCase();
-  return s === 'draft' || s === '草稿' ? 'Draft' : 'Published';
+  if (s === 'draft' || s === '草稿') return 'Draft';
+  if (
+    s === 'restricted' ||
+    s === '校內限定' ||
+    s === '社群限定' ||
+    s === '限校內' ||
+    s === 'locked'
+  ) {
+    return 'Restricted';
+  }
+  return 'Published';
 }
 
 function rowToPost(

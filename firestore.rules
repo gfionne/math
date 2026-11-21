@@ -23,22 +23,24 @@ service cloud.firestore {
     }
 
     function isVerifiedUser() {
-      return isSignedIn();
+      return isSignedIn() && request.auth.token.email_verified == true;
     }
 
     function isOwnerAdmin() {
-      return isSignedIn() && request.auth.token.email is string && request.auth.token.email.lower() == 'g.fionne@gmail.com';
+      return isVerifiedUser() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() == 'g.fionne@gmail.com';
     }
 
     function isAdmin() {
       return isOwnerAdmin() || (
-        isSignedIn() &&
+        isVerifiedUser() &&
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
     function isSchoolMember() {
-      return isSignedIn() &&
+      return isVerifiedUser() &&
         request.auth.token.email is string &&
         request.auth.token.email.lower().matches('^[^@]+@hmes\\.tp\\.edu\\.tw$');
     }
@@ -67,7 +69,9 @@ service cloud.firestore {
         'autoTitleFromSheet',
         'updatedAt',
         'updatedByUid',
-        'hiddenOfficialAssetIds'
+        'hiddenOfficialAssetIds',
+        'lockedCategories',
+        'lockedNavOptions'
       ]) &&
       data.spreadsheetId is string && data.spreadsheetId.size() <= 200 &&
       data.tabName is string && data.tabName.size() >= 1 && data.tabName.size() <= 100 &&
@@ -87,6 +91,24 @@ service cloud.firestore {
           data.hiddenOfficialAssetIds[0] is string &&
           data.hiddenOfficialAssetIds[0].size() >= 1 &&
           data.hiddenOfficialAssetIds[0].size() <= 64
+        ))
+      )) &&
+      (!('lockedCategories' in data) || (
+        data.lockedCategories is list &&
+        data.lockedCategories.size() <= 20 &&
+        (data.lockedCategories.size() == 0 || (
+          data.lockedCategories[0] is string &&
+          data.lockedCategories[0].size() >= 1 &&
+          data.lockedCategories[0].size() <= 60
+        ))
+      )) &&
+      (!('lockedNavOptions' in data) || (
+        data.lockedNavOptions is list &&
+        data.lockedNavOptions.size() <= 10 &&
+        (data.lockedNavOptions.size() == 0 || (
+          data.lockedNavOptions[0] is string &&
+          data.lockedNavOptions[0].size() >= 1 &&
+          data.lockedNavOptions[0].size() <= 40
         ))
       ));
     }
@@ -141,6 +163,81 @@ service cloud.firestore {
       data.createdAt is timestamp;
     }
 
+    function isValidMeetingSession(data) {
+      return data.keys().hasAll([
+        'title',
+        'meetingDate',
+        'academicYear',
+        'location',
+        'agendaSummary',
+        'meetUrl',
+        'linkedPostSlug',
+        'isOpen',
+        'createdByName',
+        'createdByUid',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'title',
+        'meetingDate',
+        'academicYear',
+        'location',
+        'agendaSummary',
+        'meetUrl',
+        'linkedPostSlug',
+        'isOpen',
+        'createdByName',
+        'createdByUid',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+      data.meetingDate is string && data.meetingDate.size() >= 4 && data.meetingDate.size() <= 40 &&
+      data.academicYear is string && data.academicYear.size() >= 1 && data.academicYear.size() <= 40 &&
+      data.location is string && data.location.size() <= 160 &&
+      data.agendaSummary is string && data.agendaSummary.size() <= 1000 &&
+      data.meetUrl is string && data.meetUrl.size() <= 500 &&
+      (data.meetUrl == '' || data.meetUrl.matches('^https://.*')) &&
+      data.linkedPostSlug is string && data.linkedPostSlug.size() <= 160 &&
+      data.isOpen is bool &&
+      data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100 &&
+      data.createdByUid is string && isValidId(data.createdByUid) &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidMeetingCheckin(data) {
+      return data.keys().hasAll([
+        'meetingId',
+        'meetingTitle',
+        'userUid',
+        'userName',
+        'userEmail',
+        'roleOrNote',
+        'checkedInAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'meetingId',
+        'meetingTitle',
+        'userUid',
+        'userName',
+        'userEmail',
+        'roleOrNote',
+        'checkedInAt',
+        'updatedAt'
+      ]) &&
+      data.meetingId is string && isValidId(data.meetingId) && data.meetingId.size() <= 90 &&
+      data.meetingTitle is string && data.meetingTitle.size() >= 1 && data.meetingTitle.size() <= 160 &&
+      data.userUid is string && isValidId(data.userUid) &&
+      data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100 &&
+      data.userEmail is string && data.userEmail.size() >= 5 && data.userEmail.size() <= 200 &&
+      data.roleOrNote is string && data.roleOrNote.size() <= 120 &&
+      data.checkedInAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
     match /siteConfig/{configId} {
       // Publicly readable so visitors on GitHub Pages and AI Studio load the exact same config in real time
       allow get: if isValidId(configId) && configId == 'main';
@@ -166,7 +263,9 @@ service cloud.firestore {
           'autoTitleFromSheet',
           'updatedAt',
           'updatedByUid',
-          'hiddenOfficialAssetIds'
+          'hiddenOfficialAssetIds',
+          'lockedCategories',
+          'lockedNavOptions'
         ]);
 
       allow delete: if false;
@@ -202,6 +301,90 @@ service cloud.firestore {
       allow update: if false;
 
       allow delete: if isAdmin() && isValidId(itemId);
+    }
+
+    match /meetings/{meetingId} {
+      // Private community teacher meetings: strictly gated to @hmes.tp.edu.tw school members and admins
+      allow get: if isValidId(meetingId) && (isAdmin() || isSchoolMember());
+      allow list: if isAdmin() || isSchoolMember();
+
+      allow create: if isAdmin() &&
+        isValidId(meetingId) &&
+        isValidMeetingSession(incoming()) &&
+        incoming().createdByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(meetingId) &&
+        isValidMeetingSession(incoming()) &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title',
+          'meetingDate',
+          'academicYear',
+          'location',
+          'agendaSummary',
+          'meetUrl',
+          'linkedPostSlug',
+          'isOpen',
+          'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(meetingId);
+    }
+
+    match /meetingCheckins/{checkinId} {
+      // Strict PII isolation: teacher may read only their own check-in; admins may read/export full roster
+      allow get: if isValidId(checkinId) && (
+        isAdmin() ||
+        (isSchoolMember() && existing().userUid == request.auth.uid)
+      );
+      allow list: if isAdmin() || (
+        isSchoolMember() &&
+        resource.data.userUid == request.auth.uid
+      );
+
+      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; Master Gate ensures meeting exists and is open
+      allow create: if isValidId(checkinId) &&
+        isValidMeetingCheckin(incoming()) &&
+        (isAdmin() || isSchoolMember()) &&
+        checkinId == incoming().meetingId + '_' + request.auth.uid &&
+        incoming().userUid == request.auth.uid &&
+        request.auth.token.email is string &&
+        incoming().userEmail.lower() == request.auth.token.email.lower() &&
+        incoming().checkedInAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
+        get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.isOpen == true;
+
+      allow update: if isValidId(checkinId) &&
+        isValidMeetingCheckin(incoming()) &&
+        incoming().meetingId == existing().meetingId &&
+        incoming().userUid == existing().userUid &&
+        incoming().userEmail == existing().userEmail &&
+        incoming().checkedInAt == existing().checkedInAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() || (
+            isSchoolMember() &&
+            existing().userUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['roleOrNote', 'userName', 'updatedAt']) &&
+            exists(/databases/$(database)/documents/meetings/$(existing().meetingId)) &&
+            get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data.isOpen == true
+          )
+        );
+
+      allow delete: if isValidId(checkinId) && (
+        isAdmin() || (
+          isSchoolMember() &&
+          existing().userUid == request.auth.uid &&
+          exists(/databases/$(database)/documents/meetings/$(existing().meetingId)) &&
+          get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data.isOpen == true
+        )
+      );
     }
   }
 }

@@ -7,6 +7,7 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
+  Lock,
   Table2,
   Video,
   X,
@@ -28,6 +29,7 @@ interface TopicSwipeDeckModalProps {
   initialCardIndex: number;
   onClose: () => void;
   onSelectPost: (post: JournalPost) => void;
+  checkPostLocked?: (post: JournalPost) => boolean;
 }
 
 export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
@@ -38,6 +40,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
   initialCardIndex,
   onClose,
   onSelectPost,
+  checkPostLocked,
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
   const mobileStripRef = useRef<HTMLDivElement | null>(null);
@@ -523,8 +526,9 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
               >
                 {currentPosts.map((post, idx) => {
                   const isActive = idx === safeCardIdx;
+                  const isLocked = checkPostLocked ? checkPostLocked(post) : false;
                   const hasCover = Boolean(
-                    post.coverImageUrl && !failedImages[post.slug],
+                    !isLocked && post.coverImageUrl && !failedImages[post.slug],
                   );
                   const embedMeta = post.embedUrl
                     ? inferEmbedProvider(post.embedUrl)
@@ -552,8 +556,28 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                       {/* Distinct Top Category Accent Bar */}
                       <div className={`h-1.5 w-full shrink-0 ${cardAccent.barClass}`} />
 
-                      {/* Crisp Image OR Attachment Banner (No Duplicate-Title Blur Box) */}
-                      {hasCover ? (
+                      {/* Crisp Image OR Attachment Banner OR Lock Banner */}
+                      {isLocked ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isActive) onSelectPost(post);
+                          }}
+                          className="w-full bg-[#F7F4EE] border-b border-stone-200 px-6 py-4 flex items-center gap-3.5 text-left shrink-0 hover:bg-[#EFEAE0] transition-colors"
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+                            <Lock className="w-4 h-4 text-[#1E3A8A]" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
+                              校內限定 · @hmes.tp.edu.tw
+                            </div>
+                            <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
+                              需登入學校社群帳號方可解鎖閱讀
+                            </div>
+                          </div>
+                        </button>
+                      ) : hasCover ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -607,7 +631,9 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                             <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">
                               <span>{post.academicYear}</span>
                               <span aria-hidden="true">·</span>
-                              <span className="font-sans">{readMins} 分鐘閱讀</span>
+                              <span className="font-sans">
+                                {isLocked ? '校內限定' : `${readMins} 分鐘閱讀`}
+                              </span>
                               <span aria-hidden="true">·</span>
                               <span>
                                 {idx + 1} / {currentPosts.length}
@@ -632,8 +658,10 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                               hasCover ? 'line-clamp-4' : 'line-clamp-6'
                             }`}
                           >
-                            {post.summary ||
-                              '點擊「閱讀全文」檢視完整教案內容、數學探究脈絡與社群紀錄。'}
+                            {isLocked
+                              ? '此篇文章為社群／校內限定內容，已暫時隱藏完整內文與雲端附件，請登入 @hmes.tp.edu.tw 帳號解鎖觀看。'
+                              : post.summary ||
+                                '點擊「閱讀全文」檢視完整教案內容、數學探究脈絡與社群紀錄。'}
                           </p>
                         </div>
 
@@ -651,7 +679,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {post.embedUrl && isActive && (
+                            {!isLocked && post.embedUrl && isActive && (
                               <a
                                 href={post.embedUrl}
                                 target="_blank"
@@ -673,7 +701,10 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                               }}
                               className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                             >
-                              <span>{isActive ? '閱讀全文' : '看這篇'}</span>
+                              {isLocked && isActive && <Lock className="w-3.5 h-3.5" />}
+                              <span>
+                                {isActive ? (isLocked ? '登入解鎖' : '閱讀全文') : '看這篇'}
+                              </span>
                               <ArrowUpRight className="w-3.5 h-3.5" />
                             </button>
                           </div>

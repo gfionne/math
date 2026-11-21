@@ -8,6 +8,7 @@ import {User} from 'firebase/auth';
 import {
   ArrowUpRight,
   BookOpen,
+  CalendarCheck,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -17,10 +18,12 @@ import {
   Layers,
   LayoutGrid,
   List,
+  Lock,
   MonitorPlay,
   RefreshCw,
   Search,
   Sheet,
+  ShieldCheck,
 } from 'lucide-react';
 import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
@@ -32,6 +35,8 @@ import {
   InteractiveStageTab,
   XimenScratchTab,
 } from './components/InteractiveEmbedModal';
+import {MeetingCheckinModal} from './components/MeetingCheckinModal';
+import {SchoolAccessModal} from './components/SchoolAccessModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
@@ -39,6 +44,7 @@ import {updateDynamicFavicon} from './utils/dynamicFavicon';
 import {
   formatCategoryDisplay,
   groupPostsByTopic,
+  isPostLocked,
   normalizeAcademicYear,
   parseCategories,
 } from './utils/postFormatting';
@@ -58,8 +64,9 @@ import {
   googleSignIn,
   initAuth,
   isOwnerAdminEmail,
+  isSchoolMemberAuthorized,
   logout,
-  studentGoogleSignIn,
+  schoolGoogleSignIn,
 } from './services/googleAuth';
 import {
   saveSharedSiteConfig,
@@ -172,24 +179,83 @@ export default function App() {
   const [confirmState, setConfirmState] = useState<ConfirmActionState | null>(
     null,
   );
+  const [schoolAccessPrompt, setSchoolAccessPrompt] = useState<{
+    isOpen: boolean;
+    reasonTitle?: string;
+    reasonDescription?: string;
+  }>({isOpen: false});
+  const [meetingCheckinState, setMeetingCheckinState] = useState<{
+    isOpen: boolean;
+    linkedPostSlug?: string;
+  }>({isOpen: false});
+  const handledQueryStageRef = useRef(false);
 
-  const openXimenStage = useCallback((tab: XimenScratchTab = 'map') => {
-    setInteractiveStage({
-      isOpen: true,
-      url: './ximen-scratch.html',
-      title: '百年西門 Scratch 舞台秀互動學習網',
-      initialTab: tab,
-    });
-  }, []);
+  const isSchoolAuthorized = useMemo(
+    () => isSchoolMemberAuthorized(user, isTeacherAdmin),
+    [user, isTeacherAdmin],
+  );
+  const lockedCategories = siteSettings.lockedCategories ?? [];
+  const lockedNavOptions = siteSettings.lockedNavOptions ?? ['meeting-checkin'];
+  const isXimenLocked =
+    !isSchoolAuthorized && lockedNavOptions.includes('ximen-stage');
+  const isClass403Locked =
+    !isSchoolAuthorized && lockedNavOptions.includes('class-403');
 
-  const openClass403Stage = useCallback((tab: Class403Tab = 'agenda') => {
-    setInteractiveStage({
-      isOpen: true,
-      url: './class-403.html',
-      title: '四年 3 班 (403) 班級網站｜Pes Class 115',
-      initialTab: tab,
-    });
-  }, []);
+  const checkPostLocked = useCallback(
+    (post: JournalPost) =>
+      isPostLocked(post, lockedCategories, isSchoolAuthorized),
+    [lockedCategories, isSchoolAuthorized],
+  );
+
+  const openSchoolAccessModal = useCallback(
+    (reasonTitle?: string, reasonDescription?: string) => {
+      setGalleryAuthError(null);
+      setSchoolAccessPrompt({
+        isOpen: true,
+        reasonTitle,
+        reasonDescription,
+      });
+    },
+    [],
+  );
+
+  const openXimenStage = useCallback(
+    (tab: XimenScratchTab = 'map') => {
+      if (isXimenLocked) {
+        openSchoolAccessModal(
+          '百年西門互動學習網已鎖定',
+          '此選項已設定為 @hmes.tp.edu.tw 校內登入後使用，請先登入您的學校 Google 帳號。',
+        );
+        return;
+      }
+      setInteractiveStage({
+        isOpen: true,
+        url: './ximen-scratch.html',
+        title: '百年西門 Scratch 舞台秀互動學習網',
+        initialTab: tab,
+      });
+    },
+    [isXimenLocked, openSchoolAccessModal],
+  );
+
+  const openClass403Stage = useCallback(
+    (tab: Class403Tab = 'agenda') => {
+      if (isClass403Locked) {
+        openSchoolAccessModal(
+          '403 班級網站已鎖定',
+          '此選項已設定為 @hmes.tp.edu.tw 校內登入後使用，請先登入您的學校 Google 帳號。',
+        );
+        return;
+      }
+      setInteractiveStage({
+        isOpen: true,
+        url: './class-403.html',
+        title: '四年 3 班 (403) 班級網站｜Pes Class 115',
+        initialTab: tab,
+      });
+    },
+    [isClass403Locked, openSchoolAccessModal],
+  );
 
   // Initialize Firebase Auth listener
   useEffect(() => {
@@ -290,23 +356,26 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const ximenParam = params.get('ximen');
-    const class403Param = params.get('class403');
-    if (
-      ximenParam === 'map' ||
-      ximenParam === 'gallery' ||
-      ximenParam === 'blocks' ||
-      ximenParam === 'naming'
-    ) {
-      openXimenStage(ximenParam);
-    } else if (
-      class403Param === 'agenda' ||
-      class403Param === 'news' ||
-      class403Param === 'resources' ||
-      class403Param === 'contact' ||
-      class403Param === 'comments'
-    ) {
-      openClass403Stage(class403Param);
+    if (!handledQueryStageRef.current) {
+      handledQueryStageRef.current = true;
+      const ximenParam = params.get('ximen');
+      const class403Param = params.get('class403');
+      if (
+        ximenParam === 'map' ||
+        ximenParam === 'gallery' ||
+        ximenParam === 'blocks' ||
+        ximenParam === 'naming'
+      ) {
+        openXimenStage(ximenParam);
+      } else if (
+        class403Param === 'agenda' ||
+        class403Param === 'news' ||
+        class403Param === 'resources' ||
+        class403Param === 'contact' ||
+        class403Param === 'comments'
+      ) {
+        openClass403Stage(class403Param);
+      }
     }
 
     const sheetParam = params.get('sheet');
@@ -356,6 +425,8 @@ export default function App() {
             : cloudCfg.heroDescription,
           autoDynamicTitle: cloudCfg.autoDynamicTitle,
           autoTitleFromSheet: cloudCfg.autoTitleFromSheet,
+          lockedCategories: cloudCfg.lockedCategories ?? [],
+          lockedNavOptions: cloudCfg.lockedNavOptions ?? ['meeting-checkin'],
         });
 
         if (cloudCfg.hiddenOfficialAssetIds !== undefined) {
@@ -432,7 +503,7 @@ export default function App() {
     if (siteSettings.autoDynamicTitle) {
       if (activePost) {
         nextTitle = `${activePost.title} | ${baseTitle}`;
-        if (activePost.summary) {
+        if (activePost.summary && !checkPostLocked(activePost)) {
           nextDesc = activePost.summary;
         }
       } else if (searchQuery.trim()) {
@@ -533,14 +604,19 @@ export default function App() {
           return false;
         }
         if (q) {
-          const haystack = [
-            p.title,
-            p.summary,
-            p.content,
-            p.author,
-            p.category,
-            p.academicYear,
-          ]
+          const locked = checkPostLocked(p);
+          const haystack = (
+            locked
+              ? [p.title, p.author, p.category, p.academicYear]
+              : [
+                  p.title,
+                  p.summary,
+                  p.content,
+                  p.author,
+                  p.category,
+                  p.academicYear,
+                ]
+          )
             .join(' ')
             .toLowerCase();
           return haystack.includes(q);
@@ -551,7 +627,14 @@ export default function App() {
         if (a.isFeatured !== b.isFeatured) return a.isFeatured ? -1 : 1;
         return b.publishedAt.localeCompare(a.publishedAt);
       });
-  }, [posts, includeDrafts, selectedYear, selectedCategory, searchQuery]);
+  }, [
+    posts,
+    includeDrafts,
+    selectedYear,
+    selectedCategory,
+    searchQuery,
+    checkPostLocked,
+  ]);
 
   const featuredSpotlightPosts = useMemo(() => {
     const published = posts.filter((p) => p.status !== 'Draft');
@@ -659,15 +742,18 @@ export default function App() {
     }
   };
 
-  const handleStudentSignIn = async () => {
+  const handleSchoolSignIn = async () => {
     setIsSigningIn(true);
     setGalleryAuthError(null);
     try {
-      const authedStudent = await studentGoogleSignIn();
-      setUser(authedStudent);
+      const authedMember = await schoolGoogleSignIn();
+      setUser(authedMember);
       setHasAccessToken(false);
-      const teacherVerified = await checkIsTeacherAdmin(authedStudent);
+      const teacherVerified = await checkIsTeacherAdmin(authedMember);
       setIsTeacherAdmin(teacherVerified);
+      setSchoolAccessPrompt((prev) =>
+        prev.isOpen ? {...prev, isOpen: false} : prev,
+      );
     } catch (err: any) {
       const rawMsg = err?.message || '';
       const code = err?.code || '';
@@ -688,6 +774,8 @@ export default function App() {
       setIsSigningIn(false);
     }
   };
+
+  const handleStudentSignIn = handleSchoolSignIn;
 
   const handleSignOut = async () => {
     await logout();
@@ -1295,14 +1383,15 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => openXimenStage('map')}
-                className={`px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                   interactiveStage.isOpen &&
                   interactiveStage.url.includes('ximen-scratch.html')
                     ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                     : ''
                 }`}
               >
-                互動專題
+                {isXimenLocked && <Lock className="w-3 h-3 text-amber-700" />}
+                <span>互動專題</span>
               </button>
               <button
                 type="button"
@@ -1314,12 +1403,32 @@ export default function App() {
                     : 'text-stone-700'
                 }`}
               >
-                <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                {isClass403Locked ? (
+                  <Lock className="w-3.5 h-3.5 text-amber-700" />
+                ) : (
+                  <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                )}
                 <span>403 班級網站</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMeetingCheckinState({isOpen: true})}
+                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                  meetingCheckinState.isOpen
+                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                    : 'text-stone-700'
+                }`}
+              >
+                {!isSchoolAuthorized ? (
+                  <Lock className="w-3.5 h-3.5 text-amber-700" />
+                ) : (
+                  <CalendarCheck className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                )}
+                <span>會議簽到</span>
               </button>
             </nav>
 
-            {/* Zone 3: 1 Primary CTA */}
+            {/* Zone 3: Primary Account / Admin CTA */}
             <div className="flex items-center shrink-0">
               {user && hasAccessToken ? (
                 <div className="flex items-center gap-1.5 sm:gap-2">
@@ -1338,14 +1447,44 @@ export default function App() {
                     登出
                   </button>
                 </div>
+              ) : isSchoolAuthorized ? (
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMeetingCheckinState({isOpen: true})}
+                    className="px-2.5 sm:px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/8 border border-[#1E3A8A]/25 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span className="hidden sm:inline">已驗證 · 會議簽到</span>
+                    <span className="sm:hidden">會議簽到</span>
+                  </button>
+                  {isTeacherAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleSignIn}
+                      disabled={isSigningIn}
+                      className="px-2.5 py-1.5 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-all whitespace-nowrap shrink-0"
+                    >
+                      後台授權
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="px-2 py-1.5 text-xs font-medium text-stone-600 rounded-lg hover:bg-stone-200/60 hover:text-stone-900 transition-all whitespace-nowrap shrink-0"
+                  >
+                    登出
+                  </button>
+                </div>
               ) : (
                 <button
                   type="button"
-                  onClick={handleSignIn}
+                  onClick={() => openSchoolAccessModal()}
                   disabled={isSigningIn}
-                  className="px-3 sm:px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] hover:bg-[#F7F4EE] hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                  className="px-3 sm:px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] hover:bg-[#F7F4EE] hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
                 >
-                  {isSigningIn ? '登入中...' : '教師登入'}
+                  <Lock className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                  <span>{isSigningIn ? '登入中...' : '社群／教師登入'}</span>
                 </button>
               )}
             </div>
@@ -1376,6 +1515,22 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => setMeetingCheckinState({isOpen: true})}
+              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                meetingCheckinState.isOpen
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                  : 'text-stone-700'
+              }`}
+            >
+              {!isSchoolAuthorized ? (
+                <Lock className="w-3 h-3 text-amber-700" />
+              ) : (
+                <CalendarCheck className="w-3.5 h-3.5 text-[#1E3A8A]" />
+              )}
+              <span>會議簽到</span>
+            </button>
+            <button
+              type="button"
               onClick={() => openClass403Stage('agenda')}
               className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                 interactiveStage.isOpen &&
@@ -1384,20 +1539,25 @@ export default function App() {
                   : 'text-stone-700'
               }`}
             >
-              <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+              {isClass403Locked ? (
+                <Lock className="w-3 h-3 text-amber-700" />
+              ) : (
+                <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
+              )}
               <span>403 班網</span>
             </button>
             <button
               type="button"
               onClick={() => openXimenStage('map')}
-              className={`px-2.5 py-1 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                 interactiveStage.isOpen &&
                 interactiveStage.url.includes('ximen-scratch.html')
                   ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                   : ''
               }`}
             >
-              互動專題
+              {isXimenLocked && <Lock className="w-3 h-3 text-amber-700" />}
+              <span>互動專題</span>
             </button>
             <button
               type="button"
@@ -1605,6 +1765,7 @@ export default function App() {
                   <FeaturedSpotlight
                     posts={featuredSpotlightPosts}
                     onSelectPost={(post) => setActivePost(post)}
+                    checkPostLocked={checkPostLocked}
                   />
                 </div>
               ) : null}
@@ -1660,141 +1821,241 @@ export default function App() {
           </div>
         </section>
 
-        {/* Integrated Interactive Topic & Class 403 Hub Showcase Strip */}
+        {/* Integrated Interactive Topic, Class 403 & Community Meeting Check-In Hub */}
         <section
-          aria-label="跨域互動專題與班級入口展示"
+          aria-label="跨域互動專題與社群會議入口展示"
           className="border-b border-stone-200 bg-[#F7F4EE]"
         >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {/* Left Hub: Ximen Scratch Interactive Learning Site */}
-            <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
-              <div className="space-y-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                  <span className="font-semibold text-[#1E3A8A]">
-                    跨領域互動學習專題
-                  </span>
-                  <span aria-hidden="true" className="text-stone-400">
-                    ·
-                  </span>
-                  <span className="font-mono-tabular text-stone-600">
-                    401–404 年段實作資源
-                  </span>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-4">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {/* Left Hub: Ximen Scratch Interactive Learning Site */}
+              <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                    <span className="font-semibold text-[#1E3A8A]">
+                      跨領域互動學習專題
+                    </span>
+                    <span aria-hidden="true" className="text-stone-400">
+                      ·
+                    </span>
+                    <span className="font-mono-tabular text-stone-600">
+                      401–404 年段實作資源
+                    </span>
+                    {isXimenLocked && (
+                      <>
+                        <span aria-hidden="true" className="text-stone-400">
+                          ·
+                        </span>
+                        <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
+                          <Lock className="w-3 h-3" />
+                          <span>限 @hmes.tp.edu.tw</span>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <h2 className="font-editorial text-lg font-bold text-stone-950">
+                    百年西門 Scratch 舞台秀互動學習網
+                  </h2>
+                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                    提供西門町互動商圈地圖座標微調、標準圖庫匯出、Scratch 3.0 積木步驟與分班命名檢核表。
+                  </p>
                 </div>
-                <h2 className="font-editorial text-lg font-bold text-stone-950">
-                  百年西門 Scratch 舞台秀互動學習網
-                </h2>
-                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                  提供西門町互動商圈地圖座標微調、標準圖庫匯出、Scratch 3.0 積木步驟與分班命名檢核表。
-                </p>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      [
+                        {id: 'map', label: '互動地圖'},
+                        {id: 'gallery', label: '專案圖庫'},
+                        {id: 'blocks', label: '積木教學'},
+                        {id: 'naming', label: '命名檢核'},
+                      ] as const
+                    ).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => openXimenStage(tab.id)}
+                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5 max-w-full">
+                    <button
+                      type="button"
+                      onClick={() => openXimenStage('map')}
+                      className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                    >
+                      {isXimenLocked ? (
+                        <Lock className="w-3.5 h-3.5" />
+                      ) : (
+                        <MonitorPlay className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isXimenLocked ? '登入解鎖' : '開啟學習網'}</span>
+                    </button>
+
+                    {!isXimenLocked && (
+                      <a
+                        href="./ximen-scratch.html"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                      >
+                        <span>獨立分頁</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {(
-                    [
-                      {id: 'map', label: '互動地圖'},
-                      {id: 'gallery', label: '專案圖庫'},
-                      {id: 'blocks', label: '積木教學'},
-                      {id: 'naming', label: '命名檢核'},
-                    ] as const
-                  ).map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => openXimenStage(tab.id)}
-                      className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
+              {/* Right Hub: Class 403 Website (Pes Class 115) */}
+              <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                    <span className="font-semibold text-[#1E3A8A]">
+                      四年 3 班專屬班務系統
+                    </span>
+                    <span aria-hidden="true" className="text-stone-400">
+                      ·
+                    </span>
+                    <span className="font-mono-tabular text-stone-600">
+                      Pes Class 115 · 分機 5207
+                    </span>
+                    {isClass403Locked && (
+                      <>
+                        <span aria-hidden="true" className="text-stone-400">
+                          ·
+                        </span>
+                        <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
+                          <Lock className="w-3 h-3" />
+                          <span>限 @hmes.tp.edu.tw</span>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <h2 className="font-editorial text-lg font-bold text-stone-950">
+                    403 班級網站與互動聯絡簿
+                  </h2>
+                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                    每日作業與服裝提醒、雙模式行事曆、線上學習資源與請假表單下載、每週課表及班級交流留言板。
+                  </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-1.5 max-w-full">
-                  <button
-                    type="button"
-                    onClick={() => openXimenStage('map')}
-                    className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <MonitorPlay className="w-3.5 h-3.5" />
-                    <span>開啟學習網</span>
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(
+                      [
+                        {id: 'agenda', label: '互動聯絡簿'},
+                        {id: 'news', label: '公告行事曆'},
+                        {id: 'resources', label: '學習資源庫'},
+                        {id: 'contact', label: '課表與聯絡'},
+                      ] as const
+                    ).map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => openClass403Stage(tab.id)}
+                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
 
-                  <a
-                    href="./ximen-scratch.html"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <span>獨立分頁</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
+                  <div className="flex flex-wrap items-center gap-1.5 max-w-full">
+                    <button
+                      type="button"
+                      onClick={() => openClass403Stage('agenda')}
+                      className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                    >
+                      {isClass403Locked ? (
+                        <Lock className="w-3.5 h-3.5" />
+                      ) : (
+                        <GraduationCap className="w-3.5 h-3.5" />
+                      )}
+                      <span>{isClass403Locked ? '登入解鎖' : '開啟 403 班網'}</span>
+                    </button>
+
+                    {!isClass403Locked && (
+                      <a
+                        href="./class-403.html"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                      >
+                        <span>獨立分頁</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Hub: Class 403 Website (Pes Class 115) */}
-            <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+            {/* Community Meeting Check-In Dedicated Strip */}
+            <div className="bg-white/90 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-[#1E3A8A]/40 transition-all min-w-0">
               <div className="space-y-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                  <span className="font-semibold text-[#1E3A8A]">
-                    四年 3 班專屬班務系統
+                  <span className="font-semibold text-[#1E3A8A] inline-flex items-center gap-1">
+                    <CalendarCheck className="w-3.5 h-3.5" />
+                    <span>西門數學社群 · 領域共備專區</span>
                   </span>
                   <span aria-hidden="true" className="text-stone-400">
                     ·
                   </span>
-                  <span className="font-mono-tabular text-stone-600">
-                    Pes Class 115 · 分機 5207
+                  <span className="inline-flex items-center gap-1 font-medium text-stone-700">
+                    {!isSchoolAuthorized ? (
+                      <>
+                        <Lock className="w-3 h-3 text-amber-700" />
+                        <span>須登入 @hmes.tp.edu.tw 解鎖簽到</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>已完成學校社群帳號驗證</span>
+                      </>
+                    )}
                   </span>
                 </div>
-                <h2 className="font-editorial text-lg font-bold text-stone-950">
-                  403 班級網站與互動聯絡簿
+                <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950">
+                  領域會議線上簽到與出席紀錄系統
                 </h2>
                 <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                  每日作業與服裝提醒、雙模式行事曆、線上學習資源與請假表單下載、每週課表及班級交流留言板。
+                  社群老師可使用 @hmes.tp.edu.tw 帳號一鍵簽到與查看個人出席歷程；管理教師可建立會議場次、即時統計名單與匯出 CSV 簽到表。
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {(
-                    [
-                      {id: 'agenda', label: '互動聯絡簿'},
-                      {id: 'news', label: '公告行事曆'},
-                      {id: 'resources', label: '學習資源庫'},
-                      {id: 'contact', label: '課表與聯絡'},
-                    ] as const
-                  ).map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => openClass403Stage(tab.id)}
-                      className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5 max-w-full">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {!isSchoolAuthorized && (
                   <button
                     type="button"
-                    onClick={() => openClass403Stage('agenda')}
-                    className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                    onClick={() =>
+                      openSchoolAccessModal(
+                        '登入 @hmes.tp.edu.tw 學校帳號',
+                        '登入後可同步解鎖網站上的校內限定專欄、選項與領域會議線上簽到專區。',
+                      )
+                    }
+                    className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#FBF9F5] border border-[#1E3A8A]/30 rounded-lg hover:bg-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                   >
-                    <GraduationCap className="w-3.5 h-3.5" />
-                    <span>開啟 403 班網</span>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>@hmes.tp.edu.tw 登入</span>
                   </button>
-
-                  <a
-                    href="./class-403.html"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <span>獨立分頁</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setMeetingCheckinState({isOpen: true})}
+                  className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                >
+                  {!isSchoolAuthorized ? (
+                    <Lock className="w-3.5 h-3.5" />
+                  ) : (
+                    <CalendarCheck className="w-3.5 h-3.5" />
+                  )}
+                  <span>開啟會議簽到專區</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2016,6 +2277,7 @@ export default function App() {
               }
               isFilteredToSingleCategory={selectedCategory !== '全部分類'}
               onResetCategoryFilter={() => setSelectedCategory('全部分類')}
+              checkPostLocked={checkPostLocked}
             />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2024,6 +2286,7 @@ export default function App() {
                   key={`${post.slug}-${post.rowIndex ?? idx}`}
                   post={post}
                   onSelect={(p) => setActivePost(p)}
+                  isLocked={checkPostLocked(post)}
                 />
               ))}
             </div>
@@ -2045,64 +2308,76 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-stone-100 text-sm">
-                    {filteredPosts.map((post, idx) => (
-                      <tr
-                        key={`${post.slug}-${post.rowIndex ?? idx}`}
-                        onClick={() => setActivePost(post)}
-                        className="group cursor-pointer hover:bg-[#F3EFE6] transition-colors"
-                      >
-                        <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">
-                          {post.academicYear}
-                        </td>
-                        <td className="py-3.5 px-4 font-mono-tabular text-xs text-stone-500 whitespace-nowrap">
-                          {post.publishedAt}
-                        </td>
-                        <td className="py-3.5 px-4 text-xs text-stone-700 whitespace-nowrap">
-                          {formatCategoryDisplay(post.category)}
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActivePost(post);
-                            }}
-                            className="text-left font-medium text-stone-900 group-hover:text-[#1E3A8A] transition-colors"
-                          >
-                            {post.title}
-                          </button>
-                        </td>
-                        <td className="py-3.5 px-4 text-xs text-stone-500 whitespace-nowrap">
-                          {post.embedUrl ? (
-                            <a
-                              href={post.embedUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-[#1E3A8A] hover:underline"
+                    {filteredPosts.map((post, idx) => {
+                      const locked = checkPostLocked(post);
+                      return (
+                        <tr
+                          key={`${post.slug}-${post.rowIndex ?? idx}`}
+                          onClick={() => setActivePost(post)}
+                          className="group cursor-pointer hover:bg-[#F3EFE6] transition-colors"
+                        >
+                          <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">
+                            {post.academicYear}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono-tabular text-xs text-stone-500 whitespace-nowrap">
+                            {post.publishedAt}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-stone-700 whitespace-nowrap">
+                            {formatCategoryDisplay(post.category)}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePost(post);
+                              }}
+                              className="text-left font-medium text-stone-900 group-hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-colors"
                             >
-                              <FileText className="w-3.5 h-3.5" />
-                              <span>開啟附件</span>
-                            </a>
-                          ) : (
-                            <span>—</span>
-                          )}
-                        </td>
-                        <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActivePost(post);
-                            }}
-                            className="text-xs font-semibold text-[#1E3A8A] px-2.5 py-1 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 transition-all"
-                          >
-                            <span>閱讀全文</span>
-                            <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                              {locked && (
+                                <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              )}
+                              <span>{post.title}</span>
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-stone-500 whitespace-nowrap">
+                            {locked ? (
+                              <span className="inline-flex items-center gap-1 text-amber-800 font-medium">
+                                <Lock className="w-3 h-3" />
+                                <span>校內限定</span>
+                              </span>
+                            ) : post.embedUrl ? (
+                              <a
+                                href={post.embedUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-[#1E3A8A] hover:underline"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>開啟附件</span>
+                              </a>
+                            ) : (
+                              <span>—</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActivePost(post);
+                              }}
+                              className="text-xs font-semibold text-[#1E3A8A] px-2.5 py-1 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 transition-all"
+                            >
+                              {locked && <Lock className="w-3 h-3" />}
+                              <span>{locked ? '登入解鎖' : '閱讀全文'}</span>
+                              <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2133,6 +2408,14 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">
+            <button
+              type="button"
+              onClick={() => setMeetingCheckinState({isOpen: true})}
+              className="inline-flex items-center gap-1.5 text-stone-700 hover:text-[#1E3A8A] font-medium"
+            >
+              <CalendarCheck className="w-3.5 h-3.5" />
+              <span>領域會議簽到</span>
+            </button>
             {user && hasAccessToken ? (
               <>
                 <button
@@ -2151,14 +2434,36 @@ export default function App() {
                   登出
                 </button>
               </>
+            ) : isSchoolAuthorized ? (
+              <>
+                {isTeacherAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleSignIn}
+                    disabled={isSigningIn}
+                    className="inline-flex items-center gap-1.5 text-stone-700 hover:text-[#1E3A8A] font-medium"
+                  >
+                    <Sheet className="w-3.5 h-3.5" />
+                    <span>管理後台授權</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="text-stone-500 hover:text-stone-900"
+                >
+                  登出（{user?.email}）
+                </button>
+              </>
             ) : (
               <button
                 type="button"
-                onClick={handleSignIn}
+                onClick={() => openSchoolAccessModal()}
                 disabled={isSigningIn}
-                className="text-stone-600 hover:text-[#1E3A8A] font-medium transition-colors"
+                className="inline-flex items-center gap-1.5 text-stone-600 hover:text-[#1E3A8A] font-medium transition-colors"
               >
-                {isSigningIn ? '登入中...' : '社群教師登入'}
+                <Lock className="w-3.5 h-3.5" />
+                <span>{isSigningIn ? '登入中...' : '社群教師登入'}</span>
               </button>
             )}
           </div>
@@ -2168,10 +2473,16 @@ export default function App() {
       {/* 2D Topic & Card Swipe Reader Deck */}
       <TopicSwipeDeckModal
         isOpen={immersiveSwipe.isOpen}
-        isSuspended={Boolean(activePost) || interactiveStage.isOpen}
+        isSuspended={
+          Boolean(activePost) ||
+          interactiveStage.isOpen ||
+          schoolAccessPrompt.isOpen ||
+          meetingCheckinState.isOpen
+        }
         groups={topicGroups}
         initialTopicIndex={immersiveSwipe.topicIndex}
         initialCardIndex={immersiveSwipe.cardIndex}
+        checkPostLocked={checkPostLocked}
         onClose={() =>
           setImmersiveSwipe((prev) => ({...prev, isOpen: false}))
         }
@@ -2183,6 +2494,20 @@ export default function App() {
         post={activePost}
         allPosts={filteredPosts}
         canEdit={Boolean(user && hasAccessToken)}
+        isLocked={activePost ? checkPostLocked(activePost) : false}
+        isSchoolAuthorized={isSchoolAuthorized}
+        onRequestSchoolSignIn={() =>
+          openSchoolAccessModal(
+            '登入 @hmes.tp.edu.tw 解鎖文章',
+            activePost
+              ? `即將解鎖校內限定文章：「${activePost.title}」`
+              : undefined,
+          )
+        }
+        onOpenMeetingCheckin={(linkedSlug) => {
+          setActivePost(null);
+          setMeetingCheckinState({isOpen: true, linkedPostSlug: linkedSlug});
+        }}
         onClose={() => {
           setActivePost(null);
           if (window.location.hash.startsWith('#post=')) {
@@ -2303,6 +2628,50 @@ export default function App() {
         onSaveSiteSettings={handleSaveSiteSettings}
         onSyncSettingsToSheet={handleSyncSettingsToSheet}
         onPublishDefaultSpreadsheet={handlePublishDefaultSpreadsheet}
+      />
+
+      {/* @hmes.tp.edu.tw Community Teacher & Admin Access Modal */}
+      <SchoolAccessModal
+        isOpen={schoolAccessPrompt.isOpen}
+        reasonTitle={schoolAccessPrompt.reasonTitle}
+        reasonDescription={schoolAccessPrompt.reasonDescription}
+        user={user}
+        isSchoolAuthorized={isSchoolAuthorized}
+        isTeacherAdmin={isTeacherAdmin}
+        isSigningIn={isSigningIn}
+        authError={galleryAuthError}
+        onClearAuthError={() => setGalleryAuthError(null)}
+        onSchoolSignIn={handleSchoolSignIn}
+        onAdminSignIn={async () => {
+          await handleSignIn();
+          setSchoolAccessPrompt((prev) => ({...prev, isOpen: false}));
+        }}
+        onSignOut={handleSignOut}
+        onClose={() => setSchoolAccessPrompt({isOpen: false})}
+      />
+
+      {/* Community Meeting Check-In Hub Modal */}
+      <MeetingCheckinModal
+        isOpen={meetingCheckinState.isOpen}
+        initialLinkedPostSlug={meetingCheckinState.linkedPostSlug}
+        onClose={() => setMeetingCheckinState({isOpen: false})}
+        user={user}
+        isTeacherAdmin={isTeacherAdmin}
+        isSchoolAuthorized={isSchoolAuthorized}
+        isSigningIn={isSigningIn}
+        authError={galleryAuthError}
+        onClearAuthError={() => setGalleryAuthError(null)}
+        onSchoolSignIn={handleSchoolSignIn}
+        onAdminSignIn={handleSignIn}
+        onSignOut={handleSignOut}
+        posts={posts}
+        onOpenLinkedPost={(slug) => {
+          const found = posts.find((p) => p.slug === slug);
+          if (found) {
+            setMeetingCheckinState({isOpen: false});
+            setActivePost(found);
+          }
+        }}
       />
 
       {/* Mandatory Explicit Confirmation Dialog for Mutating / Destructive Operations */}

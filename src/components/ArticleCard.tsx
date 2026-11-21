@@ -3,6 +3,7 @@ import {
   ArrowUpRight,
   ExternalLink,
   FileText,
+  Lock,
   MonitorPlay,
   Table2,
   Video,
@@ -18,13 +19,18 @@ import {
 interface ArticleCardProps {
   post: JournalPost;
   onSelect: (post: JournalPost) => void;
+  isLocked?: boolean;
 }
 
-export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
+export const ArticleCard: React.FC<ArticleCardProps> = ({
+  post,
+  onSelect,
+  isLocked = false,
+}) => {
   const [imgFailed, setImgFailed] = useState(false);
   const embedMeta = post.embedUrl ? inferEmbedProvider(post.embedUrl) : null;
   const readMins = estimateReadMinutes(post.content || post.summary);
-  const hasCover = Boolean(post.coverImageUrl && !imgFailed);
+  const hasCover = Boolean(!isLocked && post.coverImageUrl && !imgFailed);
   const accent = getCategoryAccent(post.category);
 
   const renderEmbedIcon = () => {
@@ -52,7 +58,21 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
       />
 
       {/* Clear Image OR Attachment Slot */}
-      {hasCover ? (
+      {isLocked ? (
+        <div className="w-full shrink-0 bg-[#F7F4EE] border-b border-stone-200 px-5 py-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-white border border-amber-200 flex items-center justify-center shrink-0">
+            <Lock className="w-4 h-4 text-amber-800" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-amber-800 font-semibold">
+              @hmes.tp.edu.tw 校內限定
+            </div>
+            <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
+              需登入社群教師帳號解鎖觀看
+            </div>
+          </div>
+        </div>
+      ) : hasCover ? (
         <div className="aspect-[16/9] w-full bg-stone-100 overflow-hidden border-b border-stone-200 shrink-0">
           <img
             src={post.coverImageUrl}
@@ -89,6 +109,15 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
               {formatCategoryDisplay(post.category)}
             </span>
             <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">
+              {isLocked && (
+                <>
+                  <span className="font-sans font-semibold text-amber-800 inline-flex items-center gap-1">
+                    <Lock className="w-3 h-3" />
+                    <span>已鎖定</span>
+                  </span>
+                  <span aria-hidden="true">·</span>
+                </>
+              )}
               {post.isFeatured && (
                 <>
                   <span className="font-sans font-semibold text-[#1E3A8A]">精選</span>
@@ -102,8 +131,12 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
                 </>
               )}
               <span>{post.academicYear}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-sans">{readMins} 分鐘閱讀</span>
+              {!isLocked && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="font-sans">{readMins} 分鐘閱讀</span>
+                </>
+              )}
             </div>
           </div>
 
@@ -125,7 +158,9 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
               hasCover ? 'line-clamp-3' : 'line-clamp-5'
             }`}
           >
-            {post.summary || '點擊「閱讀全文」檢視完整教案與社群會議紀錄。'}
+            {isLocked
+              ? '此篇內容已設定為西門社群教師校內限定，需登入 @hmes.tp.edu.tw 學校帳號後方可檢視完整內文與隨附雲端資源。'
+              : post.summary || '點擊「閱讀全文」檢視完整教案與社群會議紀錄。'}
           </p>
         </div>
 
@@ -136,8 +171,17 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
             <span className="font-mono-tabular">{post.publishedAt}</span>
           </div>
           <span className="font-semibold text-[#1E3A8A] px-2 py-1 -mr-2 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all duration-200">
-            <span>閱讀全文</span>
-            <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+            {isLocked ? (
+              <>
+                <Lock className="w-3.5 h-3.5" />
+                <span>登入解鎖</span>
+              </>
+            ) : (
+              <>
+                <span>閱讀全文</span>
+                <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+              </>
+            )}
           </span>
         </div>
       </div>

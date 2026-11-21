@@ -10,6 +10,7 @@ import {
   FilePlus2,
   FileText,
   FolderGit2,
+  Lock,
   LogOut,
   RefreshCw,
   Image,
@@ -210,14 +211,22 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
   );
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [saveStatusMsg, setSaveStatusMsg] = useState<string | null>(null);
-  const [settingsDraft, setSettingsDraft] = useState<SiteSettings>(siteSettings);
+  const [settingsDraft, setSettingsDraft] = useState<SiteSettings>({
+    ...siteSettings,
+    lockedCategories: siteSettings.lockedCategories ?? [],
+    lockedNavOptions: siteSettings.lockedNavOptions ?? ['meeting-checkin'],
+  });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [settingsStatusMsg, setSettingsStatusMsg] = useState<string | null>(
     null,
   );
 
   useEffect(() => {
-    setSettingsDraft(siteSettings);
+    setSettingsDraft({
+      ...siteSettings,
+      lockedCategories: siteSettings.lockedCategories ?? [],
+      lockedNavOptions: siteSettings.lockedNavOptions ?? ['meeting-checkin'],
+    });
   }, [siteSettings]);
 
   // Cover image upload to Google Drive
@@ -1108,6 +1117,9 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       className="w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     >
                       <option value="Published">Published（公開發布）</option>
+                      <option value="Restricted">
+                        Restricted（限 @hmes.tp.edu.tw 校內帳號觀看）
+                      </option>
                       <option value="Draft">Draft（草稿預覽）</option>
                     </select>
                   </div>
@@ -1322,6 +1334,15 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                           <span>{formatCategoryDisplay(p.category)}</span>
                           <span>·</span>
                           <span className="font-mono-tabular">{p.publishedAt}</span>
+                          {p.status === 'Restricted' && (
+                            <>
+                              <span>·</span>
+                              <span className="inline-flex items-center gap-0.5 text-[#1E3A8A] font-medium">
+                                <Lock className="w-3 h-3" />
+                                <span>已鎖定</span>
+                              </span>
+                            </>
+                          )}
                           {p.rowIndex && (
                             <>
                               <span>·</span>
@@ -1738,6 +1759,134 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       載入試算表時若偵測到 <code className="font-mono-tabular bg-[#F7F4EE] px-1 rounded">Settings</code> 分頁（或首次連線自訂試算表），將自動讀取並套用其中的網站標題與簡介。
                     </span>
                   </label>
+                </div>
+
+                {/* @hmes.tp.edu.tw Access Control & Option Locking */}
+                <div className="pt-4 border-t border-stone-200 space-y-4">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-semibold text-stone-900 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                      <span>鎖定選項與 @hmes.tp.edu.tw 校內限定設定</span>
+                    </h4>
+                    <p className="text-xs text-stone-600 leading-relaxed">
+                      勾選項目後，一般外部訪客將看到「已鎖定」提示，必須使用{' '}
+                      <code className="font-mono-tabular bg-[#F7F4EE] px-1 rounded">
+                        @hmes.tp.edu.tw
+                      </code>{' '}
+                      學校帳號或管理員身分登入才可開啟。
+                    </p>
+                  </div>
+
+                  {/* Lock Navigation Options */}
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-stone-700">
+                      功能與入口選項鎖定
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="p-3 bg-[#F7F4EE] border border-stone-200 rounded-lg text-xs text-stone-700">
+                        <div className="font-semibold text-stone-900 flex items-center gap-1.5">
+                          <Lock className="w-3 h-3 text-[#1E3A8A]" />
+                          <span>會議簽到專區（預設鎖定）</span>
+                        </div>
+                        <p className="text-[11px] text-stone-500 mt-0.5">
+                          系統固定要求 @hmes.tp.edu.tw 驗證登入，確保出席名冊真實與隱私。
+                        </p>
+                      </div>
+
+                      <label className="p-3 bg-white border border-stone-200 rounded-lg text-xs text-stone-700 flex items-start gap-2 cursor-pointer hover:border-[#1E3A8A]/40">
+                        <input
+                          type="checkbox"
+                          checked={(settingsDraft.lockedNavOptions ?? []).includes(
+                            'class-403',
+                          )}
+                          onChange={(e) => {
+                            const curr = settingsDraft.lockedNavOptions ?? [];
+                            const next = e.target.checked
+                              ? Array.from(new Set([...curr, 'class-403']))
+                              : curr.filter((x) => x !== 'class-403');
+                            setSettingsDraft({
+                              ...settingsDraft,
+                              lockedNavOptions: next,
+                            });
+                          }}
+                          className="mt-0.5 rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                        />
+                        <span>
+                          <strong className="text-stone-900 block">
+                            鎖定「403 班級網站」入口
+                          </strong>
+                          須登入 @hmes.tp.edu.tw 方可進入 403 互動聯絡簿與班網。
+                        </span>
+                      </label>
+
+                      <label className="p-3 bg-white border border-stone-200 rounded-lg text-xs text-stone-700 flex items-start gap-2 cursor-pointer hover:border-[#1E3A8A]/40">
+                        <input
+                          type="checkbox"
+                          checked={(settingsDraft.lockedNavOptions ?? []).includes(
+                            'ximen-stage',
+                          )}
+                          onChange={(e) => {
+                            const curr = settingsDraft.lockedNavOptions ?? [];
+                            const next = e.target.checked
+                              ? Array.from(new Set([...curr, 'ximen-stage']))
+                              : curr.filter((x) => x !== 'ximen-stage');
+                            setSettingsDraft({
+                              ...settingsDraft,
+                              lockedNavOptions: next,
+                            });
+                          }}
+                          className="mt-0.5 rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                        />
+                        <span>
+                          <strong className="text-stone-900 block">
+                            鎖定「百年西門互動學習網」入口
+                          </strong>
+                          須登入 @hmes.tp.edu.tw 方可開啟互動學習舞台。
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Lock Entire Categories */}
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-stone-700">
+                      鎖定特定專欄分類文章（勾選後該分類全部文章皆需登入觀看）
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {availableEditorCategories.map((cat) => {
+                        const isCatLocked = (
+                          settingsDraft.lockedCategories ?? []
+                        ).includes(cat);
+                        return (
+                          <button
+                            key={cat}
+                            type="button"
+                            onClick={() => {
+                              const curr = settingsDraft.lockedCategories ?? [];
+                              const next = isCatLocked
+                                ? curr.filter((x) => x !== cat)
+                                : [...curr, cat];
+                              setSettingsDraft({
+                                ...settingsDraft,
+                                lockedCategories: next,
+                              });
+                            }}
+                            className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                              isCatLocked
+                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:border-stone-300'
+                            }`}
+                          >
+                            {isCatLocked && <Lock className="w-3 h-3" />}
+                            <span>{cat}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-stone-500">
+                      提示：若只需鎖定「單篇文章」，請於「新增／編輯文章」分頁將該篇的發布狀態設為 Restricted（或在試算表 Status 欄填入 Restricted）即可。
+                    </p>
+                  </div>
                 </div>
 
                 {settingsStatusMsg && (

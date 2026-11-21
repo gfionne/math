@@ -80,6 +80,8 @@ export interface SharedCloudSiteConfig extends SiteSettings {
   spreadsheetId: string;
   tabName: string;
   hiddenOfficialAssetIds?: string[];
+  lockedCategories?: string[];
+  lockedNavOptions?: string[];
 }
 
 const SITE_CONFIG_COLLECTION = 'siteConfig';
@@ -153,6 +155,22 @@ export function subscribeSharedSiteConfig(
             .slice(0, 50)
         : undefined;
 
+      const lockedCats = Array.isArray(d.lockedCategories)
+        ? d.lockedCategories
+            .filter((c): c is string => typeof c === 'string')
+            .map((c) => c.trim().slice(0, 60))
+            .filter(Boolean)
+            .slice(0, 20)
+        : undefined;
+
+      const lockedNavs = Array.isArray(d.lockedNavOptions)
+        ? d.lockedNavOptions
+            .filter((n): n is string => typeof n === 'string')
+            .map((n) => n.trim().slice(0, 40))
+            .filter(Boolean)
+            .slice(0, 10)
+        : undefined;
+
       const nextConfig: SharedCloudSiteConfig = {
         spreadsheetId: String(d.spreadsheetId ?? ''),
         tabName: String(d.tabName ?? 'Posts') || 'Posts',
@@ -163,6 +181,8 @@ export function subscribeSharedSiteConfig(
         autoDynamicTitle: Boolean(d.autoDynamicTitle ?? true),
         autoTitleFromSheet: Boolean(d.autoTitleFromSheet ?? true),
         ...(hiddenIds !== undefined ? {hiddenOfficialAssetIds: hiddenIds} : {}),
+        ...(lockedCats !== undefined ? {lockedCategories: lockedCats} : {}),
+        ...(lockedNavs !== undefined ? {lockedNavOptions: lockedNavs} : {}),
       };
       writeCachedSharedSiteConfig(nextConfig);
       onUpdate(nextConfig);
@@ -199,6 +219,26 @@ export async function saveSharedSiteConfig(
       ).slice(0, 50)
     : undefined;
 
+  const sanitizedLockedCategories = Array.isArray(config.lockedCategories)
+    ? Array.from(
+        new Set(
+          config.lockedCategories
+            .map((c) => String(c).trim().slice(0, 60))
+            .filter(Boolean),
+        ),
+      ).slice(0, 20)
+    : undefined;
+
+  const sanitizedLockedNavOptions = Array.isArray(config.lockedNavOptions)
+    ? Array.from(
+        new Set(
+          config.lockedNavOptions
+            .map((n) => String(n).trim().slice(0, 40))
+            .filter(Boolean),
+        ),
+      ).slice(0, 10)
+    : undefined;
+
   const payload: Record<string, unknown> = {
     spreadsheetId: config.spreadsheetId.trim().slice(0, 200),
     tabName: (config.tabName.trim() || 'Posts').slice(0, 100),
@@ -214,6 +254,12 @@ export async function saveSharedSiteConfig(
 
   if (sanitizedHiddenIds !== undefined) {
     payload.hiddenOfficialAssetIds = sanitizedHiddenIds;
+  }
+  if (sanitizedLockedCategories !== undefined) {
+    payload.lockedCategories = sanitizedLockedCategories;
+  }
+  if (sanitizedLockedNavOptions !== undefined) {
+    payload.lockedNavOptions = sanitizedLockedNavOptions;
   }
 
   writeCachedSharedSiteConfig(config);

@@ -3,24 +3,32 @@ import {marked} from 'marked';
 import {
   ArrowLeft,
   ArrowRight,
+  CalendarCheck,
   Check,
   Copy,
   Edit3,
   ExternalLink,
   Eye,
   FileText,
+  Lock,
   Maximize2,
   MonitorPlay,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
+import {SCHOOL_DOMAIN} from '../services/googleAuth';
 import {formatCategoryDisplay} from '../utils/postFormatting';
 
 interface ArticleReaderModalProps {
   post: JournalPost | null;
   allPosts: JournalPost[];
   canEdit: boolean;
+  isLocked?: boolean;
+  isSchoolAuthorized?: boolean;
+  onRequestSchoolSignIn?: () => void;
+  onOpenMeetingCheckin?: (linkedPostSlug?: string) => void;
   onClose: () => void;
   onSelectPost: (post: JournalPost) => void;
   onEditPost: (post: JournalPost) => void;
@@ -135,6 +143,10 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   post,
   allPosts,
   canEdit,
+  isLocked = false,
+  isSchoolAuthorized = false,
+  onRequestSchoolSignIn,
+  onOpenMeetingCheckin,
   onClose,
   onSelectPost,
   onEditPost,
@@ -148,14 +160,14 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   }, [post?.slug]);
 
   const renderedHtml = useMemo(() => {
-    if (!post) return '';
+    if (!post || isLocked) return '';
     const raw = marked.parse(post.content || post.summary || '', {
       async: false,
       gfm: true,
       breaks: true,
     }) as string;
     return sanitizeHtml(raw);
-  }, [post]);
+  }, [post, isLocked]);
 
   React.useEffect(() => {
     if (!post) return;
@@ -298,6 +310,15 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   <span className="font-semibold text-amber-800">草稿預覽</span>
                 </>
               )}
+              {(post.status === 'Restricted' || isLocked) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className="inline-flex items-center gap-1 font-semibold text-[#1E3A8A]">
+                    <Lock className="w-3 h-3" />
+                    <span>校內限定（@{SCHOOL_DOMAIN}）</span>
+                  </span>
+                </>
+              )}
             </div>
 
             <h1
@@ -307,7 +328,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               {post.title}
             </h1>
 
-            {post.summary && (
+            {post.summary && !isLocked && (
               <p className="mt-4 text-base sm:text-lg text-stone-600 leading-relaxed max-w-2xl">
                 {post.summary}
               </p>
@@ -339,126 +360,193 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
             </dl>
           </header>
 
-          {/* Optional Cover Image */}
-          {post.coverImageUrl && (
-            <figure className="bg-[#F7F4EE] border-b border-stone-200 px-4 sm:px-12 py-5 sm:py-6 min-w-0">
-              <div className="aspect-[16/9] w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-100">
-                <img
-                  src={post.coverImageUrl}
-                  alt={post.title}
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-              <figcaption className="mt-2.5 text-xs text-stone-500 font-editorial italic">
-                圖說 — {post.title}
-              </figcaption>
-            </figure>
-          )}
-
-          {/* Main Markdown Reading Body */}
-          <div className="px-4 sm:px-12 py-6 sm:py-10 bg-white min-w-0">
-            <div
-              className="journal-prose max-w-2xl w-full min-w-0 mx-auto"
-              dangerouslySetInnerHTML={{__html: renderedHtml}}
-            />
-
-            {/* Embedded Google Drive / Meet / Forms / Interactive HTML Attachment */}
-            {post.embedUrl && embedMeta && (
-              <section className="max-w-2xl mx-auto mt-10 pt-8 border-t border-stone-200 min-w-0">
-                <h2 className="font-editorial text-lg font-semibold text-stone-900 mb-4">
-                  {embedMeta.provider === '站內互動網頁'
-                    ? '站內互動學習舞台與教學資源'
-                    : '相關雲端附件與教學資源'}
-                </h2>
-                <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-4 sm:p-5 space-y-4 min-w-0">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
-                        {embedMeta.provider === '站內互動網頁' ? (
-                          <MonitorPlay className="w-5 h-5 text-[#1E3A8A]" />
-                        ) : (
-                          <FileText className="w-5 h-5 text-[#1E3A8A]" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-mono-tabular text-stone-500">
-                          {embedMeta.provider}
-                          {embedMeta.domain ? ` · ${embedMeta.domain}` : ''}
-                        </div>
-                        <div className="text-sm font-semibold text-stone-900 mt-0.5 break-words">
-                          {post.embedLabel || post.title}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
-                      {inlineEmbedUrl && (
-                        <button
-                          type="button"
-                          onClick={() => setShowInlineEmbed((v) => !v)}
-                          className="px-3.5 py-2 text-xs font-medium text-stone-800 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>
-                            {showInlineEmbed
-                              ? '收合預覽'
-                              : embedMeta.provider === '站內互動網頁'
-                              ? '原地展開互動'
-                              : '內嵌預覽'}
-                          </span>
-                        </button>
-                      )}
-                      {embedMeta.provider === '站內互動網頁' &&
-                        onOpenFullEmbed && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenFullEmbed(
-                                post.embedUrl!,
-                                post.embedLabel || post.title,
-                              )
-                            }
-                            className="px-3.5 py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                          >
-                            <Maximize2 className="w-3.5 h-3.5" />
-                            <span>全螢幕舞台</span>
-                          </button>
-                        )}
-                      <a
-                        href={post.embedUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                      >
-                        <span>
-                          {embedMeta.provider === '站內互動網頁'
-                            ? '獨立分頁開啟'
-                            : '開啟原始連結'}
-                        </span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                  </div>
-
-                  {showInlineEmbed && inlineEmbedUrl && (
-                    <div className="pt-3 border-t border-stone-200">
-                      <iframe
-                        src={inlineEmbedUrl}
-                        title={post.embedLabel || post.title}
-                        className={`w-full ${
-                          embedMeta.provider === '站內互動網頁'
-                            ? 'h-[560px]'
-                            : 'h-[460px]'
-                        } rounded-lg border border-stone-200 bg-white`}
-                        loading="lazy"
-                      />
-                    </div>
-                  )}
+          {isLocked ? (
+            <div className="px-4 sm:px-12 py-10 sm:py-14 bg-white min-w-0">
+              <div className="max-w-xl mx-auto bg-[#F7F4EE] border border-stone-200 rounded-2xl p-6 sm:p-8 text-center space-y-4">
+                <div className="w-12 h-12 rounded-xl bg-white border border-stone-200 flex items-center justify-center mx-auto text-[#1E3A8A] shadow-2xs">
+                  <Lock className="w-6 h-6" />
                 </div>
-              </section>
-            )}
-          </div>
+                <div className="space-y-1.5">
+                  <div className="text-xs font-mono-tabular font-semibold text-[#1E3A8A]">
+                    校內社群權限保護 · @{SCHOOL_DOMAIN}
+                  </div>
+                  <h2 className="font-editorial text-xl font-bold text-stone-950">
+                    此文章已鎖定，限本校社群教師登入觀看
+                  </h2>
+                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                    本篇內容可能包含領域共備紀錄、會議議程或校內教學資料，請使用您的{' '}
+                    <span className="font-mono-tabular font-semibold text-stone-900">
+                      @{SCHOOL_DOMAIN}
+                    </span>{' '}
+                    Google 帳號登入即可立即解鎖閱讀全文與附件。
+                  </p>
+                </div>
+
+                {onRequestSchoolSignIn && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={onRequestSchoolSignIn}
+                      className="w-full sm:w-auto px-5 py-2.5 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <ShieldCheck className="w-4 h-4 shrink-0" />
+                      <span>使用 @{SCHOOL_DOMAIN} 帳號登入解鎖</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Optional Cover Image */}
+              {post.coverImageUrl && (
+                <figure className="bg-[#F7F4EE] border-b border-stone-200 px-4 sm:px-12 py-5 sm:py-6 min-w-0">
+                  <div className="aspect-[16/9] w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-100">
+                    <img
+                      src={post.coverImageUrl}
+                      alt={post.title}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <figcaption className="mt-2.5 text-xs text-stone-500 font-editorial italic">
+                    圖說 — {post.title}
+                  </figcaption>
+                </figure>
+              )}
+
+              {/* Main Markdown Reading Body */}
+              <div className="px-4 sm:px-12 py-6 sm:py-10 bg-white min-w-0">
+                <div
+                  className="journal-prose max-w-2xl w-full min-w-0 mx-auto"
+                  dangerouslySetInnerHTML={{__html: renderedHtml}}
+                />
+
+                {/* Meeting Check-In Action Card for Domain Meeting Articles */}
+                {onOpenMeetingCheckin && post.category.includes('領域會議') && (
+                  <section className="max-w-2xl mx-auto mt-8 pt-6 border-t border-stone-200 min-w-0">
+                    <div className="bg-[#F7F4EE] border border-[#1E3A8A]/25 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1 min-w-0">
+                        <div className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1.5">
+                          <CalendarCheck className="w-4 h-4 shrink-0" />
+                          <span>領域共備會議線上簽到</span>
+                        </div>
+                        <p className="text-xs text-stone-600 leading-relaxed">
+                          {isSchoolAuthorized
+                            ? '您已完成社群身份驗證，可直接開啟「會議簽到專區」完成本場次出席簽到。'
+                            : `歡迎使用 @${SCHOOL_DOMAIN} 學校帳號登入，即可於線上完成本場會議簽到。`}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onOpenMeetingCheckin(post.slug)}
+                        className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                      >
+                        <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
+                        <span>前往會議簽到</span>
+                      </button>
+                    </div>
+                  </section>
+                )}
+
+                {/* Embedded Google Drive / Meet / Forms / Interactive HTML Attachment */}
+                {post.embedUrl && embedMeta && (
+                  <section className="max-w-2xl mx-auto mt-10 pt-8 border-t border-stone-200 min-w-0">
+                    <h2 className="font-editorial text-lg font-semibold text-stone-900 mb-4">
+                      {embedMeta.provider === '站內互動網頁'
+                        ? '站內互動學習舞台與教學資源'
+                        : '相關雲端附件與教學資源'}
+                    </h2>
+                    <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-4 sm:p-5 space-y-4 min-w-0">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+                            {embedMeta.provider === '站內互動網頁' ? (
+                              <MonitorPlay className="w-5 h-5 text-[#1E3A8A]" />
+                            ) : (
+                              <FileText className="w-5 h-5 text-[#1E3A8A]" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-mono-tabular text-stone-500">
+                              {embedMeta.provider}
+                              {embedMeta.domain ? ` · ${embedMeta.domain}` : ''}
+                            </div>
+                            <div className="text-sm font-semibold text-stone-900 mt-0.5 break-words">
+                              {post.embedLabel || post.title}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          {inlineEmbedUrl && (
+                            <button
+                              type="button"
+                              onClick={() => setShowInlineEmbed((v) => !v)}
+                              className="px-3.5 py-2 text-xs font-medium text-stone-800 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>
+                                {showInlineEmbed
+                                  ? '收合預覽'
+                                  : embedMeta.provider === '站內互動網頁'
+                                  ? '原地展開互動'
+                                  : '內嵌預覽'}
+                              </span>
+                            </button>
+                          )}
+                          {embedMeta.provider === '站內互動網頁' &&
+                            onOpenFullEmbed && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenFullEmbed(
+                                    post.embedUrl!,
+                                    post.embedLabel || post.title,
+                                  )
+                                }
+                                className="px-3.5 py-2 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                                <span>全螢幕舞台</span>
+                              </button>
+                            )}
+                          <a
+                            href={post.embedUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            <span>
+                              {embedMeta.provider === '站內互動網頁'
+                                ? '獨立分頁開啟'
+                                : '開啟原始連結'}
+                            </span>
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </div>
+
+                      {showInlineEmbed && inlineEmbedUrl && (
+                        <div className="pt-3 border-t border-stone-200">
+                          <iframe
+                            src={inlineEmbedUrl}
+                            title={post.embedLabel || post.title}
+                            className={`w-full ${
+                              embedMeta.provider === '站內互動網頁'
+                                ? 'h-[560px]'
+                                : 'h-[460px]'
+                            } rounded-lg border border-stone-200 bg-white`}
+                            loading="lazy"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Footer Navigation Between Articles */}
           <footer className="px-4 sm:px-12 py-5 sm:py-6 bg-[#F7F4EE] border-t border-stone-200 grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">

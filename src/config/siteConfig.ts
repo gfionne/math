@@ -9,6 +9,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
     '網站彙整pes在數學教育上的設計、開發與研究，結合數位學習工具、ＡＩ模組規劃而建立雲端教案資源；供西門社群教師及班級親師生使用為主。',
   autoDynamicTitle: true,
   autoTitleFromSheet: true,
+  lockedCategories: [],
+  lockedNavOptions: ['meeting-checkin'],
 };
 
 const rawConfig = siteConfig as Partial<{
@@ -20,6 +22,8 @@ const rawConfig = siteConfig as Partial<{
   heroDescription: string;
   autoDynamicTitle: boolean;
   autoTitleFromSheet: boolean;
+  lockedCategories: string[];
+  lockedNavOptions: string[];
 }>;
 
 /**
@@ -44,6 +48,12 @@ export const INITIAL_SITE_SETTINGS: SiteSettings = {
     rawConfig.autoDynamicTitle ?? DEFAULT_SITE_SETTINGS.autoDynamicTitle,
   autoTitleFromSheet:
     rawConfig.autoTitleFromSheet ?? DEFAULT_SITE_SETTINGS.autoTitleFromSheet,
+  lockedCategories: Array.isArray(rawConfig.lockedCategories)
+    ? rawConfig.lockedCategories
+    : DEFAULT_SITE_SETTINGS.lockedCategories,
+  lockedNavOptions: Array.isArray(rawConfig.lockedNavOptions)
+    ? rawConfig.lockedNavOptions
+    : DEFAULT_SITE_SETTINGS.lockedNavOptions,
 };
 
 export const BUNDLED_SITE_CONFIG = {
@@ -61,6 +71,8 @@ export interface SaveSiteConfigPayload {
   heroDescription?: string;
   autoDynamicTitle?: boolean;
   autoTitleFromSheet?: boolean;
+  lockedCategories?: string[];
+  lockedNavOptions?: string[];
 }
 
 /**
@@ -74,7 +86,9 @@ export async function saveSiteConfig(
       payload.spreadsheetId ?? BUNDLED_SITE_CONFIG.spreadsheetId
     ).trim(),
     tabName: (payload.tabName ?? BUNDLED_SITE_CONFIG.tabName).trim() || 'Posts',
-    siteTitle: (payload.siteTitle ?? INITIAL_SITE_SETTINGS.siteTitle).trim() || DEFAULT_SITE_SETTINGS.siteTitle,
+    siteTitle:
+      (payload.siteTitle ?? INITIAL_SITE_SETTINGS.siteTitle).trim() ||
+      DEFAULT_SITE_SETTINGS.siteTitle,
     siteSubtitle:
       (payload.siteSubtitle ?? INITIAL_SITE_SETTINGS.siteSubtitle).trim() ||
       DEFAULT_SITE_SETTINGS.siteSubtitle,
@@ -82,12 +96,17 @@ export async function saveSiteConfig(
       (payload.heroHeading ?? INITIAL_SITE_SETTINGS.heroHeading).trim() ||
       DEFAULT_SITE_SETTINGS.heroHeading,
     heroDescription:
-      (payload.heroDescription ?? INITIAL_SITE_SETTINGS.heroDescription).trim() ||
-      DEFAULT_SITE_SETTINGS.heroDescription,
+      (
+        payload.heroDescription ?? INITIAL_SITE_SETTINGS.heroDescription
+      ).trim() || DEFAULT_SITE_SETTINGS.heroDescription,
     autoDynamicTitle:
       payload.autoDynamicTitle ?? INITIAL_SITE_SETTINGS.autoDynamicTitle,
     autoTitleFromSheet:
       payload.autoTitleFromSheet ?? INITIAL_SITE_SETTINGS.autoTitleFromSheet,
+    lockedCategories:
+      payload.lockedCategories ?? INITIAL_SITE_SETTINGS.lockedCategories ?? [],
+    lockedNavOptions:
+      payload.lockedNavOptions ?? INITIAL_SITE_SETTINGS.lockedNavOptions ?? [],
   };
 
   try {

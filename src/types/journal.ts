@@ -1,4 +1,6 @@
-export type PostStatus = 'Published' | 'Draft';
+export type PostStatus = 'Published' | 'Draft' | 'Restricted';
+
+export type NavLockOptionId = 'meeting-checkin' | 'class-403' | 'ximen-stage';
 
 export interface EmbedResource {
   url: string;
@@ -54,4 +56,6 @@ export interface SiteSettings {
   heroDescription: string;
   autoDynamicTitle: boolean;
   autoTitleFromSheet: boolean;
+  lockedCategories?: string[];
+  lockedNavOptions?: string[];
 }
