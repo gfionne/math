@@ -25,6 +25,7 @@ import {
   Search,
   Sheet,
   ShieldCheck,
+  UserCheck,
 } from 'lucide-react';
 import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
@@ -1427,15 +1428,37 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setMeetingCheckinState({isOpen: true})}
-                className={`px-3 py-1.5 rounded-lg border inline-flex items-center gap-1.5 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
-                  meetingCheckinState.isOpen
+                onClick={() =>
+                  setMeetingCheckinState({isOpen: true, audienceMode: 'parent'})
+                }
+                className={`px-2.5 py-1.5 rounded-lg border inline-flex items-center gap-1.5 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
+                  meetingCheckinState.isOpen &&
+                  meetingCheckinState.audienceMode === 'parent'
+                    ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                    : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-700 hover:text-white hover:border-emerald-700'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>家長簽到</span>
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setMeetingCheckinState({isOpen: true, audienceMode: 'teacher'})
+                }
+                className={`px-2.5 py-1.5 rounded-lg border inline-flex items-center gap-1.5 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
+                  meetingCheckinState.isOpen &&
+                  meetingCheckinState.audienceMode !== 'parent'
                     ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
                     : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A]'
                 }`}
               >
-                <PenTool className="w-3.5 h-3.5" />
-                <span>會議／家長簽到</span>
+                {!isSchoolAuthorized ? (
+                  <Lock className="w-3 h-3 text-amber-600" />
+                ) : (
+                  <PenTool className="w-3.5 h-3.5" />
+                )}
+                <span>教師會議簽到</span>
               </button>
             </nav>
 
@@ -1462,12 +1485,17 @@ export default function App() {
                 <div className="flex items-center gap-1.5 sm:gap-2">
                   <button
                     type="button"
-                    onClick={() => setMeetingCheckinState({isOpen: true})}
+                    onClick={() =>
+                      setMeetingCheckinState({
+                        isOpen: true,
+                        audienceMode: 'teacher',
+                      })
+                    }
                     className="px-2.5 sm:px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/8 border border-[#1E3A8A]/25 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
                   >
                     <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden sm:inline">已驗證 · 會議簽到</span>
-                    <span className="sm:hidden">會議簽到</span>
+                    <span className="hidden sm:inline">已驗證 · 教師簽到</span>
+                    <span className="sm:hidden">教師簽到</span>
                   </button>
                   {isTeacherAdmin && (
                     <button
@@ -1526,15 +1554,37 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setMeetingCheckinState({isOpen: true})}
-              className={`px-3 py-1 rounded-lg border inline-flex items-center gap-1.5 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
-                meetingCheckinState.isOpen
+              onClick={() =>
+                setMeetingCheckinState({isOpen: true, audienceMode: 'parent'})
+              }
+              className={`px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
+                meetingCheckinState.isOpen &&
+                meetingCheckinState.audienceMode === 'parent'
+                  ? 'bg-emerald-700 text-white border-emerald-700'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-700 hover:text-white'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>家長簽到</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setMeetingCheckinState({isOpen: true, audienceMode: 'teacher'})
+              }
+              className={`px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
+                meetingCheckinState.isOpen &&
+                meetingCheckinState.audienceMode !== 'parent'
                   ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
                   : 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
               }`}
             >
-              <PenTool className="w-3.5 h-3.5" />
-              <span>會議／家長簽到</span>
+              {!isSchoolAuthorized ? (
+                <Lock className="w-3 h-3 text-amber-600" />
+              ) : (
+                <PenTool className="w-3.5 h-3.5" />
+              )}
+              <span>教師簽到</span>
             </button>
             <button
               type="button"
@@ -2002,72 +2052,111 @@ export default function App() {
               </div>
             </div>
 
-            {/* Unified School Day Parent & Community Meeting Check-In Dedicated Strip */}
-            <div className="bg-white/90 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-[#1E3A8A]/40 transition-all min-w-0">
-              <div className="space-y-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                  <span className="font-semibold text-[#1E3A8A] inline-flex items-center gap-1">
-                    <CalendarCheck className="w-3.5 h-3.5" />
-                    <span>西門數學社群 · 學校日與共備簽到專區</span>
-                  </span>
-                  <span aria-hidden="true" className="text-stone-400">
-                    ·
-                  </span>
-                  <span className="inline-flex items-center gap-1 font-medium text-stone-700">
-                    {!isSchoolAuthorized ? (
-                      <>
-                        <PenTool className="w-3 h-3 text-emerald-700" />
-                        <span>家長免登入簽到 · 社群教師可登入帳號簽到</span>
-                      </>
-                    ) : (
-                      <>
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
-                        <span>已完成學校社群帳號驗證</span>
-                      </>
-                    )}
-                  </span>
+            {/* Separated Check-In Strips: School Day Parents vs. Teacher Community Meetings */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-w-0">
+              {/* Parent School Day Check-In Card */}
+              <div className="bg-white/90 border border-emerald-200/80 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-emerald-500/50 transition-all min-w-0">
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                    <span className="font-semibold text-emerald-800 inline-flex items-center gap-1">
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>學校日・家長專區</span>
+                    </span>
+                    <span aria-hidden="true" className="text-stone-300">
+                      ·
+                    </span>
+                    <span className="text-emerald-700 font-medium">
+                      免登入帳號・手寫簽名
+                    </span>
+                  </div>
+                  <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950">
+                    學校日家長線上簽到
+                  </h2>
+                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                    家長參與學校日或親師活動無需登入 Google 帳號，選擇場次、填寫學生班級座號與家長姓名並手寫簽名即可完成報到。簽到名單僅供管理教師查閱，不與教師社群內容混雜。
+                  </p>
                 </div>
-                <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950">
-                  學校日家長與領域會議線上簽到系統
-                </h2>
-                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                  家長參與學校日或親師活動無需登入帳號，選擇場次並手寫簽名即可快速完成報到；社群教師可使用 @hmes.tp.edu.tw 帳號登入進行共備簽到，管理教師可產生 QR Code、檢視名單並匯出含簽名之 A4 PDF 簽到表。
-                </p>
-              </div>
 
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {!isSchoolAuthorized && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() =>
-                      openSchoolAccessModal(
-                        '登入 @hmes.tp.edu.tw 學校帳號',
-                        '社群教師登入後可同步解鎖網站校內限定專欄與領域共備會議簽到；若您為參加學校日之家長，請直接點選「家長免登入簽到」。',
-                      )
+                      setMeetingCheckinState({
+                        isOpen: true,
+                        audienceMode: 'parent',
+                      })
                     }
-                    className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#FBF9F5] border border-[#1E3A8A]/30 rounded-lg hover:bg-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                    className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                   >
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>@hmes.tp.edu.tw 教師登入</span>
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span>家長免登入簽到</span>
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMeetingCheckinState({
-                      isOpen: true,
-                      audienceMode: isSchoolAuthorized ? undefined : 'parent',
-                    })
-                  }
-                  className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                >
-                  <PenTool className="w-3.5 h-3.5" />
-                  <span>
-                    {isSchoolAuthorized
-                      ? '開啟會議與家長簽到'
-                      : '家長免登入簽到'}
-                  </span>
-                </button>
+                </div>
+              </div>
+
+              {/* Teacher Community Meeting Check-In Card */}
+              <div className="bg-white/90 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 transition-all min-w-0">
+                <div className="space-y-1.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                    <span className="font-semibold text-[#1E3A8A] inline-flex items-center gap-1">
+                      <CalendarCheck className="w-3.5 h-3.5" />
+                      <span>西門數學社群・教師會議</span>
+                    </span>
+                    <span aria-hidden="true" className="text-stone-300">
+                      ·
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-medium text-stone-700">
+                      {!isSchoolAuthorized ? (
+                        <>
+                          <Lock className="w-3 h-3 text-amber-600" />
+                          <span>限 @hmes.tp.edu.tw 登入</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>已完成校內教師帳號驗證</span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950">
+                    社群教師會議簽到與名冊
+                  </h2>
+                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                    限西門國小 @hmes.tp.edu.tw 教師登入後檢視社群共備場次、進行本人簽名與查詢個人簽到紀錄；管理教師可建立場次、產生 QR Code 及匯出 PDF 簽到表。
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {!isSchoolAuthorized && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openSchoolAccessModal(
+                          '登入 @hmes.tp.edu.tw 學校帳號',
+                          '社群教師登入後即可解鎖校內限定專欄與教師領域共備會議簽到紀錄。',
+                        )
+                      }
+                      className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#FBF9F5] border border-[#1E3A8A]/30 rounded-lg hover:bg-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>@hmes.tp.edu.tw 教師登入</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMeetingCheckinState({
+                        isOpen: true,
+                        audienceMode: 'teacher',
+                      })
+                    }
+                    className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span>開啟教師會議簽到</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -2120,27 +2209,68 @@ export default function App() {
                       </button>
 
                       {cat === '全部分類' && (
-                        <button
-                          type="button"
-                          onClick={() => setMeetingCheckinState({isOpen: true})}
-                          className={`mx-1 px-3 py-1.5 text-sm border rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] font-semibold ${
-                            meetingCheckinState.isOpen
-                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
-                              : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
-                          }`}
-                        >
-                          <PenTool className="w-3.5 h-3.5" />
-                          <span>會議／家長簽到</span>
-                          <span
-                            className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
-                              meetingCheckinState.isOpen
-                                ? 'bg-white/20 text-white'
-                                : 'bg-white text-[#1E3A8A] border border-[#1E3A8A]/20'
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMeetingCheckinState({
+                                isOpen: true,
+                                audienceMode: 'parent',
+                              })
+                            }
+                            className={`mx-1 px-3 py-1.5 text-sm border rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] font-semibold ${
+                              meetingCheckinState.isOpen &&
+                              meetingCheckinState.audienceMode === 'parent'
+                                ? 'bg-emerald-700 text-white border-emerald-700 shadow-xs'
+                                : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-700 hover:text-white'
                             }`}
                           >
-                            親筆簽名・免登入可用
-                          </span>
-                        </button>
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>家長簽到</span>
+                            <span
+                              className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                                meetingCheckinState.isOpen &&
+                                meetingCheckinState.audienceMode === 'parent'
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-white text-emerald-800 border border-emerald-200'
+                              }`}
+                            >
+                              免登入
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMeetingCheckinState({
+                                isOpen: true,
+                                audienceMode: 'teacher',
+                              })
+                            }
+                            className={`mr-1 px-3 py-1.5 text-sm border rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] font-semibold ${
+                              meetingCheckinState.isOpen &&
+                              meetingCheckinState.audienceMode !== 'parent'
+                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                                : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
+                            }`}
+                          >
+                            {!isSchoolAuthorized ? (
+                              <Lock className="w-3 h-3 text-amber-600" />
+                            ) : (
+                              <PenTool className="w-3.5 h-3.5" />
+                            )}
+                            <span>教師會議簽到</span>
+                            <span
+                              className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                                meetingCheckinState.isOpen &&
+                                meetingCheckinState.audienceMode !== 'parent'
+                                  ? 'bg-white/20 text-white'
+                                  : 'bg-white text-[#1E3A8A] border border-[#1E3A8A]/20'
+                              }`}
+                            >
+                              校內帳號
+                            </span>
+                          </button>
+                        </>
                       )}
                     </React.Fragment>
                   );
@@ -2447,11 +2577,23 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-4">
             <button
               type="button"
-              onClick={() => setMeetingCheckinState({isOpen: true})}
+              onClick={() =>
+                setMeetingCheckinState({isOpen: true, audienceMode: 'parent'})
+              }
+              className="inline-flex items-center gap-1.5 text-emerald-800 hover:text-emerald-950 font-medium"
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>學校日家長簽到</span>
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setMeetingCheckinState({isOpen: true, audienceMode: 'teacher'})
+              }
               className="inline-flex items-center gap-1.5 text-stone-700 hover:text-[#1E3A8A] font-medium"
             >
               <CalendarCheck className="w-3.5 h-3.5" />
-              <span>學校日與會議簽到</span>
+              <span>教師會議簽到</span>
             </button>
             {user && hasAccessToken ? (
               <>
@@ -2543,7 +2685,11 @@ export default function App() {
         }
         onOpenMeetingCheckin={(linkedSlug) => {
           setActivePost(null);
-          setMeetingCheckinState({isOpen: true, linkedPostSlug: linkedSlug});
+          setMeetingCheckinState({
+            isOpen: true,
+            linkedPostSlug: linkedSlug,
+            audienceMode: 'teacher',
+          });
         }}
         onClose={() => {
           setActivePost(null);

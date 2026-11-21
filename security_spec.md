@@ -3,21 +3,21 @@
 ## 1. Data Invariants
 1. **Default-Deny Catch-All**: All paths not explicitly matched deny both read and write.
 2. **Email Verification & Institutional Domain Gate**: Both `isAdmin()` and `isSchoolMember()` strictly require `request.auth != null && request.auth.token.email_verified == true`. `isSchoolMember()` strictly validates `^[^@]+@hmes\.tp\.edu\.tw$`.
-3. **Dual-Audience Meetings (`/meetings/{meetingId}`)**:
-   - Teacher sessions (`audience == 'teacher'` or omitted): Readable (`get`, `list`) ONLY by `isAdmin() || isSchoolMember()`. Unauthenticated visitors and non-`@hmes.tp.edu.tw` accounts receive `PERMISSION_DENIED`.
-   - School Day parent sessions (`audience == 'parent'`): Readable (`get`, `list`) by any visitor (`resource.data.audience == 'parent'`) so parents can view open School Day sessions without signing in.
-   - Writable (`create`, `update`, `delete`) ONLY by `isAdmin()`.
+3. **Isolated Teacher Meetings (`/meetings/{meetingId}`) & Parent Sessions (`/parentMeetings/{meetingId}`)**:
+   - Teacher sessions live in `/meetings`: Readable (`get`, `list`) ONLY by `isAdmin() || isSchoolMember()`. Unauthenticated visitors and non-`@hmes.tp.edu.tw` accounts cannot read teacher meetings.
+   - School Day parent sessions live in `/parentMeetings` with mandatory `audience == 'parent'`: Readable (`get`, `list`) for login-free parent check-in (`resource.data.audience == 'parent'`), never mixed into teacher meeting lists.
+   - Both collections are writable (`create`, `update`, `delete`) ONLY by `isAdmin()`.
    - Immutable fields after creation: `createdAt`, `createdByUid`. `updatedAt` must equal `request.time`.
 4. **Teacher Meeting Check-Ins (`/meetingCheckins/{checkinId}`)**:
    - Deterministic ID invariant: `checkinId == incoming().meetingId + '_' + request.auth.uid`.
-   - Master Gate invariant: Parent `/meetings/{meetingId}` must exist; non-admin writes require `isOpen == true` AND `request.time` to fall within `[checkinStartAt, checkinEndAt]`. Deleting a meeting cascades to delete all associated check-in records.
+   - Master Gate invariant: Parent `/meetings/{meetingId}` must exist (and not be a `parent` session); non-admin writes require `isOpen == true` AND `request.time` to fall within `[checkinStartAt, checkinEndAt]`. Deleting a meeting cascades to delete all associated check-in records.
    - Identity & Anti-Spoofing invariant: `incoming().userUid == request.auth.uid` and `incoming().userEmail.lower() == request.auth.token.email.lower()`.
    - PII Isolation invariant: Check-in documents contain `userEmail`, so `get` and `list` are strictly restricted to `isAdmin()` or the owning teacher (`resource.data.userUid == request.auth.uid`).
    - Temporal Integrity invariant: `checkedInAt == request.time` on create; `checkedInAt`, `meetingId`, `userUid`, and `userEmail` are immutable on update.
    - Handwritten Signature Integrity invariant: `signatureDataUrl` is mandatory on create and must strictly match `^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$` within `[22, 200000]` bytes (no SVG/HTML/JS URLs).
 5. **School Day Parent Check-Ins (`/parentCheckins/{checkinId}`)**:
-   - Login-free Create + Strict Master Gate: Unauthenticated parents may `create` ONLY when static validation passes (`isValidId`, `isValidParentCheckin`), `checkedInAt == request.time`, `updatedAt == request.time`, parent `/meetings/{meetingId}` exists, `audience == 'parent'`, AND `isMeetingWithinWindow(...)` holds (`isOpen == true` and within `[checkinStartAt, checkinEndAt]`).
-   - Zero Public Read / Scrape / Overwrite Invariant: `get`, `list`, `update`, and `delete` on `/parentCheckins` are strictly restricted to `isAdmin()`. No visitor can inspect other parents' or students' names/signatures or overwrite an existing check-in.
+   - Login-free Create + Strict Master Gate: Unauthenticated parents may `create` ONLY when static validation passes (`isValidId`, `isValidParentCheckin`), `checkedInAt == request.time`, `updatedAt == request.time`, target `/parentMeetings/{meetingId}` (or legacy `/meetings/{meetingId}` with `audience == 'parent'`) exists, `audience == 'parent'`, AND `isMeetingWithinWindow(...)` holds (`isOpen == true` and within `[checkinStartAt, checkinEndAt]`).
+   - Zero Public / Non-Admin Read, Scrape, or Overwrite Invariant: `get`, `list`, `update`, and `delete` on `/parentCheckins` are strictly restricted to `isAdmin()`. Neither other parents nor non-admin teachers can inspect student/parent names or signatures.
 6. **Site Configuration (`/siteConfig/main`) & Gallery (`/ximenGalleryItems/{itemId}`)**:
    - Strict `keys().hasAll(...) && keys().hasOnly(...)` + type & `.size()` bounds on every string and array (`lockedCategories <= 20`, `lockedNavOptions <= 10`, `hiddenOfficialAssetIds <= 50`).
 

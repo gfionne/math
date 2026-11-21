@@ -456,7 +456,13 @@
       "schema": {
         "$ref": "#/entities/MeetingSession"
       },
-      "description": "Teacher sessions (audience='teacher') readable only by @hmes.tp.edu.tw school members and admins; School Day parent sessions (audience='parent') publicly readable for login-free parent check-in; created/updated/deleted only by admins."
+      "description": "Teacher community meeting sessions readable only by @hmes.tp.edu.tw school members and admins (plus temporary legacy parent migration compatibility); created/updated/deleted only by admins."
+    },
+    "/parentMeetings/{meetingId}": {
+      "schema": {
+        "$ref": "#/entities/MeetingSession"
+      },
+      "description": "Dedicated School Day / parent event sessions (audience='parent'), strictly isolated from teacher community meetings and publicly readable for login-free parent check-in; created/updated/deleted only by admins."
     },
     "/meetingCheckins/{checkinId}": {
       "schema": {
@@ -468,7 +474,7 @@
       "schema": {
         "$ref": "#/entities/ParentCheckin"
       },
-      "description": "Login-free School Day parent attendance check-in records. Parents can create records only for open audience='parent' meetings within the allowed schedule window; all reads, lists, updates, and deletes are strictly restricted to admins."
+      "description": "Login-free School Day parent attendance check-in records. Parents can create records only for open parentMeetings within the allowed schedule window; all reads, lists, updates, and deletes are strictly restricted to admins."
     }
   }
 }

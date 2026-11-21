@@ -357,7 +357,7 @@ service cloud.firestore {
     }
 
     match /meetings/{meetingId} {
-      // Teacher meetings require @hmes.tp.edu.tw or admin; School Day parent sessions (audience == 'parent') are readable without login
+      // Teacher community meetings only (plus temporary compatibility for legacy audience=='parent' docs until migrated to /parentMeetings)
       allow get: if isValidId(meetingId) && (
         isAdmin() ||
         isSchoolMember() ||
@@ -370,6 +370,7 @@ service cloud.firestore {
       allow create: if isAdmin() &&
         isValidId(meetingId) &&
         isValidMeetingSession(incoming()) &&
+        (!('audience' in incoming()) || incoming().audience == 'teacher') &&
         incoming().createdByUid == request.auth.uid &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
@@ -377,6 +378,50 @@ service cloud.firestore {
       allow update: if isAdmin() &&
         isValidId(meetingId) &&
         isValidMeetingSession(incoming()) &&
+        incoming().createdByUid == existing().createdByUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title',
+          'meetingDate',
+          'academicYear',
+          'location',
+          'agendaSummary',
+          'meetUrl',
+          'linkedPostSlug',
+          'audience',
+          'isOpen',
+          'checkinStartAt',
+          'checkinEndAt',
+          'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(meetingId);
+    }
+
+    match /parentMeetings/{meetingId} {
+      // Dedicated School Day / parent event collection, completely separated from teacher community /meetings
+      allow get: if isValidId(meetingId) && (
+        isAdmin() ||
+        ('audience' in existing() && existing().audience == 'parent')
+      );
+      allow list: if isAdmin() ||
+        ('audience' in resource.data && resource.data.audience == 'parent');
+
+      allow create: if isAdmin() &&
+        isValidId(meetingId) &&
+        isValidMeetingSession(incoming()) &&
+        'audience' in incoming() &&
+        incoming().audience == 'parent' &&
+        incoming().createdByUid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isAdmin() &&
+        isValidId(meetingId) &&
+        isValidMeetingSession(incoming()) &&
+        'audience' in incoming() &&
+        incoming().audience == 'parent' &&
         incoming().createdByUid == existing().createdByUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
@@ -413,7 +458,7 @@ service cloud.firestore {
         resource.data.userUid == request.auth.uid
       );
 
-      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; Master Gate ensures meeting exists, is open, and is within scheduled signature window
+      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; Master Gate ensures teacher meeting exists, is open, and is within scheduled signature window
       allow create: if isValidId(checkinId) &&
         isValidMeetingCheckin(incoming()) &&
         (isAdmin() || isSchoolMember()) &&
@@ -424,6 +469,8 @@ service cloud.firestore {
         incoming().checkedInAt == request.time &&
         incoming().updatedAt == request.time &&
         exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
+        (!('audience' in get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data) ||
+          get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.audience != 'parent') &&
         isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data);
 
       allow update: if isValidId(checkinId) &&
@@ -459,18 +506,26 @@ service cloud.firestore {
     }
 
     match /parentCheckins/{checkinId} {
-      // Strictly isolate parent/student check-in records to admins for roster management & PDF export (zero public read/list/scrape)
+      // Strictly isolate parent/student check-in records to admins for roster management & PDF export (zero public or non-admin teacher read/list/scrape)
       allow get: if isValidId(checkinId) && isAdmin();
       allow list: if isAdmin();
 
-      // Login-free School Day parent check-in: permitted ONLY for existing, open, in-window 'parent' sessions
+      // Login-free School Day parent check-in: permitted ONLY for existing, open, in-window /parentMeetings (or legacy /meetings with audience == 'parent')
       allow create: if isValidId(checkinId) &&
         isValidParentCheckin(incoming()) &&
         incoming().checkedInAt == request.time &&
         incoming().updatedAt == request.time &&
-        exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
-        get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.audience == 'parent' &&
-        isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data);
+        (
+          (
+            exists(/databases/$(database)/documents/parentMeetings/$(incoming().meetingId)) &&
+            get(/databases/$(database)/documents/parentMeetings/$(incoming().meetingId)).data.audience == 'parent' &&
+            isMeetingWithinWindow(get(/databases/$(database)/documents/parentMeetings/$(incoming().meetingId)).data)
+          ) || (
+            exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
+            get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.audience == 'parent' &&
+            isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data)
+          )
+        );
 
       allow update: if isAdmin() &&
         isValidId(checkinId) &&

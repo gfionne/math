@@ -25,6 +25,7 @@ import {
 } from './firestoreSync';
 
 const MEETINGS_COLLECTION = 'meetings';
+const PARENT_MEETINGS_COLLECTION = 'parentMeetings';
 const CHECKINS_COLLECTION = 'meetingCheckins';
 const PARENT_CHECKINS_COLLECTION = 'parentCheckins';
 
@@ -278,9 +279,15 @@ export function subscribeMeetings(
   return onSnapshot(
     q,
     (snapshot) => {
-      const items = snapshot.docs.map((snap) =>
-        mapDocToMeetingSession(snap.id, snap.data() as Record<string, unknown>),
-      );
+      // Strictly exclude any legacy audience=='parent' documents so teachers never see parent sessions
+      const items = snapshot.docs
+        .map((snap) =>
+          mapDocToMeetingSession(
+            snap.id,
+            snap.data() as Record<string, unknown>,
+          ),
+        )
+        .filter((m) => m.audience !== 'parent');
       onUpdate(sortMeetingSessions(items));
     },
     (error) => {
@@ -296,30 +303,54 @@ export function subscribeMeetings(
 }
 
 /**
- * Public real-time subscription strictly filtered to `audience == 'parent'` sessions
- * so parents can sign in on School Day without logging into any Google account.
+ * Public real-time subscription strictly scoped to School Day / parent sessions (`parentMeetings`
+ * plus any legacy `audience == 'parent'` sessions pending admin migration) so parents can sign in
+ * without logging in and without ever seeing teacher community meetings.
  */
 export function subscribeParentMeetings(
   onUpdate: (sessions: MeetingSession[]) => void,
   onError?: (err: Error) => void,
 ): Unsubscribe {
-  const q = query(
+  let dedicatedItems: MeetingSession[] = [];
+  let legacyItems: MeetingSession[] = [];
+
+  const emitMerged = () => {
+    const byId = new Map<string, MeetingSession>();
+    for (const item of legacyItems) {
+      byId.set(item.id, {...item, audience: 'parent'});
+    }
+    for (const item of dedicatedItems) {
+      byId.set(item.id, {...item, audience: 'parent'});
+    }
+    onUpdate(sortMeetingSessions(Array.from(byId.values())));
+  };
+
+  const qDedicated = query(
+    collection(db, PARENT_MEETINGS_COLLECTION),
+    where('audience', '==', 'parent'),
+    limit(50),
+  );
+  const qLegacy = query(
     collection(db, MEETINGS_COLLECTION),
     where('audience', '==', 'parent'),
     limit(50),
   );
 
-  return onSnapshot(
-    q,
+  const unsubDedicated = onSnapshot(
+    qDedicated,
     (snapshot) => {
-      const items = snapshot.docs.map((snap) =>
+      dedicatedItems = snapshot.docs.map((snap) =>
         mapDocToMeetingSession(snap.id, snap.data() as Record<string, unknown>),
       );
-      onUpdate(sortMeetingSessions(items));
+      emitMerged();
     },
     (error) => {
       try {
-        handleFirestoreError(error, OperationType.LIST, MEETINGS_COLLECTION);
+        handleFirestoreError(
+          error,
+          OperationType.LIST,
+          PARENT_MEETINGS_COLLECTION,
+        );
       } catch (wrapped) {
         onError?.(
           formatFriendlyMeetingError(wrapped, '讀取學校日家長簽到場次失敗。'),
@@ -327,6 +358,24 @@ export function subscribeParentMeetings(
       }
     },
   );
+
+  const unsubLegacy = onSnapshot(
+    qLegacy,
+    (snapshot) => {
+      legacyItems = snapshot.docs.map((snap) =>
+        mapDocToMeetingSession(snap.id, snap.data() as Record<string, unknown>),
+      );
+      emitMerged();
+    },
+    () => {
+      // Legacy fallback only; ignore if empty/unreadable
+    },
+  );
+
+  return () => {
+    unsubDedicated();
+    unsubLegacy();
+  };
 }
 
 export function subscribeMyCheckins(
@@ -520,7 +569,11 @@ export async function createMeetingSession(
   }
 
   const id = generateMeetingId();
-  const docPath = `${MEETINGS_COLLECTION}/${id}`;
+  const targetCollection =
+    safeAudience === 'parent'
+      ? PARENT_MEETINGS_COLLECTION
+      : MEETINGS_COLLECTION;
+  const docPath = `${targetCollection}/${id}`;
   const payload = {
     title: safeTitle,
     meetingDate: safeDate,
@@ -540,7 +593,7 @@ export async function createMeetingSession(
   };
 
   try {
-    await setDoc(doc(db, MEETINGS_COLLECTION, id), payload);
+    await setDoc(doc(db, targetCollection, id), payload);
     return id;
   } catch (error) {
     try {
@@ -551,9 +604,28 @@ export async function createMeetingSession(
   }
 }
 
+async function resolveMeetingCollectionForAdmin(
+  meetingId: string,
+  audienceHint?: MeetingAudience,
+): Promise<string> {
+  if (audienceHint === 'parent') {
+    const dedicatedSnap = await getDoc(
+      doc(db, PARENT_MEETINGS_COLLECTION, meetingId),
+    );
+    if (dedicatedSnap.exists()) return PARENT_MEETINGS_COLLECTION;
+    return MEETINGS_COLLECTION;
+  }
+  const parentSnap = await getDoc(
+    doc(db, PARENT_MEETINGS_COLLECTION, meetingId),
+  );
+  if (parentSnap.exists()) return PARENT_MEETINGS_COLLECTION;
+  return MEETINGS_COLLECTION;
+}
+
 export async function updateMeetingSession(
   meetingId: string,
   updates: Partial<CreateMeetingSessionInput>,
+  audienceHint?: MeetingAudience,
 ): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser) {
@@ -629,9 +701,13 @@ export async function updateMeetingSession(
     }
   }
 
-  const docPath = `${MEETINGS_COLLECTION}/${meetingId}`;
+  const targetCollection = await resolveMeetingCollectionForAdmin(
+    meetingId,
+    audienceHint,
+  );
+  const docPath = `${targetCollection}/${meetingId}`;
   try {
-    await updateDoc(doc(db, MEETINGS_COLLECTION, meetingId), sanitized);
+    await updateDoc(doc(db, targetCollection, meetingId), sanitized);
   } catch (error) {
     try {
       handleFirestoreError(error, OperationType.UPDATE, docPath);
@@ -653,33 +729,47 @@ async function batchDeleteDocumentRefs(refs: DocumentReference[]): Promise<void>
   }
 }
 
-export async function deleteMeetingSession(meetingId: string): Promise<void> {
+export async function deleteMeetingSession(
+  meetingId: string,
+  audienceHint?: MeetingAudience,
+): Promise<void> {
   if (!auth.currentUser) {
     throw new Error('請先登入管理教師帳號。');
   }
   const safeMeetingId = meetingId.trim();
-  const docPath = `${MEETINGS_COLLECTION}/${safeMeetingId}`;
+  const targetCollection = await resolveMeetingCollectionForAdmin(
+    safeMeetingId,
+    audienceHint,
+  );
+  const docPath = `${targetCollection}/${safeMeetingId}`;
   try {
-    // Cascade-delete all teacher AND parent check-ins belonging to this meeting
-    const [teacherSnap, parentSnap] = await Promise.all([
-      getDocs(
-        query(
-          collection(db, CHECKINS_COLLECTION),
-          where('meetingId', '==', safeMeetingId),
+    const [teacherSnap, parentSnap, dedicatedSnap, legacySnap] =
+      await Promise.all([
+        getDocs(
+          query(
+            collection(db, CHECKINS_COLLECTION),
+            where('meetingId', '==', safeMeetingId),
+          ),
         ),
-      ),
-      getDocs(
-        query(
-          collection(db, PARENT_CHECKINS_COLLECTION),
-          where('meetingId', '==', safeMeetingId),
+        getDocs(
+          query(
+            collection(db, PARENT_CHECKINS_COLLECTION),
+            where('meetingId', '==', safeMeetingId),
+          ),
         ),
-      ),
-    ]);
+        getDoc(doc(db, PARENT_MEETINGS_COLLECTION, safeMeetingId)),
+        getDoc(doc(db, MEETINGS_COLLECTION, safeMeetingId)),
+      ]);
     const refsToDelete: DocumentReference[] = [
       ...teacherSnap.docs.map((snap) => snap.ref),
       ...parentSnap.docs.map((snap) => snap.ref),
-      doc(db, MEETINGS_COLLECTION, safeMeetingId),
     ];
+    if (dedicatedSnap.exists()) {
+      refsToDelete.push(dedicatedSnap.ref);
+    }
+    if (legacySnap.exists()) {
+      refsToDelete.push(legacySnap.ref);
+    }
     await batchDeleteDocumentRefs(refsToDelete);
   } catch (error) {
     try {
@@ -690,6 +780,60 @@ export async function deleteMeetingSession(meetingId: string): Promise<void> {
         '刪除場次及關聯簽到紀錄失敗。',
       );
     }
+  }
+}
+
+export async function migrateLegacyParentMeetingsForAdmin(): Promise<number> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return 0;
+
+  try {
+    const legacySnap = await getDocs(
+      query(
+        collection(db, MEETINGS_COLLECTION),
+        where('audience', '==', 'parent'),
+      ),
+    );
+    if (legacySnap.empty) return 0;
+
+    let migratedCount = 0;
+    for (const snap of legacySnap.docs) {
+      const data = snap.data();
+      const targetRef = doc(db, PARENT_MEETINGS_COLLECTION, snap.id);
+      const existingDedicated = await getDoc(targetRef);
+      if (!existingDedicated.exists()) {
+        await setDoc(targetRef, {
+          title: truncateChars(String(data.title ?? ''), 160) || '學校日家長簽到',
+          meetingDate: truncateChars(String(data.meetingDate ?? ''), 40) || '2026-01-01',
+          academicYear: truncateChars(String(data.academicYear ?? '114 學年度'), 40),
+          location: truncateChars(String(data.location ?? ''), 160),
+          agendaSummary: truncateChars(String(data.agendaSummary ?? ''), 1000),
+          meetUrl: truncateChars(String(data.meetUrl ?? ''), 500),
+          linkedPostSlug: truncateChars(String(data.linkedPostSlug ?? ''), 160),
+          audience: 'parent',
+          isOpen: Boolean(data.isOpen),
+          checkinStartAt: data.checkinStartAt ?? null,
+          checkinEndAt: data.checkinEndAt ?? null,
+          createdByName: truncateChars(
+            String(
+              data.createdByName ||
+                currentUser.displayName ||
+                currentUser.email ||
+                '領域召集教師',
+            ),
+            100,
+          ),
+          createdByUid: currentUser.uid.slice(0, 128),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      await deleteDoc(snap.ref);
+      migratedCount += 1;
+    }
+    return migratedCount;
+  } catch {
+    return 0;
   }
 }
 
@@ -707,8 +851,11 @@ export async function cleanupOrphanedCheckinsForAdmin(
 
   for (const meetingId of uniqueIds) {
     try {
-      const parentSnap = await getDoc(doc(db, MEETINGS_COLLECTION, meetingId));
-      if (parentSnap.exists()) {
+      const [teacherDocSnap, parentDocSnap] = await Promise.all([
+        getDoc(doc(db, MEETINGS_COLLECTION, meetingId)),
+        getDoc(doc(db, PARENT_MEETINGS_COLLECTION, meetingId)),
+      ]);
+      if (teacherDocSnap.exists() || parentDocSnap.exists()) {
         continue;
       }
 

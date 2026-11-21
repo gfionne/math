@@ -40,9 +40,9 @@ import {
   deleteParentCheckinForAdmin,
   getMeetingCheckinWindowState,
   isValidSignatureDataUrl,
-  MeetingAudience,
   MeetingCheckin,
   MeetingSession,
+  migrateLegacyParentMeetingsForAdmin,
   ParentCheckin,
   submitMeetingCheckin,
   submitParentCheckin,
@@ -97,8 +97,8 @@ interface MeetingCheckinModalProps {
 }
 
 type ModalTab = 'sessions' | 'my-history' | 'admin';
-type GuestTab = 'parent' | 'teacher-login';
-type SessionFilter = 'all' | 'open' | 'parent' | 'teacher';
+type ViewTrack = 'parent' | 'teacher';
+type SessionFilter = 'all' | 'open';
 
 function readSavedTeacherNote(): string {
   try {
@@ -188,8 +188,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   posts,
   onOpenLinkedPost,
 }) => {
-  const [guestTab, setGuestTab] = useState<GuestTab>(
-    initialAudienceMode === 'teacher' ? 'teacher-login' : 'parent',
+  const [viewTrack, setViewTrack] = useState<ViewTrack>(
+    initialAudienceMode ?? (isSchoolAuthorized ? 'teacher' : 'parent'),
   );
   const [activeTab, setActiveTab] = useState<ModalTab>('sessions');
   const [meetings, setMeetings] = useState<MeetingSession[]>([]);
@@ -255,8 +255,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     () => readParentReceipts(),
   );
 
-  // Admin Create Meeting Form
-  const [newAudience, setNewAudience] = useState<MeetingAudience>('teacher');
+  // Admin Create Session Form (scoped strictly by current viewTrack)
   const [newTitle, setNewTitle] = useState('');
   const [newDate, setNewDate] = useState(() => {
     const now = new Date();
@@ -319,6 +318,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     filename: string;
   } | null>(null);
 
+  const hasMigratedLegacyRef = useRef(false);
+
   useEffect(() => {
     if (!isOpen) return;
     setNowMs(Date.now());
@@ -332,13 +333,21 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     if (!isOpen) return;
     setDbError(null);
     setStatusBanner(null);
-    if (initialAudienceMode === 'teacher') {
-      setGuestTab('teacher-login');
-    } else if (initialAudienceMode === 'parent') {
-      setGuestTab('parent');
-      if (isSchoolAuthorized) {
-        setSessionFilter('parent');
-      }
+    setSessionFilter('all');
+    setActiveTab('sessions');
+    setExpandedRosterMeetingId(null);
+    setExpandedQrMeetingId(null);
+    setEditingScheduleMeetingId(null);
+    setConfirmDeleteMeetingId(null);
+
+    const nextTrack: ViewTrack =
+      initialAudienceMode ?? (isSchoolAuthorized ? 'teacher' : 'parent');
+    setViewTrack(nextTrack);
+
+    if (nextTrack === 'parent') {
+      setNewLocation('西門國小各班教室 / 視聽教室');
+    } else {
+      setNewLocation('西門國小 會議室 / Google Meet');
     }
     if (initialLinkedPostSlug) {
       setNewLinkedSlug(initialLinkedPostSlug);
@@ -380,7 +389,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     }
   }, [user?.displayName]);
 
-  // Attach appropriate Firestore subscriptions based on auth state
+  // One-time migration when an admin loads the modal to move any legacy parent session out of /meetings
+  useEffect(() => {
+    if (!isOpen || !isTeacherAdmin || hasMigratedLegacyRef.current) return;
+    hasMigratedLegacyRef.current = true;
+    void migrateLegacyParentMeetingsForAdmin();
+  }, [isOpen, isTeacherAdmin]);
+
+  // Strictly attach subscriptions ONLY for the active track (`parent` vs `teacher`)
   useEffect(() => {
     if (!isOpen) {
       setMeetings([]);
@@ -392,15 +408,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       return;
     }
 
-    setIsLoadingMeetings(true);
     setDbError(null);
 
-    if (!isSchoolAuthorized || !user) {
-      // Unauthenticated School Day parent mode: subscribe ONLY to public audience='parent' meetings
+    if (viewTrack === 'parent') {
       setMeetings([]);
       setMyCheckins([]);
       setAllCheckins([]);
-      setAllParentCheckins([]);
+      setIsLoadingMeetings(true);
+
       const unsubParents = subscribeParentMeetings(
         (list) => {
           setParentMeetings(list);
@@ -411,10 +426,40 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
           setDbError(err.message);
         },
       );
+
+      let unsubAdminParents: (() => void) | undefined;
+      if (isSchoolAuthorized && isTeacherAdmin && user) {
+        unsubAdminParents = subscribeAllParentCheckinsForAdmin(
+          (list) => {
+            setAllParentCheckins(list);
+          },
+          (err) => {
+            setDbError(err.message);
+          },
+        );
+      } else {
+        setAllParentCheckins([]);
+      }
+
       return () => {
         unsubParents();
+        unsubAdminParents?.();
       };
     }
+
+    // Teacher Community Track
+    setParentMeetings([]);
+    setAllParentCheckins([]);
+
+    if (!isSchoolAuthorized || !user) {
+      setMeetings([]);
+      setMyCheckins([]);
+      setAllCheckins([]);
+      setIsLoadingMeetings(false);
+      return;
+    }
+
+    setIsLoadingMeetings(true);
 
     const unsubMeetings = subscribeMeetings(
       (list) => {
@@ -438,7 +483,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     );
 
     let unsubAdminTeachers: (() => void) | undefined;
-    let unsubAdminParents: (() => void) | undefined;
     if (isTeacherAdmin) {
       unsubAdminTeachers = subscribeAllCheckinsForAdmin(
         (list) => {
@@ -448,25 +492,18 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
           setDbError(err.message);
         },
       );
-      unsubAdminParents = subscribeAllParentCheckinsForAdmin(
-        (list) => {
-          setAllParentCheckins(list);
-        },
-        (err) => {
-          setDbError(err.message);
-        },
-      );
+    } else {
+      setAllCheckins([]);
     }
 
     return () => {
       unsubMeetings();
       unsubMy();
       unsubAdminTeachers?.();
-      unsubAdminParents?.();
     };
-  }, [isOpen, isSchoolAuthorized, isTeacherAdmin, user]);
+  }, [isOpen, viewTrack, isSchoolAuthorized, isTeacherAdmin, user]);
 
-  // Generate QR codes lazily whenever an admin opens a session's QR drawer
+  // Generate QR codes lazily whenever an admin opens a parent session's QR drawer
   useEffect(() => {
     if (!expandedQrMeetingId || qrDataUrlByMeeting[expandedQrMeetingId]) {
       return;
@@ -499,16 +536,23 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
   const checkedOrphanIdsRef = useRef<Set<string>>(new Set());
 
-  const activeMeetingIdSet = useMemo(
+  const activeTeacherMeetingIdSet = useMemo(
     () => new Set(meetings.map((m) => m.id)),
     [meetings],
   );
 
-  // Only surface teacher check-ins whose parent meeting still exists
+  const activeParentMeetingIdSet = useMemo(
+    () => new Set(parentMeetings.map((m) => m.id)),
+    [parentMeetings],
+  );
+
+  // Only surface teacher check-ins whose parent teacher meeting still exists
   const activeMyCheckins = useMemo(() => {
     if (isLoadingMeetings) return [];
-    return myCheckins.filter((item) => activeMeetingIdSet.has(item.meetingId));
-  }, [isLoadingMeetings, myCheckins, activeMeetingIdSet]);
+    return myCheckins.filter((item) =>
+      activeTeacherMeetingIdSet.has(item.meetingId),
+    );
+  }, [isLoadingMeetings, myCheckins, activeTeacherMeetingIdSet]);
 
   const myCheckinByMeetingId = useMemo(() => {
     const map = new Map<string, MeetingCheckin>();
@@ -518,25 +562,27 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     return map;
   }, [activeMyCheckins]);
 
-  // Clean up any remaining orphaned teacher or parent check-ins automatically
+  // Clean up orphaned check-ins scoped to the active track only
   useEffect(() => {
-    if (
-      !isOpen ||
-      !isTeacherAdmin ||
-      isLoadingMeetings ||
-      (allCheckins.length === 0 && allParentCheckins.length === 0)
-    ) {
-      return;
-    }
+    if (!isOpen || !isTeacherAdmin || isLoadingMeetings) return;
+
+    const listToCheck =
+      viewTrack === 'parent' ? allParentCheckins : allCheckins;
+    const validSet =
+      viewTrack === 'parent'
+        ? activeParentMeetingIdSet
+        : activeTeacherMeetingIdSet;
+
+    if (listToCheck.length === 0) return;
 
     const candidates = Array.from(
       new Set(
-        [...allCheckins, ...allParentCheckins]
+        listToCheck
           .map((c) => c.meetingId)
           .filter(
             (id) =>
               Boolean(id) &&
-              !activeMeetingIdSet.has(id) &&
+              !validSet.has(id) &&
               !checkedOrphanIdsRef.current.has(id),
           ),
       ),
@@ -549,11 +595,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     void cleanupOrphanedCheckinsForAdmin(candidates);
   }, [
     isOpen,
+    viewTrack,
     isTeacherAdmin,
     isLoadingMeetings,
     allCheckins,
     allParentCheckins,
-    activeMeetingIdSet,
+    activeTeacherMeetingIdSet,
+    activeParentMeetingIdSet,
   ]);
 
   const checkinsByMeetingIdForAdmin = useMemo(() => {
@@ -577,13 +625,19 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   }, [allParentCheckins]);
 
   const orderedParentMeetings = useMemo(() => {
-    if (!initialMeetingId) return parentMeetings;
-    return [...parentMeetings].sort((a, b) => {
+    let base = parentMeetings;
+    if (isTeacherAdmin && sessionFilter === 'open') {
+      base = parentMeetings.filter(
+        (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
+      );
+    }
+    if (!initialMeetingId) return base;
+    return [...base].sort((a, b) => {
       if (a.id === initialMeetingId && b.id !== initialMeetingId) return -1;
       if (b.id === initialMeetingId && a.id !== initialMeetingId) return 1;
       return 0;
     });
-  }, [parentMeetings, initialMeetingId]);
+  }, [parentMeetings, initialMeetingId, isTeacherAdmin, sessionFilter, nowMs]);
 
   const openParentMeetingsCount = useMemo(
     () =>
@@ -603,17 +657,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     return map;
   }, [parentReceipts]);
 
-  const displayedMeetings = useMemo(() => {
-    let base = meetings;
-    if (sessionFilter === 'open') {
-      base = meetings.filter(
-        (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
-      );
-    } else if (sessionFilter === 'parent') {
-      base = meetings.filter((m) => m.audience === 'parent');
-    } else if (sessionFilter === 'teacher') {
-      base = meetings.filter((m) => m.audience !== 'parent');
-    }
+  const displayedTeacherMeetings = useMemo(() => {
+    const base =
+      sessionFilter === 'open'
+        ? meetings.filter(
+            (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
+          )
+        : meetings;
     if (!initialMeetingId) return base;
     return [...base].sort((a, b) => {
       if (a.id === initialMeetingId && b.id !== initialMeetingId) return -1;
@@ -622,7 +672,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     });
   }, [meetings, sessionFilter, nowMs, initialMeetingId]);
 
-  const openMeetingsCount = useMemo(
+  const openTeacherMeetingsCount = useMemo(
     () =>
       meetings.filter(
         (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
@@ -630,19 +680,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     [meetings, nowMs],
   );
 
-  const parentMeetingsCount = useMemo(
-    () => meetings.filter((m) => m.audience === 'parent').length,
-    [meetings],
-  );
-
-  const teacherMeetingsCount = useMemo(
-    () => meetings.filter((m) => m.audience !== 'parent').length,
-    [meetings],
-  );
-
-  // Auto-expand the first open parent meeting for guests (or deep-linked meeting)
+  // Auto-expand the first open parent meeting for non-admin parents
   useEffect(() => {
-    if (!isOpen || isSchoolAuthorized) return;
+    if (!isOpen || viewTrack !== 'parent' || isTeacherAdmin) return;
     if (
       initialMeetingId &&
       orderedParentMeetings.some((m) => m.id === initialMeetingId)
@@ -664,7 +704,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     );
   }, [
     isOpen,
-    isSchoolAuthorized,
+    viewTrack,
+    isTeacherAdmin,
     orderedParentMeetings,
     initialMeetingId,
     expandedParentMeetingId,
@@ -673,12 +714,11 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
   // Auto-open signature pad for the first open unchecked-in teacher meeting
   useEffect(() => {
-    if (!isOpen || !isSchoolAuthorized) return;
+    if (!isOpen || viewTrack !== 'teacher' || !isSchoolAuthorized) return;
     if (activeSigningMeetingId) {
       const stillOpenUnchecked = meetings.some(
         (m) =>
           m.id === activeSigningMeetingId &&
-          m.audience !== 'parent' &&
           getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
           !myCheckinByMeetingId.has(m.id),
       );
@@ -686,13 +726,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     }
     const nextOpen = meetings.find(
       (m) =>
-        m.audience !== 'parent' &&
         getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
         !myCheckinByMeetingId.has(m.id),
     );
     setActiveSigningMeetingId(nextOpen ? nextOpen.id : null);
   }, [
     isOpen,
+    viewTrack,
     isSchoolAuthorized,
     meetings,
     myCheckinByMeetingId,
@@ -705,6 +745,30 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   }, [posts]);
 
   if (!isOpen) return null;
+
+  const switchAdminTrack = (nextTrack: ViewTrack) => {
+    if (!isTeacherAdmin) return;
+    setDbError(null);
+    setStatusBanner(null);
+    setSessionFilter('all');
+    setActiveTab('sessions');
+    setExpandedRosterMeetingId(null);
+    setExpandedQrMeetingId(null);
+    setExpandedParentMeetingId(null);
+    setEditingScheduleMeetingId(null);
+    setConfirmDeleteMeetingId(null);
+    setViewTrack(nextTrack);
+    setNewTitle('');
+    setNewAgenda('');
+    setNewMeetUrl('');
+    setNewCheckinStartLocal('');
+    setNewCheckinEndLocal('');
+    setNewLocation(
+      nextTrack === 'parent'
+        ? '西門國小各班教室 / 視聽教室'
+        : '西門國小 會議室 / Google Meet',
+    );
+  };
 
   const handleCheckin = async (meeting: MeetingSession) => {
     const sigUrl = signatureDraftByMeeting[meeting.id] || '';
@@ -872,6 +936,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       return;
     }
 
+    const audience = viewTrack === 'parent' ? 'parent' : 'teacher';
     setIsCreatingSession(true);
     setDbError(null);
     setStatusBanner(null);
@@ -883,8 +948,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         location: newLocation,
         agendaSummary: newAgenda,
         meetUrl: newMeetUrl,
-        linkedPostSlug: newLinkedSlug,
-        audience: newAudience,
+        linkedPostSlug: audience === 'teacher' ? newLinkedSlug : '',
+        audience,
         isOpen: newIsOpen,
         checkinStartAtMs: startMs,
         checkinEndAtMs: endMs,
@@ -895,15 +960,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       setNewLinkedSlug('');
       setNewCheckinStartLocal('');
       setNewCheckinEndLocal('');
+      setSessionFilter('all');
       setActiveTab('sessions');
-      if (newAudience === 'parent') {
-        setSessionFilter('parent');
+      if (audience === 'parent') {
         setExpandedQrMeetingId(createdId);
         setStatusBanner(
           '已建立「學校日／家長免登入」簽到場次！下方已為您開啟專屬 QR Code 與直達網址。',
         );
       } else {
-        setSessionFilter('all');
         setStatusBanner('已成功建立新的教師社群會議簽到場次！');
       }
     } catch (err: any) {
@@ -925,11 +989,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     setIsSavingSchedule(true);
     setDbError(null);
     try {
-      await updateMeetingSession(meeting.id, {
-        isOpen: true,
-        checkinStartAtMs: startMs,
-        checkinEndAtMs: endMs,
-      });
+      await updateMeetingSession(
+        meeting.id,
+        {
+          isOpen: true,
+          checkinStartAtMs: startMs,
+          checkinEndAtMs: endMs,
+        },
+        meeting.audience,
+      );
       setEditingScheduleMeetingId(null);
       setStatusBanner(
         startMs !== null || endMs !== null
@@ -947,7 +1015,11 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     if (!isTeacherAdmin) return;
     setDbError(null);
     try {
-      await updateMeetingSession(meeting.id, {isOpen: !meeting.isOpen});
+      await updateMeetingSession(
+        meeting.id,
+        {isOpen: !meeting.isOpen},
+        meeting.audience,
+      );
       setStatusBanner(
         !meeting.isOpen
           ? `已重新開放「${meeting.title}」簽到。`
@@ -963,7 +1035,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     setDeletingMeetingId(meeting.id);
     setDbError(null);
     try {
-      await deleteMeetingSession(meeting.id);
+      await deleteMeetingSession(meeting.id, meeting.audience);
       setConfirmDeleteMeetingId(null);
       setStatusBanner(
         `已刪除場次「${meeting.title}」並同步清除所有相關簽到與簽名紀錄。`,
@@ -980,7 +1052,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     try {
       await navigator.clipboard.writeText(directUrl);
       setCopiedLinkMeetingId(meetingId);
-      setStatusBanner('已複製「家長免登入簽到直達網址」，可直接貼到班級通知或 LINE 群組！');
+      setStatusBanner(
+        '已複製「家長免登入簽到直達網址」，可直接貼到班級通知或 LINE 群組！',
+      );
       window.setTimeout(() => {
         setCopiedLinkMeetingId((curr) => (curr === meetingId ? null : curr));
       }, 2500);
@@ -1128,7 +1202,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       hour12: false,
     });
 
-  const renderParentCheckinCard = (
+  const renderParentCheckinForm = (
     meeting: MeetingSession,
     allowInlineClose = true,
   ) => {
@@ -1153,7 +1227,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         key={meeting.id}
         className={`bg-white border rounded-2xl p-4 sm:p-5 space-y-4 transition-all ${
           initialMeetingId === meeting.id
-            ? 'border-[#1E3A8A] ring-2 ring-[#1E3A8A]/15 shadow-sm'
+            ? 'border-emerald-700 ring-2 ring-emerald-700/15 shadow-sm'
             : 'border-stone-200'
         }`}
       >
@@ -1195,7 +1269,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               )}
               {(meeting.checkinStartAtMs !== null ||
                 meeting.checkinEndAtMs !== null) && (
-                <span className="inline-flex items-center gap-1 text-[#1E3A8A] font-medium">
+                <span className="inline-flex items-center gap-1 text-emerald-900 font-medium">
                   <Clock className="w-3.5 h-3.5 shrink-0" />
                   <span>
                     開放時段：
@@ -1218,7 +1292,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               onClick={() =>
                 setExpandedParentMeetingId(isExpanded ? null : meeting.id)
               }
-              className="px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 shrink-0 self-start"
+              className="px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 shrink-0 self-start"
             >
               {isExpanded ? '收合簽到表' : '點此填寫簽到'}
             </button>
@@ -1291,7 +1365,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         {isExpanded &&
           (isCurrentlySignable ? (
             wantsForm && (
-              <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 sm:p-5 space-y-4">
+              <div className="bg-[#FBF9F5] border border-emerald-700/25 rounded-xl p-4 sm:p-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div className="space-y-1">
                     <label
@@ -1312,7 +1386,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         }))
                       }
                       placeholder="例如：403 班 12 號 王小明"
-                      className="w-full h-11 px-3.5 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full h-11 px-3.5 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700"
                     />
                   </div>
 
@@ -1335,7 +1409,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         }))
                       }
                       placeholder="例如：王爸爸、陳媽媽"
-                      className="w-full h-11 px-3.5 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full h-11 px-3.5 text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700"
                     />
                   </div>
                 </div>
@@ -1361,8 +1435,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           }
                           className={`px-2 py-0.5 text-[11px] rounded-md border transition-colors ${
                             relationVal === preset
-                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                              : 'bg-white text-stone-600 border-stone-300 hover:border-[#1E3A8A]/50'
+                              ? 'bg-emerald-700 text-white border-emerald-700'
+                              : 'bg-white text-stone-600 border-stone-300 hover:border-emerald-700/50'
                           }`}
                         >
                           {preset}
@@ -1382,7 +1456,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       }))
                     }
                     placeholder="選填，例如：媽媽、希望了解暑期學習資源"
-                    className="w-full h-10 px-3.5 text-xs sm:text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                    className="w-full h-10 px-3.5 text-xs sm:text-sm bg-white border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-700"
                   />
                 </div>
 
@@ -1433,7 +1507,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         !isSigReady
                       }
                       onClick={() => handleParentCheckinSubmit(meeting)}
-                      className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-45 rounded-xl inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+                      className="w-full sm:w-auto min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-45 rounded-xl inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
                     >
                       <ClipboardCheck className="w-4 h-4" />
                       <span>
@@ -1462,6 +1536,157 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     );
   };
 
+  const renderAdminScheduleAndDeleteControls = (meeting: MeetingSession) => {
+    const isEditingSchedule = editingScheduleMeetingId === meeting.id;
+    return (
+      <>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (isEditingSchedule) {
+                setEditingScheduleMeetingId(null);
+              } else {
+                setEditingScheduleMeetingId(meeting.id);
+                setEditStartLocal(
+                  toDateTimeLocalValue(meeting.checkinStartAtMs),
+                );
+                setEditEndLocal(toDateTimeLocalValue(meeting.checkinEndAtMs));
+              }
+            }}
+            className={`px-3 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center gap-1.5 ${
+              isEditingSchedule
+                ? 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/40 font-semibold'
+                : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-[#1E3A8A]" />
+            <span>設定開放簽名時間</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleToggleMeetingOpen(meeting)}
+            className="px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
+          >
+            {meeting.isOpen ? '關閉簽到' : '重新開放簽到'}
+          </button>
+
+          {confirmDeleteMeetingId === meeting.id ? (
+            <div className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={deletingMeetingId === meeting.id}
+                onClick={() => handleDeleteMeeting(meeting)}
+                className="px-2.5 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg"
+              >
+                確認刪除（含簽名紀錄）
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteMeetingId(null)}
+                className="px-2.5 py-1.5 text-xs text-stone-600 bg-stone-100 rounded-lg"
+              >
+                取消
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteMeetingId(meeting.id)}
+              className="p-1.5 text-stone-500 hover:text-red-700 rounded-lg hover:bg-red-50 transition-colors"
+              aria-label={`刪除 ${meeting.title}`}
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </>
+    );
+  };
+
+  const renderAdminScheduleEditor = (meeting: MeetingSession) => {
+    if (editingScheduleMeetingId !== meeting.id) return null;
+    return (
+      <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            <span>調整「{meeting.title}」開放簽名時段</span>
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            <button
+              type="button"
+              onClick={() => {
+                const start = Date.now();
+                setEditStartLocal(toDateTimeLocalValue(start));
+                setEditEndLocal(
+                  toDateTimeLocalValue(start + 2 * 60 * 60 * 1000),
+                );
+              }}
+              className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
+            >
+              立即起開放 2 小時
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditStartLocal('');
+                setEditEndLocal('');
+              }}
+              className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-stone-400 text-stone-600"
+            >
+              清除時限（改為不限時）
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-stone-700">
+              開放簽名開始時間（留白＝立即開放）
+            </label>
+            <input
+              type="datetime-local"
+              value={editStartLocal}
+              onChange={(e) => setEditStartLocal(e.target.value)}
+              className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-[11px] font-medium text-stone-700">
+              簽名截止時間（留白＝手動關閉前皆可簽）
+            </label>
+            <input
+              type="datetime-local"
+              value={editEndLocal}
+              onChange={(e) => setEditEndLocal(e.target.value)}
+              className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setEditingScheduleMeetingId(null)}
+            className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={isSavingSchedule}
+            onClick={() => handleSaveMeetingSchedule(meeting)}
+            className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-60"
+          >
+            {isSavingSchedule ? '儲存中...' : '儲存簽名時間設定'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/60 backdrop-blur-xs flex justify-center p-2.5 sm:p-6"
@@ -1474,21 +1699,39 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         className="w-full max-w-4xl min-w-0 my-auto bg-[#FBF9F5] border border-stone-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Header */}
+        {/* Top Header strictly scoped to current viewTrack */}
         <header className="px-4 sm:px-6 py-4 bg-white border-b border-stone-200 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#1E3A8A]/10 text-[#1E3A8A] flex items-center justify-center shrink-0">
-              <CalendarCheck className="w-5 h-5" />
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                viewTrack === 'parent'
+                  ? 'bg-emerald-50 text-emerald-800'
+                  : 'bg-[#1E3A8A]/10 text-[#1E3A8A]'
+              }`}
+            >
+              {viewTrack === 'parent' ? (
+                <UserCheck className="w-5 h-5" />
+              ) : (
+                <CalendarCheck className="w-5 h-5" />
+              )}
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-mono-tabular uppercase tracking-wider text-[#1E3A8A] font-semibold">
-                HMES Community &amp; School Day Check-In
+              <p
+                className={`text-[11px] font-mono-tabular uppercase tracking-wider font-semibold ${
+                  viewTrack === 'parent' ? 'text-emerald-800' : 'text-[#1E3A8A]'
+                }`}
+              >
+                {viewTrack === 'parent'
+                  ? 'HMES SCHOOL DAY PARENT CHECK-IN'
+                  : 'HMES MATH COMMUNITY CHECK-IN'}
               </p>
               <h2
                 id="meeting-checkin-modal-title"
                 className="font-editorial text-lg sm:text-xl font-bold text-stone-950 truncate"
               >
-                學校日家長簽到與教師會議系統
+                {viewTrack === 'parent'
+                  ? '學校日／親師活動家長簽到系統'
+                  : '教師社群會議簽到與親筆簽名系統'}
               </h2>
             </div>
           </div>
@@ -1505,238 +1748,955 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-5">
-          {!isSchoolAuthorized ? (
-            <div className="space-y-5">
-              {/* Guest Dual-Mode Switcher: Login-Free School Day Parents vs Teacher Sign-In */}
-              <div
-                role="tablist"
-                aria-label="選擇簽到身分別"
-                className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={guestTab === 'parent'}
-                  onClick={() => setGuestTab('parent')}
-                  className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
-                    guestTab === 'parent'
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-sm'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2 min-w-0">
-                    <UserCheck className="w-4 h-4 shrink-0" />
-                    <span className="text-xs sm:text-sm font-bold truncate">
-                      學校日 / 家長簽到（免登入）
-                    </span>
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded-md shrink-0 ${
-                      guestTab === 'parent'
-                        ? 'bg-white/20 text-white'
-                        : openParentMeetingsCount > 0
-                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                          : 'bg-stone-100 text-stone-600'
-                    }`}
-                  >
-                    {openParentMeetingsCount > 0
-                      ? `${openParentMeetingsCount} 場開放`
-                      : `${parentMeetings.length} 場`}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={guestTab === 'teacher-login'}
-                  onClick={() => setGuestTab('teacher-login')}
-                  className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
-                    guestTab === 'teacher-login'
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-sm'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2 min-w-0">
-                    <Lock className="w-4 h-4 shrink-0" />
-                    <span className="text-xs sm:text-sm font-bold truncate">
-                      教師社群會議簽到（需登入）
-                    </span>
-                  </span>
-                  <span
-                    className={`px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded-md shrink-0 ${
-                      guestTab === 'teacher-login'
-                        ? 'bg-white/20 text-white'
-                        : 'bg-amber-50 text-amber-800 border border-amber-200'
-                    }`}
-                  >
-                    @{SCHOOL_DOMAIN}
-                  </span>
-                </button>
+          {/* Feedback Banners */}
+          {dbError && (
+            <div
+              role="alert"
+              className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs sm:text-sm flex items-start justify-between gap-3"
+            >
+              <div className="flex items-start gap-2 min-w-0">
+                <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+                <span className="break-words">{dbError}</span>
               </div>
+              <button
+                type="button"
+                onClick={() => setDbError(null)}
+                className="text-xs font-medium text-red-700 hover:underline shrink-0"
+              >
+                關閉
+              </button>
+            </div>
+          )}
 
-              {/* Feedback Banners for Parent Flow */}
-              {dbError && (
-                <div
-                  role="alert"
-                  className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs sm:text-sm flex items-start justify-between gap-3"
-                >
-                  <div className="flex items-start gap-2 min-w-0">
-                    <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-                    <span className="break-words">{dbError}</span>
+          {statusBanner && (
+            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs sm:text-sm flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>{statusBanner}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStatusBanner(null)}
+                className="text-xs font-medium text-emerald-800 hover:underline shrink-0"
+              >
+                關閉
+              </button>
+            </div>
+          )}
+
+          {/* ==================== TRACK 1: SCHOOL DAY PARENT CHECK-IN ==================== */}
+          {viewTrack === 'parent' ? (
+            !isTeacherAdmin ? (
+              /* Pure Login-Free Parent View (even if a non-admin teacher opens Parent Check-in, they see ONLY the parent check-in experience) */
+              <div className="space-y-4">
+                <div className="bg-white border border-emerald-200/80 rounded-xl p-4 text-xs sm:text-sm text-stone-700 leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <strong className="text-emerald-900">
+                      家長免登入快速簽到：
+                    </strong>
+                    無需註冊或登入帳號，填寫學生班級座號／姓名與家長稱謂並親筆簽名即可完成。
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setDbError(null)}
-                    className="text-xs font-medium text-red-700 hover:underline shrink-0"
-                  >
-                    關閉
-                  </button>
+                  <span className="px-2.5 py-1 rounded-md text-xs font-mono-tabular font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shrink-0 self-start sm:self-center">
+                    {openParentMeetingsCount > 0
+                      ? `${openParentMeetingsCount} 場開放中`
+                      : `${parentMeetings.length} 場活動`}
+                  </span>
                 </div>
-              )}
 
-              {statusBanner && (
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs sm:text-sm flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>{statusBanner}</span>
+                {isLoadingMeetings ? (
+                  <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center text-sm text-stone-500">
+                    正在載入學校日與家長活動場次...
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setStatusBanner(null)}
-                    className="text-xs font-medium text-emerald-800 hover:underline shrink-0"
-                  >
-                    關閉
-                  </button>
-                </div>
-              )}
-
-              {guestTab === 'parent' ? (
-                <div className="space-y-4">
-                  <div className="bg-white border border-stone-200 rounded-xl p-4 text-xs sm:text-sm text-stone-700 leading-relaxed flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <strong className="text-[#1E3A8A]">
-                        家長免登入快速簽到：
-                      </strong>
-                      無需註冊或登入帳號，填寫學生班級座號／姓名與家長稱謂並親筆簽名即可完成。
+                ) : orderedParentMeetings.length === 0 ? (
+                  <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center space-y-3">
+                    <UserCheck className="w-8 h-8 text-stone-400 mx-auto" />
+                    <h3 className="font-editorial text-lg font-semibold text-stone-900">
+                      目前尚未開放學校日／家長簽到場次
+                    </h3>
+                    <p className="text-xs sm:text-sm text-stone-600 max-w-md mx-auto">
+                      目前無進行中的學校日活動，請稍後再試或向班級導師確認簽到 QR Code。
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {orderedParentMeetings.map((meeting) =>
+                      renderParentCheckinForm(meeting, true),
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Admin-only Parent Session Management View (isolated completely from Teacher Meetings) */
+              <div className="space-y-5">
+                <section className="bg-white border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-semibold text-emerald-900">
+                        管理教師模式 · 學校日家長場次專區（與教師社群資料完全隔離）
+                      </span>
+                    </div>
+                    <div className="text-sm font-medium text-stone-900 truncate">
+                      {user?.displayName || '管理教師'}{' '}
+                      <span className="font-mono-tabular text-xs text-stone-500">
+                        ({user?.email})
+                      </span>
                     </div>
                   </div>
 
-                  {isLoadingMeetings ? (
-                    <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center text-sm text-stone-500">
-                      正在載入學校日與家長活動場次...
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => switchAdminTrack('teacher')}
+                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#1E3A8A]/8 border border-[#1E3A8A]/25 hover:bg-[#1E3A8A] hover:text-white rounded-lg inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <CalendarCheck className="w-3.5 h-3.5" />
+                      <span>切換至：教師會議管理</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onSignOut}
+                      className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>登出</span>
+                    </button>
+                  </div>
+                </section>
+
+                <div className="space-y-3">
+                  <div
+                    role="tablist"
+                    aria-label="家長簽到管理頁籤"
+                    className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === 'sessions'}
+                      onClick={() => setActiveTab('sessions')}
+                      className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
+                        activeTab === 'sessions'
+                          ? 'bg-emerald-800 text-white border-emerald-800 shadow-sm'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-emerald-700/45 hover:text-emerald-900'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2 min-w-0">
+                        <UserCheck className="w-4 h-4 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          學校日家長場次與名冊
+                        </span>
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded-md shrink-0 ${
+                          activeTab === 'sessions'
+                            ? 'bg-white/20 text-white'
+                            : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                        }`}
+                      >
+                        {openParentMeetingsCount > 0
+                          ? `${openParentMeetingsCount} 場開放`
+                          : `${parentMeetings.length} 場`}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeTab === 'admin'}
+                      onClick={() => setActiveTab('admin')}
+                      className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
+                        activeTab === 'admin'
+                          ? 'bg-emerald-800 text-white border-emerald-800 shadow-sm'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-emerald-700/45 hover:text-emerald-900'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-2 min-w-0">
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          建立新學校日家長場次
+                        </span>
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 text-[11px] font-semibold rounded-md shrink-0 ${
+                          activeTab === 'admin'
+                            ? 'bg-white/20 text-white'
+                            : 'bg-emerald-50 text-emerald-800'
+                        }`}
+                      >
+                        免登入 QR
+                      </span>
+                    </button>
+                  </div>
+
+                  {activeTab === 'sessions' && parentMeetings.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-stone-600">
+                        此區僅管理「學校日／家長免登入」場次與家長簽到名冊（教師無法看見此區內容）。
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {(
+                          [
+                            {
+                              id: 'all',
+                              label: `全部 (${parentMeetings.length})`,
+                            },
+                            {
+                              id: 'open',
+                              label: `開放中 (${openParentMeetingsCount})`,
+                            },
+                          ] as const
+                        ).map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => setSessionFilter(f.id)}
+                            className={`px-2.5 py-1 rounded-md border transition-colors ${
+                              sessionFilter === f.id
+                                ? 'bg-emerald-800 text-white border-emerald-800'
+                                : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {activeTab === 'sessions' &&
+                  (isLoadingMeetings ? (
+                    <div className="bg-white border border-stone-200 rounded-xl p-8 text-center text-sm text-stone-500">
+                      正在載入學校日家長場次...
                     </div>
                   ) : orderedParentMeetings.length === 0 ? (
-                    <div className="bg-white border border-stone-200 rounded-2xl p-8 text-center space-y-3">
+                    <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
                       <UserCheck className="w-8 h-8 text-stone-400 mx-auto" />
                       <h3 className="font-editorial text-lg font-semibold text-stone-900">
-                        目前尚未開放學校日／家長簽到場次
+                        尚未建立學校日家長簽到場次
                       </h3>
                       <p className="text-xs sm:text-sm text-stone-600 max-w-md mx-auto">
-                        請確認管理教師已發布「學校日 / 家長活動」場次，或點擊上方「教師社群會議簽到」登入學校帳號管理場次。
+                        點擊上方「建立新學校日家長場次」即可快速發布免登入家長簽到與現場掃碼 QR Code。
                       </p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('admin')}
+                        className="px-4 py-2 text-xs font-semibold text-white bg-emerald-800 rounded-lg hover:bg-emerald-900 inline-flex items-center gap-1.5"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>立即建立學校日場次</span>
+                      </button>
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {orderedParentMeetings.map((meeting) =>
-                        renderParentCheckinCard(meeting, true),
-                      )}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="max-w-2xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 space-y-5">
-                  <div className="space-y-2">
-                    <div className="text-xs font-mono-tabular font-semibold text-[#1E3A8A]">
-                      教師社群專屬 · 需登入 @{SCHOOL_DOMAIN}
-                    </div>
-                    <h3 className="font-editorial text-xl font-bold text-stone-950">
-                      登入校內教師帳號以檢視會議議程、建立場次或匯出 PDF
-                    </h3>
-                    <p className="text-sm text-stone-600 leading-relaxed">
-                      校內共備會議場次與教師會議室連結僅開放西門國小{' '}
-                      <span className="font-mono-tabular font-semibold text-[#1E3A8A]">
-                        @{SCHOOL_DOMAIN}
-                      </span>{' '}
-                      帳號與授權管理教師存取；管理教師登入後亦可建立「學校日家長簽到」與產出掃碼 QR Code。
-                    </p>
-                  </div>
+                      {orderedParentMeetings.map((meeting) => {
+                        const windowState = getMeetingCheckinWindowState(
+                          meeting,
+                          nowMs,
+                        );
+                        const adminParentRoster =
+                          parentCheckinsByMeetingIdForAdmin.get(meeting.id) || [];
+                        const isRosterExpanded =
+                          expandedRosterMeetingId === meeting.id;
+                        const isQrExpanded = expandedQrMeetingId === meeting.id;
+                        const isParentFormPreviewOpen =
+                          expandedParentMeetingId === meeting.id;
 
-                  {user && (
-                    <div
-                      role="alert"
-                      className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                    >
-                      <div className="flex items-start gap-2 min-w-0">
-                        <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                        <div className="min-w-0 break-all">
-                          目前登入的是{' '}
-                          <span className="font-mono-tabular font-semibold">
-                            {user.email}
-                          </span>
-                          ，非 @{SCHOOL_DOMAIN} 帳號或授權管理員。
-                        </div>
+                        return (
+                          <article
+                            key={meeting.id}
+                            className="bg-white border border-stone-200 rounded-xl p-4 sm:p-5 space-y-4"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                              <div className="space-y-1.5 min-w-0">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                  <span className="px-2 py-0.5 rounded-md font-semibold border bg-emerald-50 text-emerald-800 border-emerald-200">
+                                    學校日・家長免登入
+                                  </span>
+                                  <span
+                                    className={`font-semibold ${
+                                      windowState.status === 'open'
+                                        ? 'text-emerald-800'
+                                        : windowState.status === 'not-started'
+                                          ? 'text-amber-800'
+                                          : 'text-stone-500'
+                                    }`}
+                                  >
+                                    {windowState.badgeLabel}
+                                  </span>
+                                  <span
+                                    aria-hidden="true"
+                                    className="text-stone-300"
+                                  >
+                                    ·
+                                  </span>
+                                  <span className="font-mono-tabular font-medium text-emerald-900">
+                                    {meeting.academicYear}
+                                  </span>
+                                  <span
+                                    aria-hidden="true"
+                                    className="text-stone-300"
+                                  >
+                                    ·
+                                  </span>
+                                  <span className="font-mono-tabular text-stone-600">
+                                    {meeting.meetingDate}
+                                  </span>
+                                </div>
+
+                                <h3 className="font-editorial text-lg font-bold text-stone-950 break-words">
+                                  {meeting.title}
+                                </h3>
+
+                                {(meeting.checkinStartAtMs !== null ||
+                                  meeting.checkinEndAtMs !== null) && (
+                                  <div className="inline-flex flex-wrap items-center gap-1.5 text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-md px-2.5 py-1">
+                                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                                    <span>
+                                      開放簽名時段：
+                                      {meeting.checkinStartAtMs !== null
+                                        ? formatDateTime(
+                                            meeting.checkinStartAtMs,
+                                          )
+                                        : '立即開放'}
+                                      {' ～ '}
+                                      {meeting.checkinEndAtMs !== null
+                                        ? formatDateTime(meeting.checkinEndAtMs)
+                                        : '不限截止'}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {meeting.location && (
+                                  <div className="flex items-center gap-1.5 text-xs text-stone-600">
+                                    <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+                                    <span>{meeting.location}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {meeting.meetUrl && (
+                                <a
+                                  href={meeting.meetUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 text-xs font-medium text-stone-800 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 shrink-0 self-start"
+                                >
+                                  <Video className="w-3.5 h-3.5 text-emerald-800" />
+                                  <span>活動簡報 / 連結</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+
+                            {meeting.agendaSummary && (
+                              <p className="text-xs sm:text-sm text-stone-700 leading-relaxed whitespace-pre-line bg-[#FBF9F5] border border-stone-200/80 rounded-lg p-3.5">
+                                {meeting.agendaSummary}
+                              </p>
+                            )}
+
+                            {/* Field-assist preview toggle */}
+                            <div className="pt-3 border-t border-stone-100 space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <span className="text-xs text-stone-600">
+                                  教室現場平板可展開表單協助未帶手機之家長完成簽到。
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedParentMeetingId(
+                                      isParentFormPreviewOpen
+                                        ? null
+                                        : meeting.id,
+                                    )
+                                  }
+                                  className="px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 inline-flex items-center gap-1.5 self-start sm:self-center shrink-0"
+                                >
+                                  <PenTool className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isParentFormPreviewOpen
+                                      ? '收合現場代填表單'
+                                      : '展開現場代填表單'}
+                                  </span>
+                                </button>
+                              </div>
+
+                              {isParentFormPreviewOpen &&
+                                renderParentCheckinForm(meeting, false)}
+                            </div>
+
+                            {/* Admin Controls for Parent Session */}
+                            <div className="pt-3 border-t border-stone-200/80 space-y-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedRosterMeetingId(
+                                        isRosterExpanded ? null : meeting.id,
+                                      )
+                                    }
+                                    className="px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5"
+                                  >
+                                    <Users className="w-3.5 h-3.5 text-emerald-800" />
+                                    <span>
+                                      {isRosterExpanded
+                                        ? '收合家長名冊'
+                                        : '檢視家長名冊'}{' '}
+                                      ({adminParentRoster.length} 人)
+                                    </span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={adminParentRoster.length === 0}
+                                    onClick={() =>
+                                      handleOpenPrintablePreview(
+                                        meeting,
+                                        [],
+                                        adminParentRoster,
+                                      )
+                                    }
+                                    className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-800 rounded-lg hover:bg-emerald-900 disabled:opacity-40 inline-flex items-center gap-1.5"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                    <span>預覽與印出簽名 PDF</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={adminParentRoster.length === 0}
+                                    onClick={() =>
+                                      handleExportCsv(
+                                        meeting,
+                                        [],
+                                        adminParentRoster,
+                                      )
+                                    }
+                                    className="px-3 py-1.5 text-xs font-medium text-emerald-900 bg-white border border-emerald-700/30 rounded-lg hover:bg-emerald-50 disabled:opacity-40 inline-flex items-center gap-1.5"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                    <span>匯出 CSV</span>
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setExpandedQrMeetingId(
+                                        isQrExpanded ? null : meeting.id,
+                                      )
+                                    }
+                                    className={`px-3 py-1.5 text-xs font-semibold border rounded-lg inline-flex items-center gap-1.5 ${
+                                      isQrExpanded
+                                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                        : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/25 hover:bg-[#1E3A8A]/15'
+                                    }`}
+                                  >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                    <span>家長掃碼 QR / 網址</span>
+                                  </button>
+                                </div>
+
+                                {renderAdminScheduleAndDeleteControls(meeting)}
+                              </div>
+
+                              {isQrExpanded && (
+                                <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
+                                  <div className="w-36 h-36 bg-white border border-emerald-200 rounded-xl p-2 flex items-center justify-center shrink-0">
+                                    {qrDataUrlByMeeting[meeting.id] ? (
+                                      <img
+                                        src={qrDataUrlByMeeting[meeting.id]}
+                                        alt={`${meeting.title} 家長免登入簽到 QR Code`}
+                                        className="w-full h-full object-contain"
+                                      />
+                                    ) : (
+                                      <span className="text-[11px] text-stone-400">
+                                        產生 QR Code 中...
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0 space-y-2.5 text-xs">
+                                    <div className="font-bold text-emerald-950 text-sm">
+                                      學校日現場掃碼 · 家長免登入專屬連結
+                                    </div>
+                                    <p className="text-stone-700 leading-relaxed">
+                                      家長用手機掃描此 QR Code 或點擊連結，將直接開啟本場次簽到表單，填寫學生班級姓名與親筆簽名即可完成。
+                                    </p>
+                                    <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
+                                      {buildParentDirectUrl(meeting.id)}
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleCopyParentLink(meeting.id)
+                                        }
+                                        className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-800 rounded-lg hover:bg-emerald-900 inline-flex items-center gap-1.5"
+                                      >
+                                        {copiedLinkMeetingId === meeting.id ? (
+                                          <Check className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                        <span>
+                                          {copiedLinkMeetingId === meeting.id
+                                            ? '已複製直達連結'
+                                            : '複製家長簽到網址'}
+                                        </span>
+                                      </button>
+                                      {qrDataUrlByMeeting[meeting.id] && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleDownloadQrPng(meeting)
+                                          }
+                                          className="px-3 py-1.5 text-xs font-medium text-emerald-950 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100/70 inline-flex items-center gap-1.5"
+                                        >
+                                          <Download className="w-3.5 h-3.5" />
+                                          <span>下載 QR Code 圖檔</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {renderAdminScheduleEditor(meeting)}
+
+                              {isRosterExpanded && (
+                                <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl overflow-hidden">
+                                  {adminParentRoster.length === 0 ? (
+                                    <div className="p-4 text-xs text-stone-500 text-center">
+                                      目前尚無家長簽到此場次。
+                                    </div>
+                                  ) : (
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-left border-collapse text-xs">
+                                        <thead>
+                                          <tr className="border-b border-stone-200 text-stone-600 bg-white/60">
+                                            <th className="py-2.5 px-3 font-semibold">#</th>
+                                            <th className="py-2.5 px-3 font-semibold">
+                                              學生班級 / 姓名
+                                            </th>
+                                            <th className="py-2.5 px-3 font-semibold">
+                                              家長姓名
+                                            </th>
+                                            <th className="py-2.5 px-3 font-semibold">
+                                              關係 / 備註
+                                            </th>
+                                            <th className="py-2.5 px-3 font-semibold">
+                                              親自手寫簽名
+                                            </th>
+                                            <th className="py-2.5 px-3 font-semibold">
+                                              簽到時間
+                                            </th>
+                                            <th className="py-2.5 px-3 font-semibold text-right">
+                                              管理
+                                            </th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-stone-200/70">
+                                          {adminParentRoster.map((rec, idx) => (
+                                            <tr key={rec.id} className="bg-white/50">
+                                              <td className="py-2 px-3 font-mono-tabular text-stone-500">
+                                                {idx + 1}
+                                              </td>
+                                              <td className="py-2 px-3 font-semibold text-stone-900">
+                                                {rec.studentClassAndSeat}
+                                              </td>
+                                              <td className="py-2 px-3 font-medium text-stone-900">
+                                                {rec.parentName}
+                                              </td>
+                                              <td className="py-2 px-3 text-stone-700">
+                                                {rec.relationshipOrNote || '—'}
+                                              </td>
+                                              <td className="py-2 px-3">
+                                                {isValidSignatureDataUrl(
+                                                  rec.signatureDataUrl,
+                                                ) ? (
+                                                  <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
+                                                    <img
+                                                      src={rec.signatureDataUrl}
+                                                      alt={`${rec.parentName}親筆簽名`}
+                                                      className="h-9 w-24 object-contain"
+                                                    />
+                                                  </div>
+                                                ) : (
+                                                  <span className="text-[11px] text-stone-400">
+                                                    未附簽名
+                                                  </span>
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
+                                                {formatDateTime(rec.checkedInAtMs)}
+                                              </td>
+                                              <td className="py-2 px-3 text-right whitespace-nowrap">
+                                                {confirmDeleteParentCheckinId ===
+                                                rec.id ? (
+                                                  <span className="inline-flex items-center gap-1.5">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        handleDeleteParentCheckin(
+                                                          rec,
+                                                        )
+                                                      }
+                                                      className="text-red-700 font-semibold hover:underline"
+                                                    >
+                                                      確認移除
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setConfirmDeleteParentCheckinId(
+                                                          null,
+                                                        )
+                                                      }
+                                                      className="text-stone-500 hover:underline"
+                                                    >
+                                                      取消
+                                                    </button>
+                                                  </span>
+                                                ) : (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setConfirmDeleteParentCheckinId(
+                                                        rec.id,
+                                                      )
+                                                    }
+                                                    className="text-stone-400 hover:text-red-700"
+                                                    aria-label={`移除 ${rec.parentName} 簽到紀錄`}
+                                                  >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                  </button>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  ))}
+
+                {activeTab === 'admin' && (
+                  <form
+                    onSubmit={handleCreateSession}
+                    className="bg-white border border-stone-200 rounded-xl p-5 sm:p-6 space-y-4"
+                  >
+                    <div className="border-b border-stone-100 pb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="font-editorial text-base font-bold text-stone-950">
+                          建立學校日／家長免登入簽到場次
+                        </h3>
+                        <p className="text-xs text-stone-500 mt-0.5">
+                          發布後將自動產生 QR Code 與免登入直達連結（教師會議頁面不會顯示此場次）。
+                        </p>
                       </div>
                       <button
                         type="button"
-                        onClick={onSignOut}
-                        className="px-3 py-1.5 text-xs font-semibold text-amber-950 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 whitespace-nowrap shrink-0 self-start sm:self-center"
+                        onClick={() => {
+                          setNewTitle('114 學年度第 1 學期學校日家長簽到');
+                          setNewLocation('西門國小各班教室 / 視聽教室');
+                          setNewAgenda(
+                            '歡迎各位家長蒞臨西門國小學校日！請填寫學生班級座號／姓名與家長稱謂並親筆簽名，無需登入帳號。',
+                          );
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100"
                       >
-                        登出切換帳號
+                        帶入學校日預設範本
                       </button>
                     </div>
-                  )}
 
-                  {authError && (
-                    <div
-                      role="alert"
-                      className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs flex items-start justify-between gap-3"
-                    >
-                      <span className="leading-relaxed">{authError}</span>
-                      <button
-                        type="button"
-                        onClick={onClearAuthError}
-                        className="text-red-700 hover:underline shrink-0"
-                      >
-                        關閉
-                      </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="block text-xs font-medium text-stone-700">
+                          活動 / 學校日名稱 *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          maxLength={160}
+                          value={newTitle}
+                          onChange={(e) => setNewTitle(e.target.value)}
+                          placeholder="例如：114 學年度第 1 學期學校日家長簽到（403 班）"
+                          className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-stone-700">
+                          日期與時間 *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          maxLength={40}
+                          value={newDate}
+                          onChange={(e) => setNewDate(e.target.value)}
+                          placeholder="2025-09-10 09:00"
+                          className="w-full px-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-stone-700">
+                          所屬學年度
+                        </label>
+                        <input
+                          type="text"
+                          list="parent-year-options"
+                          maxLength={40}
+                          value={newYear}
+                          onChange={(e) => setNewYear(e.target.value)}
+                          className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                        <datalist id="parent-year-options">
+                          {ACADEMIC_YEAR_OPTIONS.map((yr) => (
+                            <option key={yr} value={yr} />
+                          ))}
+                        </datalist>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-stone-700">
+                          地點 / 教室名稱
+                        </label>
+                        <input
+                          type="text"
+                          maxLength={160}
+                          value={newLocation}
+                          onChange={(e) => setNewLocation(e.target.value)}
+                          placeholder="例如：西門國小各班教室 / 視聽教室"
+                          className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-stone-700">
+                          活動簡報 / 線上說明連結（選填，限 https://）
+                        </label>
+                        <input
+                          type="url"
+                          maxLength={500}
+                          value={newMeetUrl}
+                          onChange={(e) => setNewMeetUrl(e.target.value)}
+                          placeholder="https://..."
+                          className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="block text-xs font-medium text-stone-700">
+                          學校日給家長的歡迎提醒（公開於家長簽到頁）
+                        </label>
+                        <textarea
+                          rows={3}
+                          maxLength={1000}
+                          value={newAgenda}
+                          onChange={(e) => setNewAgenda(e.target.value)}
+                          placeholder="例如：歡迎家長蒞臨！請填入學生班級座號姓名與家長稱謂後親筆簽名..."
+                          className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-2 bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>開放手寫簽名時段設定（選填，留白代表不限時段）</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const start = Date.now();
+                                setNewCheckinStartLocal(
+                                  toDateTimeLocalValue(start),
+                                );
+                                setNewCheckinEndLocal(
+                                  toDateTimeLocalValue(
+                                    start + 4 * 60 * 60 * 1000,
+                                  ),
+                                );
+                              }}
+                              className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-emerald-700 hover:text-emerald-900"
+                            >
+                              學校日開放 4 小時
+                            </button>
+                            {(newCheckinStartLocal || newCheckinEndLocal) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNewCheckinStartLocal('');
+                                  setNewCheckinEndLocal('');
+                                }}
+                                className="px-2 py-1 bg-white border border-stone-300 rounded-md text-stone-600 hover:border-stone-400"
+                              >
+                                清除時限
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-stone-700">
+                              開放簽名開始時間
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={newCheckinStartLocal}
+                              onChange={(e) =>
+                                setNewCheckinStartLocal(e.target.value)
+                              }
+                              className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-stone-700">
+                              簽名截止時間
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={newCheckinEndLocal}
+                              onChange={(e) =>
+                                setNewCheckinEndLocal(e.target.value)
+                              }
+                              className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-1">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newIsOpen}
+                            onChange={(e) => setNewIsOpen(e.target.checked)}
+                            className="rounded border-stone-300 text-emerald-700"
+                          />
+                          <span>啟用此場次家長簽到功能</span>
+                        </label>
+
+                        <button
+                          type="submit"
+                          disabled={isCreatingSession || !newTitle.trim()}
+                          className="w-full sm:w-auto px-5 py-2.5 text-xs sm:text-sm font-semibold text-white bg-emerald-800 hover:bg-emerald-900 disabled:opacity-60 rounded-xl transition-colors"
+                        >
+                          {isCreatingSession
+                            ? '建立場次中...'
+                            : '發布學校日家長簽到（並產生 QR Code）'}
+                        </button>
+                      </div>
                     </div>
-                  )}
+                  </form>
+                )}
+              </div>
+            )
+          ) : /* ==================== TRACK 2: TEACHER COMMUNITY MEETINGS ==================== */
+          !isSchoolAuthorized ? (
+            /* Unauthenticated Teacher Gate (Zero parent sessions or info shown) */
+            <div className="max-w-2xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 space-y-5">
+              <div className="space-y-2">
+                <div className="text-xs font-mono-tabular font-semibold text-[#1E3A8A]">
+                  教師社群專屬 · 需登入 @{SCHOOL_DOMAIN}
+                </div>
+                <h3 className="font-editorial text-xl font-bold text-stone-950">
+                  登入校內教師帳號以參與領域會議簽到
+                </h3>
+                <p className="text-sm text-stone-600 leading-relaxed">
+                  領域共備會議與教師手寫簽名僅開放西門國小{' '}
+                  <span className="font-mono-tabular font-semibold text-[#1E3A8A]">
+                    @{SCHOOL_DOMAIN}
+                  </span>{' '}
+                  帳號與授權管理教師存取，確保校內會議內容與簽到紀錄不外流。
+                </p>
+              </div>
 
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={onSchoolSignIn}
-                      disabled={isSigningIn}
-                      className="flex-1 min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
-                    >
-                      <ShieldCheck className="w-4 h-4 shrink-0" />
-                      <span>
-                        {isSigningIn
-                          ? 'Google 驗證中...'
-                          : `使用 @${SCHOOL_DOMAIN} 帳號登入`}
+              {user && (
+                <div
+                  role="alert"
+                  className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                >
+                  <div className="flex items-start gap-2 min-w-0">
+                    <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <div className="min-w-0 break-all">
+                      目前登入的是{' '}
+                      <span className="font-mono-tabular font-semibold">
+                        {user.email}
                       </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onAdminSignIn}
-                      disabled={isSigningIn}
-                      className="min-h-[44px] px-4 py-2.5 text-xs sm:text-sm font-semibold text-stone-800 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
-                    >
-                      <span>管理教師登入</span>
-                    </button>
+                      ，非 @{SCHOOL_DOMAIN} 帳號或授權管理員。
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={onSignOut}
+                    className="px-3 py-1.5 text-xs font-semibold text-amber-950 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 whitespace-nowrap shrink-0 self-start sm:self-center"
+                  >
+                    登出切換帳號
+                  </button>
                 </div>
               )}
+
+              {authError && (
+                <div
+                  role="alert"
+                  className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs flex items-start justify-between gap-3"
+                >
+                  <span className="leading-relaxed">{authError}</span>
+                  <button
+                    type="button"
+                    onClick={onClearAuthError}
+                    className="text-red-700 hover:underline shrink-0"
+                  >
+                    關閉
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onSchoolSignIn}
+                  disabled={isSigningIn}
+                  className="flex-1 min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
+                >
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>
+                    {isSigningIn
+                      ? 'Google 驗證中...'
+                      : `使用 @${SCHOOL_DOMAIN} 帳號登入`}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={onAdminSignIn}
+                  disabled={isSigningIn}
+                  className="min-h-[44px] px-4 py-2.5 text-xs sm:text-sm font-semibold text-stone-800 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
+                >
+                  <span>管理教師登入</span>
+                </button>
+              </div>
             </div>
           ) : (
+            /* Authenticated Teacher Community View (strictly teacher sessions only; NO parent data) */
             <>
-              {/* Identity Bar */}
               <section className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="space-y-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="font-semibold text-[#1E3A8A]">
                       {isTeacherAdmin
-                        ? '已啟用：管理教師模式（可建立教師會議與學校日家長簽到、匯出 PDF）'
+                        ? '管理教師模式 · 教師社群會議專區'
                         : `已驗證：@${SCHOOL_DOMAIN} 社群教師`}
                     </span>
                     <span aria-hidden="true" className="text-stone-300">
@@ -1754,57 +2714,33 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={onSignOut}
-                  className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 self-start sm:self-center"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>切換帳號 / 登出</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {isTeacherAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => switchAdminTrack('parent')}
+                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>切換至：學校日家長場次管理</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={onSignOut}
+                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>切換帳號 / 登出</span>
+                  </button>
+                </div>
               </section>
 
-              {/* Feedback Banners */}
-              {dbError && (
-                <div
-                  role="alert"
-                  className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs sm:text-sm flex items-start justify-between gap-3"
-                >
-                  <div className="flex items-start gap-2 min-w-0">
-                    <AlertCircle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-                    <span className="break-words">{dbError}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setDbError(null)}
-                    className="text-xs font-medium text-red-700 hover:underline shrink-0"
-                  >
-                    關閉
-                  </button>
-                </div>
-              )}
-
-              {statusBanner && (
-                <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs sm:text-sm flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                    <span>{statusBanner}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setStatusBanner(null)}
-                    className="text-xs font-medium text-emerald-800 hover:underline shrink-0"
-                  >
-                    關閉
-                  </button>
-                </div>
-              )}
-
-              {/* Navigation Tabs inside Check-in Hub */}
+              {/* Teacher Check-in Navigation Tabs */}
               <div className="space-y-3">
                 <div
                   role="tablist"
-                  aria-label="簽到功能頁籤"
+                  aria-label="教師會議簽到功能頁籤"
                   className={`grid gap-2 ${
                     isTeacherAdmin
                       ? 'grid-cols-1 sm:grid-cols-3'
@@ -1825,20 +2761,20 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                     <span className="inline-flex items-center gap-2 min-w-0">
                       <PenTool className="w-4 h-4 shrink-0" />
                       <span className="text-xs sm:text-sm font-bold truncate">
-                        會議與學校日場次
+                        教師會議場次與簽名
                       </span>
                     </span>
                     <span
                       className={`px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded-md shrink-0 ${
                         activeTab === 'sessions'
                           ? 'bg-white/20 text-white'
-                          : openMeetingsCount > 0
+                          : openTeacherMeetingsCount > 0
                             ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                             : 'bg-stone-100 text-stone-600'
                       }`}
                     >
-                      {openMeetingsCount > 0
-                        ? `${openMeetingsCount} 場開放`
+                      {openTeacherMeetingsCount > 0
+                        ? `${openTeacherMeetingsCount} 場開放`
                         : `${meetings.length} 場`}
                     </span>
                   </button>
@@ -1886,7 +2822,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       <span className="inline-flex items-center gap-2 min-w-0">
                         <Plus className="w-4 h-4 shrink-0" />
                         <span className="text-xs sm:text-sm font-bold truncate">
-                          建立新會議 / 學校日
+                          建立新教師會議
                         </span>
                       </span>
                       <span
@@ -1905,26 +2841,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 {activeTab === 'sessions' && meetings.length > 0 && (
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="text-stone-600">
-                      教師共備與學校日家長簽到均整合於此，管理教師可隨時檢視名冊、產生掃碼 QR Code 與匯出 PDF。
+                      點擊「展開手寫簽名板進行簽到」並親自簽名送出，即完成教師會議簽到。
                     </span>
-                    <div className="flex flex-wrap items-center gap-1.5">
+                    <div className="flex items-center gap-1.5">
                       {(
                         [
-                          {
-                            id: 'all',
-                            label: `全部 (${meetings.length})`,
-                          },
-                          {
-                            id: 'parent',
-                            label: `學校日家長 (${parentMeetingsCount})`,
-                          },
-                          {
-                            id: 'teacher',
-                            label: `教師共備 (${teacherMeetingsCount})`,
-                          },
+                          {id: 'all', label: `全部 (${meetings.length})`},
                           {
                             id: 'open',
-                            label: `開放中 (${openMeetingsCount})`,
+                            label: `開放中 (${openTeacherMeetingsCount})`,
                           },
                         ] as const
                       ).map((f) => (
@@ -1946,63 +2871,62 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 )}
               </div>
 
-              {/* Tab 1: Active & Past Meeting / School Day Sessions */}
+              {/* Tab 1: Teacher Meeting Sessions */}
               {activeTab === 'sessions' && (
                 <div className="space-y-4">
-                  {/* Quick Teacher Profile Bar for 1-click teacher check-in */}
-                  {sessionFilter !== 'parent' && (
-                    <div className="bg-white border border-stone-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label
-                          htmlFor="checkin-teacher-name"
-                          className="block text-xs font-medium text-stone-700"
-                        >
-                          教師簽到顯示姓名（可調整）
-                        </label>
-                        <input
-                          id="checkin-teacher-name"
-                          type="text"
-                          maxLength={100}
-                          value={customNameInput}
-                          onChange={(e) => setCustomNameInput(e.target.value)}
-                          placeholder={user?.displayName || '請輸入老師姓名'}
-                          className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label
-                          htmlFor="checkin-teacher-note"
-                          className="block text-xs font-medium text-stone-700"
-                        >
-                          職務 / 年段備註（選填，教師簽到自動帶入）
-                        </label>
-                        <input
-                          id="checkin-teacher-note"
-                          type="text"
-                          maxLength={120}
-                          value={teacherNoteInput}
-                          onChange={(e) => setTeacherNoteInput(e.target.value)}
-                          placeholder="例如：四年級導師、數學領域教師"
-                          className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
-                        />
-                      </div>
+                  <div className="bg-white border border-stone-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="checkin-teacher-name"
+                        className="block text-xs font-medium text-stone-700"
+                      >
+                        教師簽到顯示姓名（可調整）
+                      </label>
+                      <input
+                        id="checkin-teacher-name"
+                        type="text"
+                        maxLength={100}
+                        value={customNameInput}
+                        onChange={(e) => setCustomNameInput(e.target.value)}
+                        placeholder={user?.displayName || '請輸入老師姓名'}
+                        className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
+                      />
                     </div>
-                  )}
+                    <div className="space-y-1">
+                      <label
+                        htmlFor="checkin-teacher-note"
+                        className="block text-xs font-medium text-stone-700"
+                      >
+                        職務 / 年段備註（選填，簽到時自動帶入）
+                      </label>
+                      <input
+                        id="checkin-teacher-note"
+                        type="text"
+                        maxLength={120}
+                        value={teacherNoteInput}
+                        onChange={(e) => setTeacherNoteInput(e.target.value)}
+                        placeholder="例如：四年級導師、數學領域教師"
+                        className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
+                      />
+                    </div>
+                  </div>
 
                   {isLoadingMeetings ? (
                     <div className="bg-white border border-stone-200 rounded-xl p-8 text-center text-sm text-stone-500">
-                      正在載入簽到場次...
+                      正在載入教師社群會議場次...
                     </div>
-                  ) : displayedMeetings.length === 0 ? (
+                  ) : displayedTeacherMeetings.length === 0 ? (
                     <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
                       <CalendarCheck className="w-8 h-8 text-stone-400 mx-auto" />
                       <h3 className="font-editorial text-lg font-semibold text-stone-900">
-                        目前尚無符合篩選條件的簽到場次
+                        {sessionFilter === 'open'
+                          ? '目前沒有開放簽名中的教師會議'
+                          : '尚未建立任何教師社群會議場次'}
                       </h3>
                       <p className="text-xs sm:text-sm text-stone-600 max-w-md mx-auto">
                         {isTeacherAdmin
-                          ? '您是授權管理教師，可點擊上方「建立新會議 / 學校日」新增教師共備會議或家長免登入簽到場次。'
-                          : '請切換篩選條件，或等待領域召集教師開啟新場次。'}
+                          ? '您是授權管理教師，可點擊上方「建立新教師會議」新增本次領域共備或研習場次。'
+                          : '目前沒有已發布的教師社群會議場次，請等待領域召集教師開啟新場次。'}
                       </p>
                       {isTeacherAdmin && (
                         <button
@@ -2011,14 +2935,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           className="px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>立即建立新場次</span>
+                          <span>立即建立教師會議場次</span>
                         </button>
                       )}
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {displayedMeetings.map((meeting) => {
-                        const isParentSession = meeting.audience === 'parent';
+                      {displayedTeacherMeetings.map((meeting) => {
                         const myRecord = myCheckinByMeetingId.get(meeting.id);
                         const windowState = getMeetingCheckinWindowState(
                           meeting,
@@ -2029,23 +2952,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         const adminTeacherRoster = isTeacherAdmin
                           ? checkinsByMeetingIdForAdmin.get(meeting.id) || []
                           : [];
-                        const adminParentRoster = isTeacherAdmin
-                          ? parentCheckinsByMeetingIdForAdmin.get(meeting.id) ||
-                            []
-                          : [];
-                        const activeAdminRosterCount = isParentSession
-                          ? adminParentRoster.length
-                          : adminTeacherRoster.length;
                         const isRosterExpanded =
                           expandedRosterMeetingId === meeting.id;
-                        const isQrExpanded =
-                          expandedQrMeetingId === meeting.id;
-                        const isEditingSchedule =
-                          editingScheduleMeetingId === meeting.id;
                         const isEditingThis =
                           myRecord && editingCheckinId === myRecord.id;
-                        const isParentFormPreviewOpen =
-                          expandedParentMeetingId === meeting.id;
 
                         return (
                           <article
@@ -2055,17 +2965,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                               <div className="space-y-1.5 min-w-0">
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                                  <span
-                                    className={`px-2 py-0.5 rounded-md font-semibold border ${
-                                      isParentSession
-                                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                        : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/20'
-                                    }`}
-                                  >
-                                    {isParentSession
-                                      ? '學校日・家長免登入'
-                                      : '教師社群・須校內登入'}
-                                  </span>
                                   <span
                                     className={`font-semibold ${
                                       windowState.status === 'open'
@@ -2077,13 +2976,19 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                   >
                                     {windowState.badgeLabel}
                                   </span>
-                                  <span aria-hidden="true" className="text-stone-300">
+                                  <span
+                                    aria-hidden="true"
+                                    className="text-stone-300"
+                                  >
                                     ·
                                   </span>
                                   <span className="font-mono-tabular font-medium text-[#1E3A8A]">
                                     {meeting.academicYear}
                                   </span>
-                                  <span aria-hidden="true" className="text-stone-300">
+                                  <span
+                                    aria-hidden="true"
+                                    className="text-stone-300"
+                                  >
                                     ·
                                   </span>
                                   <span className="font-mono-tabular text-stone-600">
@@ -2122,7 +3027,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                 )}
                               </div>
 
-                              {/* Quick Links */}
                               <div className="flex flex-wrap items-center gap-2 shrink-0">
                                 {meeting.linkedPostSlug && (
                                   <button
@@ -2145,7 +3049,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                     className="px-3 py-1.5 text-xs font-medium text-stone-800 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5"
                                   >
                                     <Video className="w-3.5 h-3.5 text-[#1E3A8A]" />
-                                    <span>會議室 / 簡報</span>
+                                    <span>會議室</span>
                                     <ExternalLink className="w-3 h-3" />
                                   </a>
                                 )}
@@ -2158,319 +3062,281 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               </p>
                             )}
 
-                            {/* Action Section: Either Parent Field-Assist Form OR Teacher Check-in */}
-                            {isParentSession ? (
-                              <div className="pt-3 border-t border-stone-100 space-y-3">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                  <span className="text-xs text-stone-600">
-                                    家長無需登入即可直接填寫學生班級姓名與親筆簽名；教室平板亦可直接展開表單協助家長簽到。
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setExpandedParentMeetingId(
-                                        isParentFormPreviewOpen
-                                          ? null
-                                          : meeting.id,
-                                      )
-                                    }
-                                    className="px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#1E3A8A]/8 border border-[#1E3A8A]/25 rounded-lg hover:bg-[#1E3A8A]/15 inline-flex items-center gap-1.5 self-start sm:self-center shrink-0"
-                                  >
-                                    <PenTool className="w-3.5 h-3.5" />
-                                    <span>
-                                      {isParentFormPreviewOpen
-                                        ? '收合現場代填／測試表單'
-                                        : '展開現場代填／測試表單'}
-                                    </span>
-                                  </button>
-                                </div>
+                            {/* Teacher Check-in Action & Handwritten Signature */}
+                            <div className="pt-3 border-t border-stone-100 space-y-3">
+                              {myRecord ? (
+                                <div className="space-y-3">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5">
+                                    <div className="space-y-1.5 min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-emerald-900 font-semibold">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                                        <span>您已完成此場次簽到</span>
+                                        <span className="font-mono-tabular text-xs font-normal text-stone-600">
+                                          ({formatDateTime(myRecord.checkedInAtMs)})
+                                        </span>
+                                      </div>
 
-                                {isParentFormPreviewOpen &&
-                                  renderParentCheckinCard(meeting, false)}
-                              </div>
-                            ) : (
-                              <div className="pt-3 border-t border-stone-100 space-y-3">
-                                {myRecord ? (
-                                  <div className="space-y-3">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5">
-                                      <div className="space-y-1.5 min-w-0">
-                                        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-emerald-900 font-semibold">
-                                          <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                                          <span>您已完成此場次簽到</span>
-                                          <span className="font-mono-tabular text-xs font-normal text-stone-600">
-                                            ({formatDateTime(myRecord.checkedInAtMs)})
-                                          </span>
-                                        </div>
+                                      <div className="flex flex-wrap items-center gap-2 text-xs text-stone-700">
+                                        <span>
+                                          簽到姓名：{myRecord.userName}
+                                          {myRecord.roleOrNote
+                                            ? ` · 備註：${myRecord.roleOrNote}`
+                                            : ''}
+                                        </span>
+                                      </div>
 
-                                        <div className="flex flex-wrap items-center gap-2 text-xs text-stone-700">
-                                          <span>
-                                            簽到姓名：{myRecord.userName}
-                                            {myRecord.roleOrNote
-                                              ? ` · 備註：${myRecord.roleOrNote}`
-                                              : ''}
-                                          </span>
-                                        </div>
-
-                                        {!isEditingThis && isCurrentlySignable && (
-                                          <div className="flex flex-wrap items-center gap-3 text-xs pt-0.5">
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setEditingCheckinId(myRecord.id);
-                                                setEditingNoteDraft(
-                                                  myRecord.roleOrNote,
-                                                );
-                                                setEditingSignatureDraft(null);
-                                                setShowEditSignaturePad(
-                                                  !isValidSignatureDataUrl(
-                                                    myRecord.signatureDataUrl,
-                                                  ),
-                                                );
-                                              }}
-                                              className="text-[#1E3A8A] hover:underline font-semibold"
-                                            >
-                                              修改備註 / 重簽名
-                                            </button>
-                                            {confirmCancelId === myRecord.id ? (
-                                              <span className="inline-flex items-center gap-1.5">
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    handleCancelCheckin(myRecord)
-                                                  }
-                                                  className="text-red-700 font-semibold hover:underline"
-                                                >
-                                                  確認取消簽到
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    setConfirmCancelId(null)
-                                                  }
-                                                  className="text-stone-500 hover:underline"
-                                                >
-                                                  保留
-                                                </button>
-                                              </span>
-                                            ) : (
+                                      {!isEditingThis && isCurrentlySignable && (
+                                        <div className="flex flex-wrap items-center gap-3 text-xs pt-0.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingCheckinId(myRecord.id);
+                                              setEditingNoteDraft(
+                                                myRecord.roleOrNote,
+                                              );
+                                              setEditingSignatureDraft(null);
+                                              setShowEditSignaturePad(
+                                                !isValidSignatureDataUrl(
+                                                  myRecord.signatureDataUrl,
+                                                ),
+                                              );
+                                            }}
+                                            className="text-[#1E3A8A] hover:underline font-semibold"
+                                          >
+                                            修改備註 / 重簽名
+                                          </button>
+                                          {confirmCancelId === myRecord.id ? (
+                                            <span className="inline-flex items-center gap-1.5">
                                               <button
                                                 type="button"
                                                 onClick={() =>
-                                                  setConfirmCancelId(myRecord.id)
+                                                  handleCancelCheckin(myRecord)
                                                 }
-                                                className="text-stone-500 hover:text-red-700 hover:underline"
+                                                className="text-red-700 font-semibold hover:underline"
                                               >
-                                                取消簽到
+                                                確認取消簽到
                                               </button>
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {isValidSignatureDataUrl(
-                                        myRecord.signatureDataUrl,
-                                      ) ? (
-                                        <div className="shrink-0 bg-white border border-stone-200 rounded-lg px-3 py-1.5 flex flex-col items-center gap-1">
-                                          <span className="text-[10px] font-medium text-stone-500">
-                                            本人親筆簽名存證
-                                          </span>
-                                          <img
-                                            src={myRecord.signatureDataUrl}
-                                            alt={`${myRecord.userName}親筆簽名`}
-                                            className="h-12 w-32 object-contain"
-                                          />
-                                        </div>
-                                      ) : (
-                                        <div className="shrink-0 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                                          尚未附親筆簽名（點「修改備註 / 重簽名」可補簽）
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setConfirmCancelId(null)
+                                                }
+                                                className="text-stone-500 hover:underline"
+                                              >
+                                                保留
+                                              </button>
+                                            </span>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setConfirmCancelId(myRecord.id)
+                                              }
+                                              className="text-stone-500 hover:text-red-700 hover:underline"
+                                            >
+                                              取消簽到
+                                            </button>
+                                          )}
                                         </div>
                                       )}
                                     </div>
 
-                                    {isEditingThis && (
-                                      <div className="bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          <input
-                                            type="text"
-                                            maxLength={120}
-                                            value={editingNoteDraft}
-                                            onChange={(e) =>
-                                              setEditingNoteDraft(e.target.value)
-                                            }
-                                            placeholder="職務或年段備註"
-                                            className="flex-1 min-w-[200px] h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                                          />
-                                          {isValidSignatureDataUrl(
-                                            myRecord.signatureDataUrl,
-                                          ) && (
-                                            <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 cursor-pointer px-2 py-1">
-                                              <input
-                                                type="checkbox"
-                                                checked={showEditSignaturePad}
-                                                onChange={(e) => {
-                                                  setShowEditSignaturePad(
-                                                    e.target.checked,
-                                                  );
-                                                  if (!e.target.checked) {
-                                                    setEditingSignatureDraft(
-                                                      null,
-                                                    );
-                                                  }
-                                                }}
-                                                className="rounded border-stone-300 text-[#1E3A8A]"
-                                              />
-                                              <span>重新手寫簽名</span>
-                                            </label>
-                                          )}
-                                        </div>
-
-                                        {(showEditSignaturePad ||
-                                          !isValidSignatureDataUrl(
-                                            myRecord.signatureDataUrl,
-                                          )) && (
-                                          <SignaturePad
-                                            signerLabel={
-                                              customNameInput.trim() ||
-                                              myRecord.userName
-                                            }
-                                            onChange={setEditingSignatureDraft}
-                                          />
-                                        )}
-
-                                        <div className="flex flex-wrap items-center justify-end gap-2">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setEditingCheckinId(null);
-                                              setEditingSignatureDraft(null);
-                                              setShowEditSignaturePad(false);
-                                            }}
-                                            className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
-                                          >
-                                            取消
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleUpdateNote(myRecord)
-                                            }
-                                            className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
-                                          >
-                                            儲存變更
-                                          </button>
-                                        </div>
+                                    {isValidSignatureDataUrl(
+                                      myRecord.signatureDataUrl,
+                                    ) ? (
+                                      <div className="shrink-0 bg-white border border-stone-200 rounded-lg px-3 py-1.5 flex flex-col items-center gap-1">
+                                        <span className="text-[10px] font-medium text-stone-500">
+                                          本人親筆簽名存證
+                                        </span>
+                                        <img
+                                          src={myRecord.signatureDataUrl}
+                                          alt={`${myRecord.userName}親筆簽名`}
+                                          className="h-12 w-32 object-contain"
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div className="shrink-0 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                        尚未附親筆簽名（點「修改備註 / 重簽名」可補簽）
                                       </div>
                                     )}
                                   </div>
-                                ) : isCurrentlySignable ? (
-                                  (() => {
-                                    const isPadExpanded =
-                                      activeSigningMeetingId === meeting.id;
-                                    const currentSigDraft =
-                                      signatureDraftByMeeting[meeting.id] || null;
-                                    const isSigReady =
-                                      isValidSignatureDataUrl(currentSigDraft);
 
-                                    return isPadExpanded ? (
-                                      <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3.5">
+                                  {isEditingThis && (
+                                    <div className="bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          type="text"
+                                          maxLength={120}
+                                          value={editingNoteDraft}
+                                          onChange={(e) =>
+                                            setEditingNoteDraft(e.target.value)
+                                          }
+                                          placeholder="職務或年段備註"
+                                          className="flex-1 min-w-[200px] h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                        />
+                                        {isValidSignatureDataUrl(
+                                          myRecord.signatureDataUrl,
+                                        ) && (
+                                          <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 cursor-pointer px-2 py-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={showEditSignaturePad}
+                                              onChange={(e) => {
+                                                setShowEditSignaturePad(
+                                                  e.target.checked,
+                                                );
+                                                if (!e.target.checked) {
+                                                  setEditingSignatureDraft(null);
+                                                }
+                                              }}
+                                              className="rounded border-stone-300 text-[#1E3A8A]"
+                                            />
+                                            <span>重新手寫簽名</span>
+                                          </label>
+                                        )}
+                                      </div>
+
+                                      {(showEditSignaturePad ||
+                                        !isValidSignatureDataUrl(
+                                          myRecord.signatureDataUrl,
+                                        )) && (
                                         <SignaturePad
                                           signerLabel={
                                             customNameInput.trim() ||
-                                            user?.displayName ||
-                                            user?.email?.split('@')[0]
+                                            myRecord.userName
                                           }
-                                          disabled={
-                                            submittingMeetingId === meeting.id
-                                          }
-                                          onChange={(dataUrl) =>
-                                            setSignatureDraftByMeeting(
-                                              (prev) => ({
-                                                ...prev,
-                                                [meeting.id]: dataUrl,
-                                              }),
-                                            )
-                                          }
+                                          onChange={setEditingSignatureDraft}
                                         />
+                                      )}
 
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-                                          <span className="text-xs text-stone-600">
-                                            {isSigReady ? (
-                                              <span className="text-emerald-800 font-semibold">
-                                                ✓ 已擷取您的親筆簽名，點擊右側按鈕即可送出簽到。
-                                              </span>
-                                            ) : (
-                                              <span>
-                                                {windowState.detailText}
-                                              </span>
-                                            )}
-                                          </span>
-
-                                          <div className="flex items-center gap-2 shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setActiveSigningMeetingId(null)
-                                              }
-                                              className="px-3 py-2 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
-                                            >
-                                              收合
-                                            </button>
-                                            <button
-                                              type="button"
-                                              disabled={
-                                                submittingMeetingId ===
-                                                  meeting.id || !isSigReady
-                                              }
-                                              onClick={() =>
-                                                handleCheckin(meeting)
-                                              }
-                                              className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
-                                            >
-                                              <ClipboardCheck className="w-4 h-4" />
-                                              <span>
-                                                {submittingMeetingId ===
-                                                meeting.id
-                                                  ? '簽名上傳簽到中...'
-                                                  : '確認手寫簽名並完成簽到'}
-                                              </span>
-                                            </button>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                        <span className="text-xs text-stone-600">
-                                          {windowState.detailText}（帳號：{user?.email}）
-                                        </span>
+                                      <div className="flex flex-wrap items-center justify-end gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingCheckinId(null);
+                                            setEditingSignatureDraft(null);
+                                            setShowEditSignaturePad(false);
+                                          }}
+                                          className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
+                                        >
+                                          取消
+                                        </button>
                                         <button
                                           type="button"
                                           onClick={() =>
-                                            setActiveSigningMeetingId(meeting.id)
+                                            handleUpdateNote(myRecord)
                                           }
-                                          className="w-full sm:w-auto min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                                          className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
                                         >
-                                          <PenTool className="w-4 h-4" />
-                                          <span>展開手寫簽名板進行簽到</span>
+                                          儲存變更
                                         </button>
                                       </div>
-                                    );
-                                  })()
-                                ) : (
-                                  <div
-                                    className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border ${
-                                      windowState.status === 'not-started'
-                                        ? 'bg-amber-50 border-amber-200 text-amber-900 font-medium'
-                                        : 'bg-stone-50 border-stone-200 text-stone-600'
-                                    }`}
-                                  >
-                                    <Clock className="w-3.5 h-3.5 shrink-0" />
-                                    <span>{windowState.detailText}</span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : isCurrentlySignable ? (
+                                (() => {
+                                  const isPadExpanded =
+                                    activeSigningMeetingId === meeting.id;
+                                  const currentSigDraft =
+                                    signatureDraftByMeeting[meeting.id] || null;
+                                  const isSigReady =
+                                    isValidSignatureDataUrl(currentSigDraft);
 
-                            {/* Admin Controls, Parent QR Code & Attendance Roster */}
+                                  return isPadExpanded ? (
+                                    <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3.5">
+                                      <SignaturePad
+                                        signerLabel={
+                                          customNameInput.trim() ||
+                                          user?.displayName ||
+                                          user?.email?.split('@')[0]
+                                        }
+                                        disabled={
+                                          submittingMeetingId === meeting.id
+                                        }
+                                        onChange={(dataUrl) =>
+                                          setSignatureDraftByMeeting((prev) => ({
+                                            ...prev,
+                                            [meeting.id]: dataUrl,
+                                          }))
+                                        }
+                                      />
+
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+                                        <span className="text-xs text-stone-600">
+                                          {isSigReady ? (
+                                            <span className="text-emerald-800 font-semibold">
+                                              ✓ 已擷取您的親筆簽名，點擊右側按鈕即可送出簽到。
+                                            </span>
+                                          ) : (
+                                            <span>{windowState.detailText}</span>
+                                          )}
+                                        </span>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setActiveSigningMeetingId(null)
+                                            }
+                                            className="px-3 py-2 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
+                                          >
+                                            收合
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              submittingMeetingId ===
+                                                meeting.id || !isSigReady
+                                            }
+                                            onClick={() =>
+                                              handleCheckin(meeting)
+                                            }
+                                            className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                                          >
+                                            <ClipboardCheck className="w-4 h-4" />
+                                            <span>
+                                              {submittingMeetingId === meeting.id
+                                                ? '簽名上傳簽到中...'
+                                                : '確認手寫簽名並完成簽到'}
+                                            </span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                      <span className="text-xs text-stone-600">
+                                        {windowState.detailText}（帳號：{user?.email}）
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setActiveSigningMeetingId(meeting.id)
+                                        }
+                                        className="w-full sm:w-auto min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                                      >
+                                        <PenTool className="w-4 h-4" />
+                                        <span>展開手寫簽名板進行簽到</span>
+                                      </button>
+                                    </div>
+                                  );
+                                })()
+                              ) : (
+                                <div
+                                  className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border ${
+                                    windowState.status === 'not-started'
+                                      ? 'bg-amber-50 border-amber-200 text-amber-900 font-medium'
+                                      : 'bg-stone-50 border-stone-200 text-stone-600'
+                                  }`}
+                                >
+                                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                                  <span>{windowState.detailText}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Admin Controls for Teacher Session */}
                             {isTeacherAdmin && (
                               <div className="pt-3 border-t border-stone-200/80 space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2487,22 +3353,20 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       <Users className="w-3.5 h-3.5 text-[#1E3A8A]" />
                                       <span>
                                         {isRosterExpanded
-                                          ? '收合簽到名單'
-                                          : isParentSession
-                                            ? '檢視家長名冊'
-                                            : '檢視簽到名單'}{' '}
-                                        ({activeAdminRosterCount} 人)
+                                          ? '收合教師名單'
+                                          : '檢視簽到名單'}{' '}
+                                        ({adminTeacherRoster.length} 人)
                                       </span>
                                     </button>
 
                                     <button
                                       type="button"
-                                      disabled={activeAdminRosterCount === 0}
+                                      disabled={adminTeacherRoster.length === 0}
                                       onClick={() =>
                                         handleOpenPrintablePreview(
                                           meeting,
                                           adminTeacherRoster,
-                                          adminParentRoster,
+                                          [],
                                         )
                                       }
                                       className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-40 inline-flex items-center gap-1.5"
@@ -2513,12 +3377,12 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
                                     <button
                                       type="button"
-                                      disabled={activeAdminRosterCount === 0}
+                                      disabled={adminTeacherRoster.length === 0}
                                       onClick={() =>
                                         handleExportCsv(
                                           meeting,
                                           adminTeacherRoster,
-                                          adminParentRoster,
+                                          [],
                                         )
                                       }
                                       className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-40 inline-flex items-center gap-1.5"
@@ -2526,363 +3390,18 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       <Download className="w-3.5 h-3.5" />
                                       <span>匯出 CSV</span>
                                     </button>
-
-                                    {isParentSession && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setExpandedQrMeetingId(
-                                            isQrExpanded ? null : meeting.id,
-                                          )
-                                        }
-                                        className={`px-3 py-1.5 text-xs font-semibold border rounded-lg inline-flex items-center gap-1.5 ${
-                                          isQrExpanded
-                                            ? 'bg-emerald-700 text-white border-emerald-700'
-                                            : 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100'
-                                        }`}
-                                      >
-                                        <QrCode className="w-3.5 h-3.5" />
-                                        <span>家長掃碼 QR / 網址</span>
-                                      </button>
-                                    )}
                                   </div>
 
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (isEditingSchedule) {
-                                          setEditingScheduleMeetingId(null);
-                                        } else {
-                                          setEditingScheduleMeetingId(
-                                            meeting.id,
-                                          );
-                                          setEditStartLocal(
-                                            toDateTimeLocalValue(
-                                              meeting.checkinStartAtMs,
-                                            ),
-                                          );
-                                          setEditEndLocal(
-                                            toDateTimeLocalValue(
-                                              meeting.checkinEndAtMs,
-                                            ),
-                                          );
-                                        }
-                                      }}
-                                      className={`px-3 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center gap-1.5 ${
-                                        isEditingSchedule
-                                          ? 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/40 font-semibold'
-                                          : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
-                                      }`}
-                                    >
-                                      <Clock className="w-3.5 h-3.5 text-[#1E3A8A]" />
-                                      <span>設定開放簽名時間</span>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleToggleMeetingOpen(meeting)
-                                      }
-                                      className="px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
-                                    >
-                                      {meeting.isOpen ? '關閉簽到' : '重新開放簽到'}
-                                    </button>
-
-                                    {confirmDeleteMeetingId === meeting.id ? (
-                                      <div className="inline-flex items-center gap-1.5">
-                                        <button
-                                          type="button"
-                                          disabled={deletingMeetingId === meeting.id}
-                                          onClick={() =>
-                                            handleDeleteMeeting(meeting)
-                                          }
-                                          className="px-2.5 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg"
-                                        >
-                                          確認刪除（含簽名紀錄）
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            setConfirmDeleteMeetingId(null)
-                                          }
-                                          className="px-2.5 py-1.5 text-xs text-stone-600 bg-stone-100 rounded-lg"
-                                        >
-                                          取消
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setConfirmDeleteMeetingId(meeting.id)
-                                        }
-                                        className="p-1.5 text-stone-500 hover:text-red-700 rounded-lg hover:bg-red-50 transition-colors"
-                                        aria-label={`刪除 ${meeting.title}`}
-                                      >
-                                        <Trash2 className="w-4 h-4" />
-                                      </button>
-                                    )}
-                                  </div>
+                                  {renderAdminScheduleAndDeleteControls(meeting)}
                                 </div>
 
-                                {isQrExpanded && isParentSession && (
-                                  <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
-                                    <div className="w-36 h-36 bg-white border border-emerald-200 rounded-xl p-2 flex items-center justify-center shrink-0">
-                                      {qrDataUrlByMeeting[meeting.id] ? (
-                                        <img
-                                          src={qrDataUrlByMeeting[meeting.id]}
-                                          alt={`${meeting.title} 家長免登入簽到 QR Code`}
-                                          className="w-full h-full object-contain"
-                                        />
-                                      ) : (
-                                        <span className="text-[11px] text-stone-400">
-                                          產生 QR Code 中...
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex-1 min-w-0 space-y-2.5 text-xs">
-                                      <div className="font-bold text-emerald-950 text-sm">
-                                        學校日現場掃碼 · 家長免登入專屬連結
-                                      </div>
-                                      <p className="text-stone-700 leading-relaxed">
-                                        家長用手機掃描此 QR Code 或點擊連結，將直接開啟本場次簽到表單，填寫學生班級姓名與親筆簽名即可完成。
-                                      </p>
-                                      <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
-                                        {buildParentDirectUrl(meeting.id)}
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleCopyParentLink(meeting.id)
-                                          }
-                                          className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5"
-                                        >
-                                          {copiedLinkMeetingId === meeting.id ? (
-                                            <Check className="w-3.5 h-3.5" />
-                                          ) : (
-                                            <Copy className="w-3.5 h-3.5" />
-                                          )}
-                                          <span>
-                                            {copiedLinkMeetingId === meeting.id
-                                              ? '已複製直達連結'
-                                              : '複製家長簽到網址'}
-                                          </span>
-                                        </button>
-                                        {qrDataUrlByMeeting[meeting.id] && (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleDownloadQrPng(meeting)
-                                            }
-                                            className="px-3 py-1.5 text-xs font-medium text-emerald-950 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100/70 inline-flex items-center gap-1.5"
-                                          >
-                                            <Download className="w-3.5 h-3.5" />
-                                            <span>下載 QR Code 圖檔</span>
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
-
-                                {isEditingSchedule && (
-                                  <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <span className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1.5">
-                                        <Clock className="w-3.5 h-3.5" />
-                                        <span>調整「{meeting.title}」開放簽名時段</span>
-                                      </span>
-                                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            const start = Date.now();
-                                            setEditStartLocal(
-                                              toDateTimeLocalValue(start),
-                                            );
-                                            setEditEndLocal(
-                                              toDateTimeLocalValue(
-                                                start + 2 * 60 * 60 * 1000,
-                                              ),
-                                            );
-                                          }}
-                                          className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
-                                        >
-                                          立即起開放 2 小時
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setEditStartLocal('');
-                                            setEditEndLocal('');
-                                          }}
-                                          className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-stone-400 text-stone-600"
-                                        >
-                                          清除時限（改為不限時）
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                      <div className="space-y-1">
-                                        <label className="block text-[11px] font-medium text-stone-700">
-                                          開放簽名開始時間（留白＝立即開放）
-                                        </label>
-                                        <input
-                                          type="datetime-local"
-                                          value={editStartLocal}
-                                          onChange={(e) =>
-                                            setEditStartLocal(e.target.value)
-                                          }
-                                          className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                                        />
-                                      </div>
-                                      <div className="space-y-1">
-                                        <label className="block text-[11px] font-medium text-stone-700">
-                                          簽名截止時間（留白＝手動關閉前皆可簽）
-                                        </label>
-                                        <input
-                                          type="datetime-local"
-                                          value={editEndLocal}
-                                          onChange={(e) =>
-                                            setEditEndLocal(e.target.value)
-                                          }
-                                          className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                                        />
-                                      </div>
-                                    </div>
-
-                                    <div className="flex flex-wrap items-center justify-end gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setEditingScheduleMeetingId(null)
-                                        }
-                                        className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
-                                      >
-                                        取消
-                                      </button>
-                                      <button
-                                        type="button"
-                                        disabled={isSavingSchedule}
-                                        onClick={() =>
-                                          handleSaveMeetingSchedule(meeting)
-                                        }
-                                        className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-60"
-                                      >
-                                        {isSavingSchedule
-                                          ? '儲存中...'
-                                          : '儲存簽名時間設定'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
+                                {renderAdminScheduleEditor(meeting)}
 
                                 {isRosterExpanded && (
                                   <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl overflow-hidden">
-                                    {activeAdminRosterCount === 0 ? (
+                                    {adminTeacherRoster.length === 0 ? (
                                       <div className="p-4 text-xs text-stone-500 text-center">
-                                        目前尚無{isParentSession ? '家長' : '教師'}簽到此場次。
-                                      </div>
-                                    ) : isParentSession ? (
-                                      <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse text-xs">
-                                          <thead>
-                                            <tr className="border-b border-stone-200 text-stone-600 bg-white/60">
-                                              <th className="py-2.5 px-3 font-semibold">#</th>
-                                              <th className="py-2.5 px-3 font-semibold">學生班級 / 姓名</th>
-                                              <th className="py-2.5 px-3 font-semibold">家長姓名</th>
-                                              <th className="py-2.5 px-3 font-semibold">關係 / 備註</th>
-                                              <th className="py-2.5 px-3 font-semibold">親自手寫簽名</th>
-                                              <th className="py-2.5 px-3 font-semibold">簽到時間</th>
-                                              <th className="py-2.5 px-3 font-semibold text-right">管理</th>
-                                            </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-stone-200/70">
-                                            {adminParentRoster.map((rec, idx) => (
-                                              <tr key={rec.id} className="bg-white/50">
-                                                <td className="py-2 px-3 font-mono-tabular text-stone-500">
-                                                  {idx + 1}
-                                                </td>
-                                                <td className="py-2 px-3 font-semibold text-stone-900">
-                                                  {rec.studentClassAndSeat}
-                                                </td>
-                                                <td className="py-2 px-3 font-medium text-stone-900">
-                                                  {rec.parentName}
-                                                </td>
-                                                <td className="py-2 px-3 text-stone-700">
-                                                  {rec.relationshipOrNote || '—'}
-                                                </td>
-                                                <td className="py-2 px-3">
-                                                  {isValidSignatureDataUrl(
-                                                    rec.signatureDataUrl,
-                                                  ) ? (
-                                                    <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
-                                                      <img
-                                                        src={
-                                                          rec.signatureDataUrl
-                                                        }
-                                                        alt={`${rec.parentName}親筆簽名`}
-                                                        className="h-9 w-24 object-contain"
-                                                      />
-                                                    </div>
-                                                  ) : (
-                                                    <span className="text-[11px] text-stone-400">
-                                                      未附簽名
-                                                    </span>
-                                                  )}
-                                                </td>
-                                                <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
-                                                  {formatDateTime(rec.checkedInAtMs)}
-                                                </td>
-                                                <td className="py-2 px-3 text-right whitespace-nowrap">
-                                                  {confirmDeleteParentCheckinId ===
-                                                  rec.id ? (
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                      <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                          handleDeleteParentCheckin(
-                                                            rec,
-                                                          )
-                                                        }
-                                                        className="text-red-700 font-semibold hover:underline"
-                                                      >
-                                                        確認移除
-                                                      </button>
-                                                      <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                          setConfirmDeleteParentCheckinId(
-                                                            null,
-                                                          )
-                                                        }
-                                                        className="text-stone-500 hover:underline"
-                                                      >
-                                                        取消
-                                                      </button>
-                                                    </span>
-                                                  ) : (
-                                                    <button
-                                                      type="button"
-                                                      onClick={() =>
-                                                        setConfirmDeleteParentCheckinId(
-                                                          rec.id,
-                                                        )
-                                                      }
-                                                      className="text-stone-400 hover:text-red-700"
-                                                      aria-label={`移除 ${rec.parentName} 簽到紀錄`}
-                                                    >
-                                                      <Trash2 className="w-3.5 h-3.5" />
-                                                    </button>
-                                                  )}
-                                                </td>
-                                              </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
+                                        目前尚無教師簽到此場次。
                                       </div>
                                     ) : (
                                       <div className="overflow-x-auto">
@@ -2890,52 +3409,69 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                           <thead>
                                             <tr className="border-b border-stone-200 text-stone-600 bg-white/60">
                                               <th className="py-2.5 px-3 font-semibold">#</th>
-                                              <th className="py-2.5 px-3 font-semibold">教師姓名</th>
-                                              <th className="py-2.5 px-3 font-semibold">信箱</th>
-                                              <th className="py-2.5 px-3 font-semibold">職務備註</th>
-                                              <th className="py-2.5 px-3 font-semibold">親自手寫簽名</th>
-                                              <th className="py-2.5 px-3 font-semibold">簽到時間</th>
+                                              <th className="py-2.5 px-3 font-semibold">
+                                                教師姓名
+                                              </th>
+                                              <th className="py-2.5 px-3 font-semibold">
+                                                信箱
+                                              </th>
+                                              <th className="py-2.5 px-3 font-semibold">
+                                                職務備註
+                                              </th>
+                                              <th className="py-2.5 px-3 font-semibold">
+                                                親自手寫簽名
+                                              </th>
+                                              <th className="py-2.5 px-3 font-semibold">
+                                                簽到時間
+                                              </th>
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-stone-200/70">
-                                            {adminTeacherRoster.map((rec, idx) => (
-                                              <tr key={rec.id} className="bg-white/50">
-                                                <td className="py-2 px-3 font-mono-tabular text-stone-500">
-                                                  {idx + 1}
-                                                </td>
-                                                <td className="py-2 px-3 font-medium text-stone-900">
-                                                  {rec.userName}
-                                                </td>
-                                                <td className="py-2 px-3 font-mono-tabular text-stone-600">
-                                                  {rec.userEmail}
-                                                </td>
-                                                <td className="py-2 px-3 text-stone-700">
-                                                  {rec.roleOrNote || '—'}
-                                                </td>
-                                                <td className="py-2 px-3">
-                                                  {isValidSignatureDataUrl(
-                                                    rec.signatureDataUrl,
-                                                  ) ? (
-                                                    <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
-                                                      <img
-                                                        src={
-                                                          rec.signatureDataUrl
-                                                        }
-                                                        alt={`${rec.userName}親筆簽名`}
-                                                        className="h-9 w-24 object-contain"
-                                                      />
-                                                    </div>
-                                                  ) : (
-                                                    <span className="text-[11px] text-stone-400">
-                                                      未附簽名
-                                                    </span>
-                                                  )}
-                                                </td>
-                                                <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
-                                                  {formatDateTime(rec.checkedInAtMs)}
-                                                </td>
-                                              </tr>
-                                            ))}
+                                            {adminTeacherRoster.map(
+                                              (rec, idx) => (
+                                                <tr
+                                                  key={rec.id}
+                                                  className="bg-white/50"
+                                                >
+                                                  <td className="py-2 px-3 font-mono-tabular text-stone-500">
+                                                    {idx + 1}
+                                                  </td>
+                                                  <td className="py-2 px-3 font-medium text-stone-900">
+                                                    {rec.userName}
+                                                  </td>
+                                                  <td className="py-2 px-3 font-mono-tabular text-stone-600">
+                                                    {rec.userEmail}
+                                                  </td>
+                                                  <td className="py-2 px-3 text-stone-700">
+                                                    {rec.roleOrNote || '—'}
+                                                  </td>
+                                                  <td className="py-2 px-3">
+                                                    {isValidSignatureDataUrl(
+                                                      rec.signatureDataUrl,
+                                                    ) ? (
+                                                      <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
+                                                        <img
+                                                          src={
+                                                            rec.signatureDataUrl
+                                                          }
+                                                          alt={`${rec.userName}親筆簽名`}
+                                                          className="h-9 w-24 object-contain"
+                                                        />
+                                                      </div>
+                                                    ) : (
+                                                      <span className="text-[11px] text-stone-400">
+                                                        未附簽名
+                                                      </span>
+                                                    )}
+                                                  </td>
+                                                  <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
+                                                    {formatDateTime(
+                                                      rec.checkedInAtMs,
+                                                    )}
+                                                  </td>
+                                                </tr>
+                                              ),
+                                            )}
                                           </tbody>
                                         </table>
                                       </div>
@@ -2952,7 +3488,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 </div>
               )}
 
-              {/* Tab 2: Personal Check-in History */}
+              {/* Tab 2: Personal Teacher Check-in History */}
               {activeTab === 'my-history' && (
                 <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
                   {activeMyCheckins.length === 0 ? (
@@ -2972,7 +3508,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                             </div>
                             <div className="text-xs text-stone-600">
                               姓名：{item.userName}
-                              {item.roleOrNote ? ` · 備註：${item.roleOrNote}` : ''}
+                              {item.roleOrNote
+                                ? ` · 備註：${item.roleOrNote}`
+                                : ''}
                             </div>
                             <div className="text-xs font-mono-tabular text-emerald-800 font-medium">
                               已簽到 · {formatDateTime(item.checkedInAtMs)}
@@ -2998,107 +3536,25 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 </div>
               )}
 
-              {/* Tab 3: Admin Create Session */}
+              {/* Tab 3: Admin Create Teacher Meeting Session */}
               {activeTab === 'admin' && isTeacherAdmin && (
                 <form
                   onSubmit={handleCreateSession}
                   className="bg-white border border-stone-200 rounded-xl p-5 sm:p-6 space-y-4"
                 >
-                  <div className="border-b border-stone-100 pb-3 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="font-editorial text-base font-bold text-stone-950">
-                        建立新的簽到場次（教師會議 ／ 學校日家長）
-                      </h3>
-                      <p className="text-xs text-stone-500 mt-0.5">
-                        可選擇「教師社群專屬」或「學校日家長免登入」模式。
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Audience Selector */}
-                  <div className="space-y-2">
-                    <span className="block text-xs font-semibold text-stone-800">
-                      1. 選擇簽到對象與權限模式 *
-                    </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNewAudience('teacher');
-                          if (
-                            newLocation === '西門國小各班教室 / 視聽教室' ||
-                            !newLocation
-                          ) {
-                            setNewLocation('西門國小 會議室 / Google Meet');
-                          }
-                        }}
-                        className={`p-3.5 rounded-xl border-2 text-left transition-all space-y-1 ${
-                          newAudience === 'teacher'
-                            ? 'bg-[#1E3A8A]/6 border-[#1E3A8A] text-stone-950'
-                            : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 text-xs font-bold text-[#1E3A8A]">
-                          <span className="inline-flex items-center gap-1.5">
-                            <Lock className="w-3.5 h-3.5" />
-                            <span>教師社群會議</span>
-                          </span>
-                          {newAudience === 'teacher' && (
-                            <CheckCircle2 className="w-4 h-4" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-stone-600 leading-relaxed">
-                          須登入 @{SCHOOL_DOMAIN} 校內帳號才可檢視議程與手寫簽名。
-                        </p>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNewAudience('parent');
-                          if (!newTitle.trim()) {
-                            setNewTitle('114 學年度第 1 學期學校日家長簽到');
-                          }
-                          if (
-                            newLocation === '西門國小 會議室 / Google Meet' ||
-                            !newLocation
-                          ) {
-                            setNewLocation('西門國小各班教室 / 視聽教室');
-                          }
-                          if (!newAgenda.trim()) {
-                            setNewAgenda(
-                              '歡迎各位家長蒞臨西門國小學校日！請填寫學生班級座號／姓名與家長稱謂並親筆簽名，無需登入帳號。',
-                            );
-                          }
-                        }}
-                        className={`p-3.5 rounded-xl border-2 text-left transition-all space-y-1 ${
-                          newAudience === 'parent'
-                            ? 'bg-emerald-50/70 border-emerald-700 text-stone-950'
-                            : 'bg-white border-stone-200 text-stone-700 hover:border-stone-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 text-xs font-bold text-emerald-900">
-                          <span className="inline-flex items-center gap-1.5">
-                            <UserCheck className="w-3.5 h-3.5" />
-                            <span>學校日 / 家長活動（免登入）</span>
-                          </span>
-                          {newAudience === 'parent' && (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-stone-600 leading-relaxed">
-                          家長免登入即可填寫班級姓名與親筆簽名，建立後自動產生現場掃碼 QR Code。
-                        </p>
-                      </button>
-                    </div>
+                  <div className="border-b border-stone-100 pb-3">
+                    <h3 className="font-editorial text-base font-bold text-stone-950">
+                      建立新的教師社群會議場次
+                    </h3>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      僅限登入 @{SCHOOL_DOMAIN} 帳號之社群教師檢視與簽到（家長端完全看不見）。
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="sm:col-span-2 space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
-                        {newAudience === 'parent'
-                          ? '活動 / 學校日名稱 *'
-                          : '會議名稱 *'}
+                        會議名稱 *
                       </label>
                       <input
                         type="text"
@@ -3106,18 +3562,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         maxLength={160}
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
-                        placeholder={
-                          newAudience === 'parent'
-                            ? '例如：114 學年度第 1 學期學校日家長簽到（403 班）'
-                            : '例如：114 學年度第 1 學期數學領域期初共備會議'
-                        }
+                        placeholder="例如：114 學年度第 1 學期數學領域期初共備會議"
                         className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
 
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
-                        日期與時間 *
+                        會議日期與時間 *
                       </label>
                       <input
                         type="text"
@@ -3125,7 +3577,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         maxLength={40}
                         value={newDate}
                         onChange={(e) => setNewDate(e.target.value)}
-                        placeholder="2025-09-10 09:00"
+                        placeholder="2025-09-10 13:30"
                         className="w-full px-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
@@ -3151,68 +3603,60 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
-                        地點 / 教室名稱
+                        會議地點 / 教室
                       </label>
                       <input
                         type="text"
                         maxLength={160}
                         value={newLocation}
                         onChange={(e) => setNewLocation(e.target.value)}
-                        placeholder="例如：西門國小 403 教室"
+                        placeholder="例如：西門國小 會議室 / Google Meet"
                         className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
 
                     <div className="space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
-                        活動簡報 / 線上會議室連結（選填，限 https://）
+                        線上會議室連結（選填，限 https://）
                       </label>
                       <input
                         type="url"
                         maxLength={500}
                         value={newMeetUrl}
                         onChange={(e) => setNewMeetUrl(e.target.value)}
-                        placeholder="https://..."
+                        placeholder="https://meet.google.com/..."
                         className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
 
-                    {newAudience === 'teacher' && (
-                      <div className="sm:col-span-2 space-y-1">
-                        <label className="block text-xs font-medium text-stone-700">
-                          關聯知識庫會議文章（選填，方便老師從會議文章一鍵跳轉簽到）
-                        </label>
-                        <select
-                          value={newLinkedSlug}
-                          onChange={(e) => setNewLinkedSlug(e.target.value)}
-                          className="w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                        >
-                          <option value="">（不關聯特定文章）</option>
-                          {meetingPostsForLinking.map((p) => (
-                            <option key={p.slug} value={p.slug}>
-                              [{p.academicYear}] {p.title}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
+                    <div className="sm:col-span-2 space-y-1">
+                      <label className="block text-xs font-medium text-stone-700">
+                        關聯知識庫會議文章（選填）
+                      </label>
+                      <select
+                        value={newLinkedSlug}
+                        onChange={(e) => setNewLinkedSlug(e.target.value)}
+                        className="w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      >
+                        <option value="">（不關聯特定文章）</option>
+                        {meetingPostsForLinking.map((p) => (
+                          <option key={p.slug} value={p.slug}>
+                            [{p.academicYear}] {p.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
                     <div className="sm:col-span-2 space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
-                        {newAudience === 'parent'
-                          ? '學校日給家長的歡迎提醒（公開於家長簽到頁）'
-                          : '議程摘要與校內備註（僅限校內登入教師閱讀）'}
+                        議程摘要與校內備註（僅限校內登入教師閱讀）
                       </label>
                       <textarea
                         rows={3}
                         maxLength={1000}
                         value={newAgenda}
                         onChange={(e) => setNewAgenda(e.target.value)}
-                        placeholder={
-                          newAudience === 'parent'
-                            ? '例如：歡迎家長蒞臨！請填入學生班級座號姓名與家長稱謂後親筆簽名...'
-                            : '輸入本次會議討論議題、共備教材準備事項或校內注意事項...'
-                        }
+                        placeholder="輸入本次會議討論議題、共備教材準備事項或校內注意事項..."
                         className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
@@ -3241,43 +3685,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           >
                             現在起開放 2 小時
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const start = Date.now();
-                              setNewCheckinStartLocal(
-                                toDateTimeLocalValue(start),
-                              );
-                              setNewCheckinEndLocal(
-                                toDateTimeLocalValue(
-                                  start + 4 * 60 * 60 * 1000,
-                                ),
-                              );
-                            }}
-                            className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
-                          >
-                            學校日開放 4 小時
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const parsedMeeting = new Date(
-                                newDate.trim().replace(' ', 'T'),
-                              ).getTime();
-                              const base = Number.isFinite(parsedMeeting)
-                                ? parsedMeeting
-                                : Date.now();
-                              setNewCheckinStartLocal(
-                                toDateTimeLocalValue(base - 15 * 60 * 1000),
-                              );
-                              setNewCheckinEndLocal(
-                                toDateTimeLocalValue(base + 2 * 60 * 60 * 1000),
-                              );
-                            }}
-                            className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
-                          >
-                            依活動時間（前 15 分～後 2 小時）
-                          </button>
                           {(newCheckinStartLocal || newCheckinEndLocal) && (
                             <button
                               type="button"
@@ -3296,7 +3703,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label className="block text-xs font-medium text-stone-700">
-                            開放簽名開始時間（預約開啟）
+                            開放簽名開始時間
                           </label>
                           <input
                             type="datetime-local"
@@ -3309,7 +3716,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         </div>
                         <div className="space-y-1">
                           <label className="block text-xs font-medium text-stone-700">
-                            簽名截止時間（到期自動停止簽到）
+                            簽名截止時間
                           </label>
                           <input
                             type="datetime-local"
@@ -3321,10 +3728,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           />
                         </div>
                       </div>
-
-                      <p className="text-[11px] text-stone-500">
-                        時間由雲端伺服器時間嚴格把關：未到開始時間或超過截止時間，將自動鎖定無法送出簽名。
-                      </p>
                     </div>
 
                     <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-1">
@@ -3335,7 +3738,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           onChange={(e) => setNewIsOpen(e.target.checked)}
                           className="rounded border-stone-300 text-[#1E3A8A]"
                         />
-                        <span>啟用此場次簽到功能（若設定預約開始時間，將於該時間自動開放）</span>
+                        <span>啟用此場次教師簽到功能</span>
                       </label>
 
                       <button
@@ -3345,9 +3748,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       >
                         {isCreatingSession
                           ? '建立場次中...'
-                          : newAudience === 'parent'
-                            ? '發布學校日家長簽到（並產生 QR Code）'
-                            : '發布教師會議簽到場次'}
+                          : '發布教師會議簽到場次'}
                       </button>
                     </div>
                   </div>
@@ -3369,7 +3770,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
             aria-label="簽名簽到表預覽與列印"
             onClick={() => setPreviewRoster(null)}
           >
-            {/* Top Action Bar (hidden during print) */}
             <div
               className="no-print w-full max-w-4xl bg-white border border-stone-200 rounded-xl shadow-lg p-3.5 sm:p-4 mb-4 space-y-2.5 shrink-0"
               onClick={(e) => e.stopPropagation()}
@@ -3448,7 +3848,6 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               )}
             </div>
 
-            {/* A4 Printable Sheet Surface */}
             <div
               id="printable-attendance-sheet-card"
               className="w-full max-w-4xl bg-white border border-stone-200 rounded-xl shadow-xl p-5 sm:p-8 space-y-5 text-stone-900"
