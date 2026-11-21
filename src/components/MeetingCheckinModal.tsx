@@ -8,10 +8,12 @@ import {
   ClipboardCheck,
   Download,
   ExternalLink,
+  FileText,
   History,
   Lock,
   LogOut,
   MapPin,
+  PenTool,
   Plus,
   ShieldCheck,
   Trash2,
@@ -22,9 +24,11 @@ import {
 import {SCHOOL_DOMAIN} from '../services/googleAuth';
 import {
   buildMeetingCheckinsCsv,
+  buildPrintableMeetingSheetHtml,
   cancelMeetingCheckin,
   createMeetingSession,
   deleteMeetingSession,
+  isValidSignatureDataUrl,
   MeetingCheckin,
   MeetingSession,
   submitMeetingCheckin,
@@ -34,6 +38,7 @@ import {
   updateMeetingSession,
   updateMyCheckinNote,
 } from '../services/meetingCheckinDb';
+import {SignaturePad} from './SignaturePad';
 import {JournalPost} from '../types/journal';
 import {ACADEMIC_YEAR_OPTIONS} from '../data/seedPosts';
 
@@ -105,8 +110,18 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   const [submittingMeetingId, setSubmittingMeetingId] = useState<string | null>(
     null,
   );
+  const [activeSigningMeetingId, setActiveSigningMeetingId] = useState<
+    string | null
+  >(null);
+  const [signatureDraftByMeeting, setSignatureDraftByMeeting] = useState<
+    Record<string, string | null>
+  >({});
   const [editingCheckinId, setEditingCheckinId] = useState<string | null>(null);
   const [editingNoteDraft, setEditingNoteDraft] = useState<string>('');
+  const [editingSignatureDraft, setEditingSignatureDraft] = useState<
+    string | null
+  >(null);
+  const [showEditSignaturePad, setShowEditSignaturePad] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [sessionFilter, setSessionFilter] = useState<'all' | 'open'>('all');
 
@@ -238,6 +253,35 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     return meetings;
   }, [meetings, sessionFilter]);
 
+  const openMeetingsCount = useMemo(
+    () => meetings.filter((m) => m.isOpen).length,
+    [meetings],
+  );
+
+  // Auto-open signature pad for the first open unchecked-in meeting so teachers can sign right away
+  useEffect(() => {
+    if (!isOpen || !isSchoolAuthorized) return;
+    if (activeSigningMeetingId) {
+      const stillOpenUnchecked = meetings.some(
+        (m) =>
+          m.id === activeSigningMeetingId &&
+          m.isOpen &&
+          !myCheckinByMeetingId.has(m.id),
+      );
+      if (stillOpenUnchecked) return;
+    }
+    const nextOpen = meetings.find(
+      (m) => m.isOpen && !myCheckinByMeetingId.has(m.id),
+    );
+    setActiveSigningMeetingId(nextOpen ? nextOpen.id : null);
+  }, [
+    isOpen,
+    isSchoolAuthorized,
+    meetings,
+    myCheckinByMeetingId,
+    activeSigningMeetingId,
+  ]);
+
   const meetingPostsForLinking = useMemo(() => {
     return posts.slice(0, 60);
   }, [posts]);
@@ -245,6 +289,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   if (!isOpen) return null;
 
   const handleCheckin = async (meeting: MeetingSession) => {
+    const sigUrl = signatureDraftByMeeting[meeting.id] || '';
+    if (!isValidSignatureDataUrl(sigUrl)) {
+      setActiveSigningMeetingId(meeting.id);
+      setDbError('請先在「親自手寫簽名區」書寫您的簽名後，再送出會議簽到。');
+      return;
+    }
+
     setDbError(null);
     setStatusBanner(null);
     setSubmittingMeetingId(meeting.id);
@@ -254,9 +305,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         meetingId: meeting.id,
         meetingTitle: meeting.title,
         roleOrNote: teacherNoteInput.trim(),
+        signatureDataUrl: sigUrl,
         customDisplayName: customNameInput.trim() || undefined,
       });
-      setStatusBanner(`已完成「${meeting.title}」簽到！`);
+      setSignatureDraftByMeeting((prev) => {
+        const next = {...prev};
+        delete next[meeting.id];
+        return next;
+      });
+      setStatusBanner(`已完成「${meeting.title}」手寫簽名與出席簽到！`);
     } catch (err: any) {
       setDbError(err?.message || '簽到失敗，請再試一次。');
     } finally {
@@ -265,17 +322,35 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   };
 
   const handleUpdateNote = async (checkin: MeetingCheckin) => {
+    const needsSignature = !isValidSignatureDataUrl(checkin.signatureDataUrl);
+    const shouldIncludeSig = showEditSignaturePad || needsSignature;
+    const nextSig = shouldIncludeSig
+      ? editingSignatureDraft || undefined
+      : undefined;
+
+    if (shouldIncludeSig && !isValidSignatureDataUrl(nextSig)) {
+      setDbError('請先在下方畫布完成親自手寫簽名後再儲存。');
+      return;
+    }
+
     setDbError(null);
     try {
       await updateMyCheckinNote({
         checkinId: checkin.id,
         roleOrNote: editingNoteDraft.trim(),
+        signatureDataUrl: nextSig,
       });
       saveTeacherNote(editingNoteDraft.trim());
       setEditingCheckinId(null);
-      setStatusBanner('已更新您的簽到職務 / 備註。');
+      setEditingSignatureDraft(null);
+      setShowEditSignaturePad(false);
+      setStatusBanner(
+        nextSig
+          ? '已更新您的簽到備註與親自手寫簽名。'
+          : '已更新您的簽到職務 / 備註。',
+      );
     } catch (err: any) {
-      setDbError(err?.message || '更新備註失敗。');
+      setDbError(err?.message || '更新備註與簽名失敗。');
     }
   };
 
@@ -365,7 +440,27 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    setStatusBanner(`已匯出「${meeting.title}」簽到名冊 (${checkins.length} 人)。`);
+    setStatusBanner(`已匯出「${meeting.title}」簽到名冊 CSV (${checkins.length} 人)。`);
+  };
+
+  const handleExportPrintableSheet = (
+    meeting: MeetingSession,
+    checkins: MeetingCheckin[],
+  ) => {
+    const html = buildPrintableMeetingSheetHtml(meeting, checkins);
+    const blob = new Blob([html], {type: 'text/html;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeFile = meeting.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+    a.download = `會議簽到表_含親筆簽名_${safeFile}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setStatusBanner(
+      `已下載「${meeting.title}」含親筆簽名簽到表（開啟檔案即可直接列印或另存 PDF）。`,
+    );
   };
 
   const formatDateTime = (ms: number) =>
@@ -576,75 +671,135 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 </div>
               )}
 
-              {/* Navigation Tabs inside Check-in Hub */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-200 pb-3">
-                <div className="flex items-center gap-1.5 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg overflow-x-auto max-w-full">
+              {/* Navigation Tabs inside Check-in Hub (High-Clarity Tab Bar) */}
+              <div className="space-y-3">
+                <div
+                  role="tablist"
+                  aria-label="會議簽到功能頁籤"
+                  className={`grid gap-2 ${
+                    isTeacherAdmin ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'
+                  }`}
+                >
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'sessions'}
                     onClick={() => setActiveTab('sessions')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                    className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
                       activeTab === 'sessions'
-                        ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                        : 'text-stone-600 hover:text-stone-950'
+                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-sm'
+                        : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A]'
                     }`}
                   >
-                    <ClipboardCheck className="w-3.5 h-3.5" />
-                    <span>會議場次與簽到 ({meetings.length})</span>
+                    <span className="inline-flex items-center gap-2 min-w-0">
+                      <PenTool className="w-4 h-4 shrink-0" />
+                      <span className="text-xs sm:text-sm font-bold truncate">
+                        會議場次與手寫簽到
+                      </span>
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded-md shrink-0 ${
+                        activeTab === 'sessions'
+                          ? 'bg-white/20 text-white'
+                          : openMeetingsCount > 0
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-stone-100 text-stone-600'
+                      }`}
+                    >
+                      {openMeetingsCount > 0
+                        ? `${openMeetingsCount} 場開放`
+                        : `${meetings.length} 場`}
+                    </span>
                   </button>
 
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={activeTab === 'my-history'}
                     onClick={() => setActiveTab('my-history')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                    className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
                       activeTab === 'my-history'
-                        ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                        : 'text-stone-600 hover:text-stone-950'
+                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-sm'
+                        : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A]'
                     }`}
                   >
-                    <History className="w-3.5 h-3.5" />
-                    <span>我的簽到紀錄 ({myCheckins.length})</span>
+                    <span className="inline-flex items-center gap-2 min-w-0">
+                      <History className="w-4 h-4 shrink-0" />
+                      <span className="text-xs sm:text-sm font-bold truncate">
+                        我的簽到與簽名紀錄
+                      </span>
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 text-[11px] font-mono-tabular font-semibold rounded-md shrink-0 ${
+                        activeTab === 'my-history'
+                          ? 'bg-white/20 text-white'
+                          : 'bg-stone-100 text-stone-700'
+                      }`}
+                    >
+                      {myCheckins.length} 筆
+                    </span>
                   </button>
 
                   {isTeacherAdmin && (
                     <button
                       type="button"
+                      role="tab"
+                      aria-selected={activeTab === 'admin'}
                       onClick={() => setActiveTab('admin')}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                      className={`px-4 py-3 rounded-xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
                         activeTab === 'admin'
-                          ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                          : 'text-stone-600 hover:text-stone-950'
+                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-sm'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/45 hover:text-[#1E3A8A]'
                       }`}
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>建立會議場次</span>
+                      <span className="inline-flex items-center gap-2 min-w-0">
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span className="text-xs sm:text-sm font-bold truncate">
+                          建立新會議場次
+                        </span>
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 text-[11px] font-semibold rounded-md shrink-0 ${
+                          activeTab === 'admin'
+                            ? 'bg-white/20 text-white'
+                            : 'bg-[#1E3A8A]/8 text-[#1E3A8A]'
+                        }`}
+                      >
+                        管理專用
+                      </span>
                     </button>
                   )}
                 </div>
 
                 {activeTab === 'sessions' && meetings.length > 0 && (
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <button
-                      type="button"
-                      onClick={() => setSessionFilter('all')}
-                      className={`px-2.5 py-1 rounded-md border ${
-                        sessionFilter === 'all'
-                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                          : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
-                      }`}
-                    >
-                      全部場次
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSessionFilter('open')}
-                      className={`px-2.5 py-1 rounded-md border ${
-                        sessionFilter === 'open'
-                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                          : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
-                      }`}
-                    >
-                      僅看開放簽到
-                    </button>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-stone-600">
+                      請選擇下方開放中的會議場次，並於<strong className="text-[#1E3A8A]">親自手寫簽名區</strong>完成書寫送出。
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSessionFilter('all')}
+                        className={`px-2.5 py-1 rounded-md border ${
+                          sessionFilter === 'all'
+                            ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        全部場次 ({meetings.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSessionFilter('open')}
+                        className={`px-2.5 py-1 rounded-md border ${
+                          sessionFilter === 'open'
+                            ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                            : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-50'
+                        }`}
+                      >
+                        僅看開放簽到 ({openMeetingsCount})
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -807,55 +962,31 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               </p>
                             )}
 
-                            {/* Check-in Action Bar */}
-                            <div className="pt-3 border-t border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            {/* Check-in Action Bar + Handwritten Signature Pad */}
+                            <div className="pt-3 border-t border-stone-100 space-y-3">
                               {myRecord ? (
-                                <div className="flex-1 space-y-2">
-                                  <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-emerald-900 font-semibold">
-                                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                                    <span>您已完成此場次簽到</span>
-                                    <span className="font-mono-tabular text-xs font-normal text-stone-600">
-                                      ({formatDateTime(myRecord.checkedInAtMs)})
-                                    </span>
-                                  </div>
+                                <div className="space-y-3">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5">
+                                    <div className="space-y-1.5 min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-emerald-900 font-semibold">
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                                        <span>您已完成此場次簽到</span>
+                                        <span className="font-mono-tabular text-xs font-normal text-stone-600">
+                                          ({formatDateTime(myRecord.checkedInAtMs)})
+                                        </span>
+                                      </div>
 
-                                  {isEditingThis ? (
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <input
-                                        type="text"
-                                        maxLength={120}
-                                        value={editingNoteDraft}
-                                        onChange={(e) =>
-                                          setEditingNoteDraft(e.target.value)
-                                        }
-                                        placeholder="職務或年段備註"
-                                        className="flex-1 min-w-[180px] h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateNote(myRecord)}
-                                        className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
-                                      >
-                                        儲存備註
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setEditingCheckinId(null)}
-                                        className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-stone-100 rounded-lg hover:bg-stone-200"
-                                      >
-                                        取消
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600">
-                                      <span>
-                                        簽到姓名：{myRecord.userName}
-                                        {myRecord.roleOrNote
-                                          ? ` · 備註：${myRecord.roleOrNote}`
-                                          : ''}
-                                      </span>
-                                      {meeting.isOpen && (
-                                        <>
+                                      <div className="flex flex-wrap items-center gap-2 text-xs text-stone-700">
+                                        <span>
+                                          簽到姓名：{myRecord.userName}
+                                          {myRecord.roleOrNote
+                                            ? ` · 備註：${myRecord.roleOrNote}`
+                                            : ''}
+                                        </span>
+                                      </div>
+
+                                      {!isEditingThis && meeting.isOpen && (
+                                        <div className="flex flex-wrap items-center gap-3 text-xs pt-0.5">
                                           <button
                                             type="button"
                                             onClick={() => {
@@ -863,10 +994,16 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                               setEditingNoteDraft(
                                                 myRecord.roleOrNote,
                                               );
+                                              setEditingSignatureDraft(null);
+                                              setShowEditSignaturePad(
+                                                !isValidSignatureDataUrl(
+                                                  myRecord.signatureDataUrl,
+                                                ),
+                                              );
                                             }}
-                                            className="text-[#1E3A8A] hover:underline font-medium"
+                                            className="text-[#1E3A8A] hover:underline font-semibold"
                                           >
-                                            修改備註
+                                            修改備註 / 重簽名
                                           </button>
                                           {confirmCancelId === myRecord.id ? (
                                             <span className="inline-flex items-center gap-1.5">
@@ -900,30 +1037,198 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                               取消簽到
                                             </button>
                                           )}
-                                        </>
+                                        </div>
                                       )}
+                                    </div>
+
+                                    {isValidSignatureDataUrl(
+                                      myRecord.signatureDataUrl,
+                                    ) ? (
+                                      <div className="shrink-0 bg-white border border-stone-200 rounded-lg px-3 py-1.5 flex flex-col items-center gap-1">
+                                        <span className="text-[10px] font-medium text-stone-500">
+                                          本人親筆簽名存證
+                                        </span>
+                                        <img
+                                          src={myRecord.signatureDataUrl}
+                                          alt={`${myRecord.userName}親筆簽名`}
+                                          className="h-12 w-32 object-contain"
+                                        />
+                                      </div>
+                                    ) : (
+                                      <div className="shrink-0 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                        尚未附親筆簽名（點「修改備註 / 重簽名」可補簽）
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {isEditingThis && (
+                                    <div className="bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <input
+                                          type="text"
+                                          maxLength={120}
+                                          value={editingNoteDraft}
+                                          onChange={(e) =>
+                                            setEditingNoteDraft(e.target.value)
+                                          }
+                                          placeholder="職務或年段備註"
+                                          className="flex-1 min-w-[200px] h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                        />
+                                        {isValidSignatureDataUrl(
+                                          myRecord.signatureDataUrl,
+                                        ) && (
+                                          <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 cursor-pointer px-2 py-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={showEditSignaturePad}
+                                              onChange={(e) => {
+                                                setShowEditSignaturePad(
+                                                  e.target.checked,
+                                                );
+                                                if (!e.target.checked) {
+                                                  setEditingSignatureDraft(
+                                                    null,
+                                                  );
+                                                }
+                                              }}
+                                              className="rounded border-stone-300 text-[#1E3A8A]"
+                                            />
+                                            <span>重新手寫簽名</span>
+                                          </label>
+                                        )}
+                                      </div>
+
+                                      {(showEditSignaturePad ||
+                                        !isValidSignatureDataUrl(
+                                          myRecord.signatureDataUrl,
+                                        )) && (
+                                        <SignaturePad
+                                          signerLabel={
+                                            customNameInput.trim() ||
+                                            myRecord.userName
+                                          }
+                                          onChange={setEditingSignatureDraft}
+                                        />
+                                      )}
+
+                                      <div className="flex flex-wrap items-center justify-end gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingCheckinId(null);
+                                            setEditingSignatureDraft(null);
+                                            setShowEditSignaturePad(false);
+                                          }}
+                                          className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
+                                        >
+                                          取消
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleUpdateNote(myRecord)
+                                          }
+                                          className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
+                                        >
+                                          儲存變更
+                                        </button>
+                                      </div>
                                     </div>
                                   )}
                                 </div>
                               ) : meeting.isOpen ? (
-                                <div className="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                  <span className="text-xs text-stone-600">
-                                    點擊右側按鈕即會記錄您（{user?.email}）的出席與時間戳記。
-                                  </span>
-                                  <button
-                                    type="button"
-                                    disabled={submittingMeetingId === meeting.id}
-                                    onClick={() => handleCheckin(meeting)}
-                                    className="w-full sm:w-auto min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                                  >
-                                    <ClipboardCheck className="w-4 h-4" />
-                                    <span>
-                                      {submittingMeetingId === meeting.id
-                                        ? '簽到送出中...'
-                                        : '立即完成會議簽到'}
-                                    </span>
-                                  </button>
-                                </div>
+                                (() => {
+                                  const isPadExpanded =
+                                    activeSigningMeetingId === meeting.id;
+                                  const currentSigDraft =
+                                    signatureDraftByMeeting[meeting.id] || null;
+                                  const isSigReady =
+                                    isValidSignatureDataUrl(currentSigDraft);
+
+                                  return isPadExpanded ? (
+                                    <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3.5">
+                                      <SignaturePad
+                                        signerLabel={
+                                          customNameInput.trim() ||
+                                          user?.displayName ||
+                                          user?.email?.split('@')[0]
+                                        }
+                                        disabled={
+                                          submittingMeetingId === meeting.id
+                                        }
+                                        onChange={(dataUrl) =>
+                                          setSignatureDraftByMeeting(
+                                            (prev) => ({
+                                              ...prev,
+                                              [meeting.id]: dataUrl,
+                                            }),
+                                          )
+                                        }
+                                      />
+
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+                                        <span className="text-xs text-stone-600">
+                                          {isSigReady ? (
+                                            <span className="text-emerald-800 font-semibold">
+                                              ✓ 已擷取您的親筆簽名，點擊右側按鈕即可送出簽到。
+                                            </span>
+                                          ) : (
+                                            <span>
+                                              需先完成親自手寫簽名（系統會保存筆跡並記錄時間戳記）。
+                                            </span>
+                                          )}
+                                        </span>
+
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setActiveSigningMeetingId(null)
+                                            }
+                                            className="px-3 py-2 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
+                                          >
+                                            收合
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={
+                                              submittingMeetingId ===
+                                                meeting.id || !isSigReady
+                                            }
+                                            onClick={() =>
+                                              handleCheckin(meeting)
+                                            }
+                                            className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                                          >
+                                            <ClipboardCheck className="w-4 h-4" />
+                                            <span>
+                                              {submittingMeetingId ===
+                                              meeting.id
+                                                ? '簽名上傳簽到中...'
+                                                : '確認手寫簽名並完成簽到'}
+                                            </span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                      <span className="text-xs text-stone-600">
+                                        本場次採「親自手寫簽名」認證出席（帳號：{user?.email}）。
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setActiveSigningMeetingId(meeting.id)
+                                        }
+                                        className="w-full sm:w-auto min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                                      >
+                                        <PenTool className="w-4 h-4" />
+                                        <span>展開手寫簽名板進行簽到</span>
+                                      </button>
+                                    </div>
+                                  );
+                                })()
                               ) : (
                                 <span className="text-xs text-stone-500">
                                   此場次簽到已截止，您未留存本場簽到紀錄。
@@ -956,12 +1261,27 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       type="button"
                                       disabled={adminRoster.length === 0}
                                       onClick={() =>
+                                        handleExportPrintableSheet(
+                                          meeting,
+                                          adminRoster,
+                                        )
+                                      }
+                                      className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-40 inline-flex items-center gap-1.5"
+                                    >
+                                      <FileText className="w-3.5 h-3.5" />
+                                      <span>匯出含簽名簽到表 (可印 PDF)</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      disabled={adminRoster.length === 0}
+                                      onClick={() =>
                                         handleExportCsv(meeting, adminRoster)
                                       }
                                       className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-40 inline-flex items-center gap-1.5"
                                     >
                                       <Download className="w-3.5 h-3.5" />
-                                      <span>匯出名冊 CSV</span>
+                                      <span>匯出 CSV</span>
                                     </button>
                                   </div>
 
@@ -1028,6 +1348,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                               <th className="py-2.5 px-3 font-semibold">教師姓名</th>
                                               <th className="py-2.5 px-3 font-semibold">信箱</th>
                                               <th className="py-2.5 px-3 font-semibold">職務備註</th>
+                                              <th className="py-2.5 px-3 font-semibold">親自手寫簽名</th>
                                               <th className="py-2.5 px-3 font-semibold">簽到時間</th>
                                             </tr>
                                           </thead>
@@ -1045,6 +1366,25 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                                 </td>
                                                 <td className="py-2 px-3 text-stone-700">
                                                   {rec.roleOrNote || '—'}
+                                                </td>
+                                                <td className="py-2 px-3">
+                                                  {isValidSignatureDataUrl(
+                                                    rec.signatureDataUrl,
+                                                  ) ? (
+                                                    <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
+                                                      <img
+                                                        src={
+                                                          rec.signatureDataUrl
+                                                        }
+                                                        alt={`${rec.userName}親筆簽名`}
+                                                        className="h-9 w-24 object-contain"
+                                                      />
+                                                    </div>
+                                                  ) : (
+                                                    <span className="text-[11px] text-stone-400">
+                                                      未附簽名
+                                                    </span>
+                                                  )}
                                                 </td>
                                                 <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
                                                   {formatDateTime(rec.checkedInAtMs)}
@@ -1079,9 +1419,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       {myCheckins.map((item) => (
                         <div
                           key={item.id}
-                          className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                          className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                         >
-                          <div className="min-w-0 space-y-0.5">
+                          <div className="min-w-0 space-y-1">
                             <div className="text-sm font-semibold text-stone-950 truncate">
                               {item.meetingTitle}
                             </div>
@@ -1089,10 +1429,23 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               姓名：{item.userName}
                               {item.roleOrNote ? ` · 備註：${item.roleOrNote}` : ''}
                             </div>
+                            <div className="text-xs font-mono-tabular text-emerald-800 font-medium">
+                              已簽到 · {formatDateTime(item.checkedInAtMs)}
+                            </div>
                           </div>
-                          <div className="text-xs font-mono-tabular text-emerald-800 font-medium shrink-0">
-                            已簽到 · {formatDateTime(item.checkedInAtMs)}
-                          </div>
+                          {isValidSignatureDataUrl(item.signatureDataUrl) ? (
+                            <div className="shrink-0 bg-[#FBF9F5] border border-stone-200 rounded-lg px-2.5 py-1.5 self-start sm:self-center">
+                              <img
+                                src={item.signatureDataUrl}
+                                alt={`${item.userName}親筆簽名`}
+                                className="h-10 w-28 object-contain"
+                              />
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-stone-400 shrink-0">
+                              早期無簽名檔紀錄
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>

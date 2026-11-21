@@ -20,6 +20,7 @@ import {
   List,
   Lock,
   MonitorPlay,
+  PenTool,
   RefreshCw,
   Search,
   Sheet,
@@ -1413,16 +1414,20 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setMeetingCheckinState({isOpen: true})}
-                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                className={`px-3 py-1.5 rounded-lg border inline-flex items-center gap-1.5 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
                   meetingCheckinState.isOpen
-                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                    : 'text-stone-700'
+                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                    : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A]'
                 }`}
               >
                 {!isSchoolAuthorized ? (
-                  <Lock className="w-3.5 h-3.5 text-amber-700" />
+                  <Lock
+                    className={`w-3.5 h-3.5 ${
+                      meetingCheckinState.isOpen ? 'text-amber-200' : 'text-amber-700'
+                    }`}
+                  />
                 ) : (
-                  <CalendarCheck className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                  <PenTool className="w-3.5 h-3.5" />
                 )}
                 <span>會議簽到</span>
               </button>
@@ -1516,16 +1521,20 @@ export default function App() {
             <button
               type="button"
               onClick={() => setMeetingCheckinState({isOpen: true})}
-              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+              className={`px-3 py-1 rounded-lg border inline-flex items-center gap-1.5 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 font-semibold ${
                 meetingCheckinState.isOpen
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : 'text-stone-700'
+                  ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                  : 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
               }`}
             >
               {!isSchoolAuthorized ? (
-                <Lock className="w-3 h-3 text-amber-700" />
+                <Lock
+                  className={`w-3 h-3 ${
+                    meetingCheckinState.isOpen ? 'text-amber-200' : 'text-amber-700'
+                  }`}
+                />
               ) : (
-                <CalendarCheck className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                <PenTool className="w-3.5 h-3.5" />
               )}
               <span>會議簽到</span>
             </button>
@@ -2021,10 +2030,10 @@ export default function App() {
                   </span>
                 </div>
                 <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950">
-                  領域會議線上簽到與出席紀錄系統
+                  領域會議線上簽到與親筆簽名系統
                 </h2>
                 <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                  社群老師可使用 @hmes.tp.edu.tw 帳號一鍵簽到與查看個人出席歷程；管理教師可建立會議場次、即時統計名單與匯出 CSV 簽到表。
+                  社群老師使用 @hmes.tp.edu.tw 帳號登入後即可親自手寫簽名完成簽到並保留簽名存證；管理教師可建立場次、檢視簽名名單與匯出可列印含簽名之簽到表。
                 </p>
               </div>
 
@@ -2035,7 +2044,7 @@ export default function App() {
                     onClick={() =>
                       openSchoolAccessModal(
                         '登入 @hmes.tp.edu.tw 學校帳號',
-                        '登入後可同步解鎖網站上的校內限定專欄、選項與領域會議線上簽到專區。',
+                        '登入後可同步解鎖網站上的校內限定專欄、選項與領域會議親自手寫簽名專區。',
                       )
                     }
                     className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#FBF9F5] border border-[#1E3A8A]/30 rounded-lg hover:bg-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
@@ -2052,9 +2061,9 @@ export default function App() {
                   {!isSchoolAuthorized ? (
                     <Lock className="w-3.5 h-3.5" />
                   ) : (
-                    <CalendarCheck className="w-3.5 h-3.5" />
+                    <PenTool className="w-3.5 h-3.5" />
                   )}
-                  <span>開啟會議簽到專區</span>
+                  <span>開啟會議手寫簽到</span>
                 </button>
               </div>
             </div>
@@ -2086,26 +2095,61 @@ export default function App() {
                   const isActive = selectedCategory === cat;
                   const count = categoryCounts.get(cat) ?? 0;
                   return (
-                    <button
-                      key={cat}
-                      type="button"
-                      data-active={isActive ? 'true' : undefined}
-                      onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
-                        isActive
-                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
-                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
-                      }`}
-                    >
-                      <span>{cat === '全部分類' ? '全部主題' : cat}</span>
-                      <span
-                        className={`font-mono-tabular text-xs ${
-                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
+                    <React.Fragment key={cat}>
+                      <button
+                        type="button"
+                        data-active={isActive ? 'true' : undefined}
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
+                          isActive
+                            ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
+                            : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
                         }`}
                       >
-                        {count}
-                      </span>
-                    </button>
+                        <span>{cat === '全部分類' ? '全部主題' : cat}</span>
+                        <span
+                          className={`font-mono-tabular text-xs ${
+                            isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
+                          }`}
+                        >
+                          {count}
+                        </span>
+                      </button>
+
+                      {cat === '全部分類' && (
+                        <button
+                          type="button"
+                          onClick={() => setMeetingCheckinState({isOpen: true})}
+                          className={`mx-1 px-3 py-1.5 text-sm border rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] font-semibold ${
+                            meetingCheckinState.isOpen
+                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
+                              : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
+                          }`}
+                        >
+                          {!isSchoolAuthorized ? (
+                            <Lock
+                              className={`w-3.5 h-3.5 ${
+                                meetingCheckinState.isOpen
+                                  ? 'text-amber-200'
+                                  : 'text-amber-700'
+                              }`}
+                            />
+                          ) : (
+                            <PenTool className="w-3.5 h-3.5" />
+                          )}
+                          <span>會議簽到</span>
+                          <span
+                            className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                              meetingCheckinState.isOpen
+                                ? 'bg-white/20 text-white'
+                                : 'bg-white text-[#1E3A8A] border border-[#1E3A8A]/20'
+                            }`}
+                          >
+                            親筆簽名
+                          </span>
+                        </button>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </div>

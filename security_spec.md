@@ -13,6 +13,7 @@
    - Identity & Anti-Spoofing invariant: `incoming().userUid == request.auth.uid` and `incoming().userEmail.lower() == request.auth.token.email.lower()`.
    - PII Isolation invariant: Check-in documents contain `userEmail`, so `get` and `list` are strictly restricted to `isAdmin()` or the owning teacher (`resource.data.userUid == request.auth.uid`).
    - Temporal Integrity invariant: `checkedInAt == request.time` on create; `checkedInAt`, `meetingId`, `userUid`, and `userEmail` are immutable on update.
+   - Handwritten Signature Integrity invariant: `signatureDataUrl` is mandatory on create and must strictly match `^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$` within `[22, 200000]` bytes (no SVG/HTML/JS URLs).
 5. **Site Configuration (`/siteConfig/main`) & Gallery (`/ximenGalleryItems/{itemId}`)**:
    - Strict `keys().hasAll(...) && keys().hasOnly(...)` + type & `.size()` bounds on every string and array (`lockedCategories <= 20`, `lockedNavOptions <= 10`, `hiddenOfficialAssetIds <= 50`).
 
@@ -28,4 +29,4 @@
 9. **School member reading another teacher's check-in (`get /meetingCheckins/mtg_1_otherUid`) or blanket `list /meetingCheckins` without `where('userUid', '==', uid)`**: Fails PII isolation -> denied.
 10. **Shadow update on `/meetingCheckins/{id}` adding ghost field `isAdminApproved: true`**: Fails `hasOnly(...)` schema check -> denied.
 11. **Timestamp spoofing on check-in (`checkedInAt` backdated client timestamp)**: Fails `incoming().checkedInAt == request.time` -> denied.
-12. **Resource exhaustion / ID poisoning (`meetingId` > 128 chars or `agendaSummary` > 1000 chars or `meetUrl: "javascript:alert(1)"`)**: Fails `isValidId()` / `.size()` / `^https://.*` -> denied.
+12. **Resource exhaustion / SVG XSS / ID poisoning (`meetingId` > 128 chars, `agendaSummary` > 1000 chars, `meetUrl: "javascript:alert(1)"`, or `signatureDataUrl: "data:image/svg+xml;base64,..."` / > 200KB)**: Fails `isValidId()` / `.size()` / regex guards -> denied.

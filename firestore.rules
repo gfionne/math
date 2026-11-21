@@ -215,6 +215,7 @@ service cloud.firestore {
         'userName',
         'userEmail',
         'roleOrNote',
+        'signatureDataUrl',
         'checkedInAt',
         'updatedAt'
       ]) &&
@@ -225,6 +226,7 @@ service cloud.firestore {
         'userName',
         'userEmail',
         'roleOrNote',
+        'signatureDataUrl',
         'checkedInAt',
         'updatedAt'
       ]) &&
@@ -234,6 +236,10 @@ service cloud.firestore {
       data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100 &&
       data.userEmail is string && data.userEmail.size() >= 5 && data.userEmail.size() <= 200 &&
       data.roleOrNote is string && data.roleOrNote.size() <= 120 &&
+      data.signatureDataUrl is string &&
+      data.signatureDataUrl.size() >= 22 &&
+      data.signatureDataUrl.size() <= 200000 &&
+      data.signatureDataUrl.matches('^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$') &&
       data.checkedInAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -371,7 +377,12 @@ service cloud.firestore {
           isAdmin() || (
             isSchoolMember() &&
             existing().userUid == request.auth.uid &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['roleOrNote', 'userName', 'updatedAt']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'roleOrNote',
+              'userName',
+              'signatureDataUrl',
+              'updatedAt'
+            ]) &&
             exists(/databases/$(database)/documents/meetings/$(existing().meetingId)) &&
             get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data.isOpen == true
           )

@@ -323,6 +323,13 @@
           "description": "Optional teaching grade or attendance remark.",
           "maxLength": 120
         },
+        "signatureDataUrl": {
+          "type": "string",
+          "description": "Base64-encoded PNG/WebP/JPEG data URL of the teacher's personal handwritten signature.",
+          "minLength": 22,
+          "maxLength": 200000,
+          "pattern": "^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$"
+        },
         "checkedInAt": {
           "type": "string",
           "format": "date-time",
@@ -341,6 +348,7 @@
         "userName",
         "userEmail",
         "roleOrNote",
+        "signatureDataUrl",
         "checkedInAt",
         "updatedAt"
       ]
