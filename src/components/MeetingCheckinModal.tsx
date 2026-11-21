@@ -4,6 +4,7 @@ import {User} from 'firebase/auth';
 import QRCode from 'qrcode';
 import {
   AlertCircle,
+  AlertTriangle,
   BookOpen,
   CalendarCheck,
   Check,
@@ -38,6 +39,7 @@ import {
   createMeetingSession,
   deleteMeetingSession,
   deleteParentCheckinForAdmin,
+  getMeetingCheckinCountdown,
   getMeetingCheckinWindowState,
   isValidSignatureDataUrl,
   MeetingCheckin,
@@ -330,7 +332,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     setNowMs(Date.now());
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
-    }, 10000);
+    }, 1000);
     return () => window.clearInterval(timer);
   }, [isOpen]);
 
@@ -2251,10 +2253,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                   </div>
                                   <div className="flex-1 min-w-0 space-y-2.5 text-xs">
                                     <div className="font-bold text-emerald-950 text-sm">
-                                      學校日現場掃碼 · 家長免登入專屬連結
+                                      學校日現場掃碼 · 家長免登入獨立簽到專頁
                                     </div>
                                     <p className="text-stone-700 leading-relaxed">
-                                      家長用手機掃描此 QR Code 或點擊連結，將直接開啟本場次簽到表單，填寫學生班級姓名與親筆簽名即可完成。
+                                      家長用手機掃描此 QR Code 或點擊連結，將開啟獨立的學校日簽到專頁（不需進入數學知識庫網頁，也不需登入帳號），填寫學生班級姓名與親筆簽名即可完成。
                                     </p>
                                     <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
                                       {buildDirectCheckinUrl('parent', meeting.id)}
@@ -2281,6 +2283,18 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                             : '複製家長簽到網址'}
                                         </span>
                                       </button>
+                                      <a
+                                        href={buildDirectCheckinUrl(
+                                          'parent',
+                                          meeting.id,
+                                        )}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-3 py-1.5 text-xs font-semibold text-emerald-950 bg-white border border-emerald-300 rounded-lg hover:bg-emerald-100/70 inline-flex items-center gap-1.5"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                        <span>開啟獨立家長簽到頁</span>
+                                      </a>
                                       {qrDataUrlByMeeting[
                                         `parent:${meeting.id}`
                                       ] && (
@@ -2981,6 +2995,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           meeting,
                           nowMs,
                         );
+                        const countdown = getMeetingCheckinCountdown(
+                          meeting,
+                          nowMs,
+                        );
                         const isCurrentlySignable =
                           windowState.status === 'open';
                         const adminTeacherRoster = isTeacherAdmin
@@ -3036,20 +3054,46 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
                                 {(meeting.checkinStartAtMs !== null ||
                                   meeting.checkinEndAtMs !== null) && (
-                                  <div className="inline-flex flex-wrap items-center gap-1.5 text-xs text-[#1E3A8A] bg-[#1E3A8A]/6 border border-[#1E3A8A]/15 rounded-md px-2.5 py-1">
-                                    <Clock className="w-3.5 h-3.5 shrink-0" />
-                                    <span>
-                                      開放簽名時段：
-                                      {meeting.checkinStartAtMs !== null
-                                        ? formatDateTime(
-                                            meeting.checkinStartAtMs,
-                                          )
-                                        : '立即開放'}
-                                      {' ～ '}
-                                      {meeting.checkinEndAtMs !== null
-                                        ? formatDateTime(meeting.checkinEndAtMs)
-                                        : '不限截止'}
-                                    </span>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className="inline-flex flex-wrap items-center gap-1.5 text-xs text-[#1E3A8A] bg-[#1E3A8A]/6 border border-[#1E3A8A]/15 rounded-md px-2.5 py-1">
+                                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        開放簽名時段：
+                                        {meeting.checkinStartAtMs !== null
+                                          ? formatDateTime(
+                                              meeting.checkinStartAtMs,
+                                            )
+                                          : '立即開放'}
+                                        {' ～ '}
+                                        {meeting.checkinEndAtMs !== null
+                                          ? formatDateTime(
+                                              meeting.checkinEndAtMs,
+                                            )
+                                          : '不限截止'}
+                                      </span>
+                                    </div>
+
+                                    {countdown && (
+                                      <div
+                                        className={`inline-flex items-center gap-1.5 text-xs font-mono-tabular rounded-md px-2.5 py-1 ${
+                                          countdown.isUrgent
+                                            ? 'bg-red-50 border border-red-200 text-red-600 font-bold'
+                                            : 'bg-stone-50 border border-stone-200 text-[#1E3A8A] font-semibold'
+                                        }`}
+                                      >
+                                        {countdown.isUrgent ? (
+                                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-600" />
+                                        ) : (
+                                          <Clock className="w-3.5 h-3.5 shrink-0 text-[#1E3A8A]" />
+                                        )}
+                                        <span>
+                                          倒數計時：{countdown.formattedText}
+                                          {countdown.isUrgent
+                                            ? '（即將截止，請盡速簽名）'
+                                            : ''}
+                                        </span>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
 

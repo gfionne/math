@@ -162,6 +162,54 @@ export function getMeetingCheckinWindowState(
   };
 }
 
+export interface MeetingCountdownInfo {
+  remainingMs: number;
+  isUrgent: boolean;
+  formattedText: string;
+}
+
+const TEN_MINUTES_MS = 10 * 60 * 1000;
+
+export function getMeetingCheckinCountdown(
+  meeting: MeetingSession,
+  nowMs = Date.now(),
+): MeetingCountdownInfo | null {
+  if (!meeting.isOpen || meeting.checkinEndAtMs === null) {
+    return null;
+  }
+  if (meeting.checkinStartAtMs !== null && nowMs < meeting.checkinStartAtMs) {
+    return null;
+  }
+  const remainingMs = meeting.checkinEndAtMs - nowMs;
+  if (remainingMs <= 0) {
+    return null;
+  }
+
+  const totalSeconds = Math.ceil(remainingMs / 1000);
+  const isUrgent = remainingMs < TEN_MINUTES_MS;
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+
+  let formattedText: string;
+  if (days > 0) {
+    formattedText = `剩餘 ${days} 天 ${hours} 小時 ${pad2(minutes)} 分`;
+  } else if (hours > 0) {
+    formattedText = `剩餘 ${hours} 小時 ${pad2(minutes)} 分 ${pad2(seconds)} 秒`;
+  } else {
+    formattedText = `剩餘 ${pad2(minutes)} 分 ${pad2(seconds)} 秒`;
+  }
+
+  return {
+    remainingMs,
+    isUrgent,
+    formattedText,
+  };
+}
+
 function truncateChars(value: string, maxLength: number): string {
   const trimmed = value.trim();
   if (trimmed.length <= maxLength) return trimmed;

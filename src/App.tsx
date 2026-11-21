@@ -6,11 +6,15 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
+  AlertTriangle,
   ArrowUpRight,
+  BellRing,
   BookOpen,
   CalendarCheck,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
   ExternalLink,
   FileText,
   GalleryHorizontalEnd,
@@ -40,6 +44,7 @@ import {
 import {MeetingCheckinModal} from './components/MeetingCheckinModal';
 import {SchoolAccessModal} from './components/SchoolAccessModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
+import {StandaloneParentCheckinPage} from './components/StandaloneParentCheckinPage';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
@@ -75,10 +80,12 @@ import {
   subscribeSharedSiteConfig,
 } from './services/firestoreSync';
 import {
+  getMeetingCheckinCountdown,
   getMeetingCheckinWindowState,
+  MeetingCheckin,
   MeetingSession,
   subscribeMeetings,
-  subscribeParentMeetings,
+  subscribeMyCheckins,
 } from './services/meetingCheckinDb';
 import {
   appendPostToSheet,
@@ -119,7 +126,7 @@ function readLocalHiddenOfficialAssetIds(): string[] {
   return [];
 }
 
-export default function App() {
+function MainKnowledgeBaseApp() {
   // Data & Source State
   const [posts, setPosts] = useState<JournalPost[]>(SEED_POSTS);
   const [dataSourceMode, setDataSourceMode] = useState<DataSourceMode>('seed');
@@ -198,12 +205,12 @@ export default function App() {
     audienceMode?: 'parent' | 'teacher';
     meetingId?: string;
   }>({isOpen: false});
-  const [liveParentSessions, setLiveParentSessions] = useState<MeetingSession[]>(
-    [],
-  );
   const [liveTeacherSessions, setLiveTeacherSessions] = useState<
     MeetingSession[]
   >([]);
+  const [myTeacherCheckins, setMyTeacherCheckins] = useState<MeetingCheckin[]>(
+    [],
+  );
   const [checkinClockMs, setCheckinClockMs] = useState<number>(() =>
     Date.now(),
   );
@@ -311,39 +318,37 @@ export default function App() {
   }, [user]);
 
   // Subscribe strictly by current audience/role so homepage check-in UI ONLY appears when an admin has an open session
+  const hasTimedTeacherSession = useMemo(
+    () =>
+      isSchoolAuthorized &&
+      liveTeacherSessions.some((m) => m.isOpen && m.checkinEndAtMs !== null),
+    [isSchoolAuthorized, liveTeacherSessions],
+  );
+
   useEffect(() => {
+    setCheckinClockMs(Date.now());
+    const intervalMs = hasTimedTeacherSession ? 1000 : 30000;
     const timer = window.setInterval(() => {
       setCheckinClockMs(Date.now());
-    }, 30000);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [hasTimedTeacherSession]);
 
   useEffect(() => {
-    if (isTeacherAdmin) {
-      const unsubParents = subscribeParentMeetings(setLiveParentSessions);
-      const unsubTeachers = subscribeMeetings(setLiveTeacherSessions);
-      return () => {
-        unsubParents();
-        unsubTeachers();
-      };
+    if (!isSchoolAuthorized) {
+      setLiveTeacherSessions([]);
+      setMyTeacherCheckins([]);
+      return;
     }
-    if (isSchoolAuthorized) {
-      setLiveParentSessions([]);
-      const unsubTeachers = subscribeMeetings(setLiveTeacherSessions);
-      return () => unsubTeachers();
-    }
-    setLiveTeacherSessions([]);
-    const unsubParents = subscribeParentMeetings(setLiveParentSessions);
-    return () => unsubParents();
-  }, [isSchoolAuthorized, isTeacherAdmin]);
-
-  const activeOpenParentSessions = useMemo(
-    () =>
-      liveParentSessions.filter(
-        (m) => getMeetingCheckinWindowState(m, checkinClockMs).status === 'open',
-      ),
-    [liveParentSessions, checkinClockMs],
-  );
+    const unsubTeachers = subscribeMeetings(setLiveTeacherSessions);
+    const unsubMyCheckins = user?.uid
+      ? subscribeMyCheckins(user.uid, setMyTeacherCheckins)
+      : () => {};
+    return () => {
+      unsubTeachers();
+      unsubMyCheckins();
+    };
+  }, [isSchoolAuthorized, user?.uid]);
 
   const activeOpenTeacherSessions = useMemo(
     () =>
@@ -351,6 +356,27 @@ export default function App() {
         (m) => getMeetingCheckinWindowState(m, checkinClockMs).status === 'open',
       ),
     [liveTeacherSessions, checkinClockMs],
+  );
+
+  const checkedTeacherMeetingIds = useMemo(
+    () => new Set(myTeacherCheckins.map((item) => item.meetingId)),
+    [myTeacherCheckins],
+  );
+
+  const uncheckedOpenTeacherSessions = useMemo(
+    () =>
+      activeOpenTeacherSessions.filter(
+        (m) => !checkedTeacherMeetingIds.has(m.id),
+      ),
+    [activeOpenTeacherSessions, checkedTeacherMeetingIds],
+  );
+
+  const checkedOpenTeacherSessions = useMemo(
+    () =>
+      activeOpenTeacherSessions.filter((m) =>
+        checkedTeacherMeetingIds.has(m.id),
+      ),
+    [activeOpenTeacherSessions, checkedTeacherMeetingIds],
   );
 
   const applyRemoteSettingsIfEnabled = useCallback(
@@ -439,14 +465,10 @@ export default function App() {
         class403Param === 'comments'
       ) {
         openClass403Stage(class403Param);
-      } else if (
-        checkinParam === 'parent' ||
-        checkinParam === 'teacher' ||
-        meetingParam
-      ) {
+      } else if (checkinParam === 'teacher' || meetingParam) {
         setMeetingCheckinState({
           isOpen: true,
-          audienceMode: checkinParam === 'teacher' ? 'teacher' : 'parent',
+          audienceMode: 'teacher',
           meetingId: meetingParam || undefined,
         });
       }
@@ -1704,6 +1726,203 @@ export default function App() {
       )}
 
       <main id="top" className="flex-1">
+        {/* Top Priority Teacher Meeting Check-In Notification Card (First card inside Knowledge Base when logged in & open) */}
+        {isSchoolAuthorized && activeOpenTeacherSessions.length > 0 && (
+          <section
+            aria-label="教師社群會議簽名通知"
+            className="bg-[#FBF9F5] border-b border-stone-200 px-4 sm:px-6 pt-4 pb-4"
+          >
+            <div className="max-w-7xl mx-auto">
+              {uncheckedOpenTeacherSessions.length > 0
+                ? (() => {
+                    const targetMeeting = uncheckedOpenTeacherSessions[0];
+                    const countdown = getMeetingCheckinCountdown(
+                      targetMeeting,
+                      checkinClockMs,
+                    );
+                    const isUrgent = Boolean(countdown?.isUrgent);
+
+                    return (
+                      <div
+                        className={`bg-white border-2 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                          isUrgent ? 'border-red-600' : 'border-[#1E3A8A]'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3.5 min-w-0">
+                          <div
+                            className={`w-11 h-11 rounded-xl text-white flex items-center justify-center shrink-0 ${
+                              isUrgent ? 'bg-red-600' : 'bg-[#1E3A8A]'
+                            }`}
+                          >
+                            {isUrgent ? (
+                              <AlertTriangle className="w-5 h-5" />
+                            ) : (
+                              <BellRing className="w-5 h-5" />
+                            )}
+                          </div>
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <span
+                                className={`px-2 py-0.5 rounded-md text-white font-semibold whitespace-nowrap ${
+                                  isUrgent ? 'bg-red-600' : 'bg-[#1E3A8A]'
+                                }`}
+                              >
+                                {isUrgent
+                                  ? '簽到即將截止 · 尚未簽到'
+                                  : '會議簽名通知 · 尚未簽到'}
+                              </span>
+                              <span
+                                className={`font-medium ${
+                                  isUrgent
+                                    ? 'text-red-600 font-semibold'
+                                    : 'text-[#1E3A8A]'
+                                }`}
+                              >
+                                目前有 {uncheckedOpenTeacherSessions.length}{' '}
+                                場會議開放手寫簽名
+                              </span>
+                            </div>
+                            <h2 className="font-editorial text-lg sm:text-xl font-bold text-stone-950 break-words">
+                              {targetMeeting.title}
+                            </h2>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-600">
+                              <span className="font-mono-tabular font-medium text-stone-700">
+                                {targetMeeting.meetingDate}
+                              </span>
+                              {targetMeeting.location && (
+                                <span>地點：{targetMeeting.location}</span>
+                              )}
+                              {targetMeeting.checkinEndAtMs !== null && (
+                                <span className="inline-flex items-center gap-1 text-stone-700 font-medium">
+                                  <Clock className="w-3.5 h-3.5 shrink-0 text-stone-500" />
+                                  <span>
+                                    簽名截止：
+                                    {new Date(
+                                      targetMeeting.checkinEndAtMs,
+                                    ).toLocaleString('zh-TW', {
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                      hour12: false,
+                                    })}
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+
+                            {countdown && (
+                              <div
+                                className={`pt-0.5 flex flex-wrap items-center gap-1.5 font-mono-tabular ${
+                                  countdown.isUrgent
+                                    ? 'text-sm sm:text-base font-bold text-red-600'
+                                    : 'text-xs sm:text-sm font-semibold text-[#1E3A8A]'
+                                }`}
+                              >
+                                {countdown.isUrgent ? (
+                                  <AlertTriangle className="w-4 h-4 shrink-0 text-red-600" />
+                                ) : (
+                                  <Clock className="w-3.5 h-3.5 shrink-0 text-[#1E3A8A]" />
+                                )}
+                                <span>
+                                  倒數計時：{countdown.formattedText}
+                                  {countdown.isUrgent
+                                    ? '（簽到即將結束，請盡速簽名！）'
+                                    : ''}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMeetingCheckinState({
+                                isOpen: true,
+                                audienceMode: 'teacher',
+                                meetingId: targetMeeting.id,
+                              })
+                            }
+                            className={`min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white rounded-xl active:scale-[0.98] inline-flex items-center justify-center gap-2 transition-all shadow-xs whitespace-nowrap shrink-0 ${
+                              isUrgent
+                                ? 'bg-red-600 hover:bg-red-700'
+                                : 'bg-[#1E3A8A] hover:bg-[#172554]'
+                            }`}
+                          >
+                            <PenTool className="w-4 h-4 shrink-0" />
+                            <span>立即手寫簽名簽到</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()
+                : (() => {
+                    const signedMeeting = checkedOpenTeacherSessions[0];
+                    const countdown = getMeetingCheckinCountdown(
+                      signedMeeting,
+                      checkinClockMs,
+                    );
+                    const isUrgent = Boolean(countdown?.isUrgent);
+
+                    return (
+                      <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-start sm:items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="text-xs font-semibold text-emerald-900">
+                              本日開放會議已完成簽到（共{' '}
+                              {checkedOpenTeacherSessions.length} 場）
+                            </div>
+                            <div className="font-editorial text-base sm:text-lg font-bold text-stone-950 truncate">
+                              {signedMeeting.title}
+                            </div>
+                            {countdown && (
+                              <div
+                                className={`flex flex-wrap items-center gap-1.5 text-xs font-mono-tabular ${
+                                  isUrgent
+                                    ? 'font-bold text-red-600'
+                                    : 'font-medium text-emerald-900'
+                                }`}
+                              >
+                                {isUrgent ? (
+                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-600" />
+                                ) : (
+                                  <Clock className="w-3.5 h-3.5 shrink-0 text-emerald-700" />
+                                )}
+                                <span>
+                                  簽到結束倒數：{countdown.formattedText}
+                                  {isUrgent ? '（即將截止修改）' : ''}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setMeetingCheckinState({
+                              isOpen: true,
+                              audienceMode: 'teacher',
+                              meetingId: signedMeeting.id,
+                            })
+                          }
+                          className="min-h-[38px] px-4 py-2 text-xs font-semibold text-emerald-950 bg-white border border-emerald-300 rounded-xl hover:bg-emerald-100/70 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                        >
+                          <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
+                          <span>檢視 / 修改簽名</span>
+                        </button>
+                      </div>
+                    );
+                  })()}
+            </div>
+          </section>
+        )}
+
         {/* Editorial Masthead + Prominent First-Screen Search + Compact Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-7 lg:py-9">
@@ -2068,102 +2287,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Dynamic Active Check-In Strip: ONLY rendered when manager currently has an open session */}
-            {(activeOpenTeacherSessions.length > 0 ||
-              activeOpenParentSessions.length > 0) && (
-              <div className="space-y-3 min-w-0">
-                {activeOpenTeacherSessions.length > 0 && (
-                  <div className="bg-white border border-[#1E3A8A]/30 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0 shadow-xs">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-[#1E3A8A] font-semibold">
-                        <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
-                        <span>教師社群會議簽到開放中</span>
-                        {activeOpenTeacherSessions.length > 1 && (
-                          <span className="font-mono-tabular text-stone-600">
-                            （目前共 {activeOpenTeacherSessions.length} 場開放）
-                          </span>
-                        )}
-                      </div>
-                      <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950 truncate">
-                        {activeOpenTeacherSessions[0].title}
-                      </h2>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-stone-600">
-                        <span className="font-mono-tabular">
-                          {activeOpenTeacherSessions[0].meetingDate}
-                        </span>
-                        {activeOpenTeacherSessions[0].location && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{activeOpenTeacherSessions[0].location}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setMeetingCheckinState({
-                          isOpen: true,
-                          audienceMode: 'teacher',
-                          meetingId: activeOpenTeacherSessions[0].id,
-                        })
-                      }
-                      className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                    >
-                      <PenTool className="w-4 h-4" />
-                      <span>立即手寫簽名簽到</span>
-                    </button>
-                  </div>
-                )}
-
-                {activeOpenParentSessions.length > 0 && (
-                  <div className="bg-white border border-emerald-600/30 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0 shadow-xs">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-emerald-800 font-semibold">
-                        <UserCheck className="w-3.5 h-3.5 shrink-0" />
-                        <span>學校日家長簽到開放中</span>
-                        <span aria-hidden="true" className="text-stone-300">
-                          ·
-                        </span>
-                        <span className="text-stone-600 font-medium">
-                          免登入帳號
-                        </span>
-                      </div>
-                      <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950 truncate">
-                        {activeOpenParentSessions[0].title}
-                      </h2>
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-stone-600">
-                        <span className="font-mono-tabular">
-                          {activeOpenParentSessions[0].meetingDate}
-                        </span>
-                        {activeOpenParentSessions[0].location && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{activeOpenParentSessions[0].location}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setMeetingCheckinState({
-                          isOpen: true,
-                          audienceMode: 'parent',
-                          meetingId: activeOpenParentSessions[0].id,
-                        })
-                      }
-                      className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-emerald-700 rounded-lg hover:bg-emerald-800 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                    >
-                      <PenTool className="w-4 h-4" />
-                      <span>立即免登入簽到</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </section>
 
@@ -2808,4 +2931,24 @@ export default function App() {
       />
     </div>
   );
+}
+
+export default function App() {
+  const initialRoute = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    const checkinParam = params.get('checkin');
+    const meetingParam = params.get('meeting') || undefined;
+    return {
+      isStandaloneParent: checkinParam === 'parent',
+      meetingId: meetingParam,
+    };
+  }, []);
+
+  if (initialRoute.isStandaloneParent) {
+    return (
+      <StandaloneParentCheckinPage initialMeetingId={initialRoute.meetingId} />
+    );
+  }
+
+  return <MainKnowledgeBaseApp />;
 }
