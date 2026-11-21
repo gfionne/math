@@ -1,4 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
 import {User} from 'firebase/auth';
 import {
   AlertCircle,
@@ -16,6 +17,7 @@ import {
   MapPin,
   PenTool,
   Plus,
+  Printer,
   ShieldCheck,
   Trash2,
   Users,
@@ -42,6 +44,10 @@ import {
   updateMyCheckinNote,
 } from '../services/meetingCheckinDb';
 import {SignaturePad} from './SignaturePad';
+import {
+  generateMeetingAttendancePdfBlob,
+  triggerSafeBlobDownload,
+} from '../utils/meetingPdfExport';
 import {JournalPost} from '../types/journal';
 import {ACADEMIC_YEAR_OPTIONS} from '../data/seedPosts';
 
@@ -181,6 +187,18 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     null,
   );
 
+  // Printable Roster Preview & Real PDF Export State
+  const [previewRoster, setPreviewRoster] = useState<{
+    meeting: MeetingSession;
+    checkins: MeetingCheckin[];
+  } | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfNotice, setPdfNotice] = useState<string | null>(null);
+  const [readyPdfDownload, setReadyPdfDownload] = useState<{
+    url: string;
+    filename: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
     setNowMs(Date.now());
@@ -199,12 +217,25 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        if (previewRoster) {
+          setPreviewRoster(null);
+        } else {
+          onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, initialLinkedPostSlug, onClose]);
+  }, [isOpen, initialLinkedPostSlug, onClose, previewRoster]);
+
+  useEffect(() => {
+    return () => {
+      if (readyPdfDownload?.url) {
+        URL.revokeObjectURL(readyPdfDownload.url);
+      }
+      document.body.classList.remove('printing-attendance-sheet');
+    };
+  }, [readyPdfDownload]);
 
   useEffect(() => {
     if (user?.displayName && !customNameInput) {
@@ -563,36 +594,91 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   ) => {
     const csv = buildMeetingCheckinsCsv(meeting, checkins);
     const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
     const safeFile = meeting.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
-    a.download = `會議簽到名冊_${safeFile}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    triggerSafeBlobDownload(blob, `會議簽到名冊_${safeFile}.csv`);
     setStatusBanner(`已匯出「${meeting.title}」簽到名冊 CSV (${checkins.length} 人)。`);
   };
 
-  const handleExportPrintableSheet = (
+  const handleOpenPrintablePreview = (
     meeting: MeetingSession,
     checkins: MeetingCheckin[],
   ) => {
-    const html = buildPrintableMeetingSheetHtml(meeting, checkins);
-    const blob = new Blob([html], {type: 'text/html;charset=utf-8;'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const safeFile = meeting.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
-    a.download = `會議簽到表_含親筆簽名_${safeFile}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    setStatusBanner(
-      `已下載「${meeting.title}」含親筆簽名簽到表（開啟檔案即可直接列印或另存 PDF）。`,
+    if (readyPdfDownload?.url) {
+      URL.revokeObjectURL(readyPdfDownload.url);
+    }
+    setReadyPdfDownload(null);
+    setPdfNotice(null);
+    setPreviewRoster({meeting, checkins});
+  };
+
+  const handleDownloadRealPdf = async () => {
+    if (!previewRoster) return;
+    setIsGeneratingPdf(true);
+    setPdfNotice(null);
+    try {
+      const pdfBlob = await generateMeetingAttendancePdfBlob(
+        previewRoster.meeting,
+        previewRoster.checkins,
+      );
+      const safeFile = previewRoster.meeting.title
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .slice(0, 40);
+      const filename = `會議簽到表_含親筆簽名_${safeFile}.pdf`;
+      const downloadUrl = URL.createObjectURL(pdfBlob);
+      if (readyPdfDownload?.url) {
+        URL.revokeObjectURL(readyPdfDownload.url);
+      }
+      setReadyPdfDownload({url: downloadUrl, filename});
+
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = filename;
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setPdfNotice(`已產生 PDF 檔案（${previewRoster.checkins.length} 筆簽名）；若未自動儲存，可點擊右側「手動下載 PDF」。`);
+    } catch (err: any) {
+      setPdfNotice(
+        err?.message ||
+          '產生 PDF 失敗，請改用「呼叫列印 / 另存 PDF」或「下載離線 HTML」。',
+      );
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleNativePrintSheet = () => {
+    if (!previewRoster) return;
+    document.body.classList.add('printing-attendance-sheet');
+    const cleanup = () => {
+      document.body.classList.remove('printing-attendance-sheet');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    try {
+      window.print();
+      setPdfNotice('已送出系統列印請求；若預覽視窗受瀏覽器限制未彈出，請點左側「直接下載 PDF 檔」。');
+    } catch {
+      cleanup();
+      setPdfNotice('此瀏覽環境不支援直接呼叫系統列印，請點左側「直接下載 PDF 檔」。');
+    }
+    window.setTimeout(cleanup, 3000);
+  };
+
+  const handleDownloadOfflineHtml = () => {
+    if (!previewRoster) return;
+    const html = buildPrintableMeetingSheetHtml(
+      previewRoster.meeting,
+      previewRoster.checkins,
     );
+    const blob = new Blob([html], {type: 'text/html;charset=utf-8;'});
+    const safeFile = previewRoster.meeting.title
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .slice(0, 40);
+    triggerSafeBlobDownload(blob, `會議簽到表_含親筆簽名_${safeFile}.html`);
+    setPdfNotice('已送出離線可列印 HTML 檔案下載。');
   };
 
   const formatDateTime = (ms: number) =>
@@ -1429,15 +1515,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       type="button"
                                       disabled={adminRoster.length === 0}
                                       onClick={() =>
-                                        handleExportPrintableSheet(
+                                        handleOpenPrintablePreview(
                                           meeting,
                                           adminRoster,
                                         )
                                       }
                                       className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-40 inline-flex items-center gap-1.5"
                                     >
-                                      <FileText className="w-3.5 h-3.5" />
-                                      <span>匯出含簽名簽到表 (可印 PDF)</span>
+                                      <Printer className="w-3.5 h-3.5" />
+                                      <span>預覽與印出簽名 PDF</span>
                                     </button>
 
                                     <button
@@ -1989,6 +2075,189 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
           )}
         </div>
       </div>
+
+      {previewRoster &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            id="printable-attendance-sheet-portal"
+            className="fixed inset-0 z-[70] overflow-y-auto bg-stone-950/75 backdrop-blur-xs p-3 sm:p-6 flex flex-col items-center"
+            role="dialog"
+            aria-modal="true"
+            aria-label="會議簽名簽到表預覽與列印"
+            onClick={() => setPreviewRoster(null)}
+          >
+            {/* Top Action Bar (hidden during print) */}
+            <div
+              className="no-print w-full max-w-4xl bg-white border border-stone-200 rounded-xl shadow-lg p-3.5 sm:p-4 mb-4 space-y-2.5 shrink-0"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold text-[#1E3A8A]">
+                    含親自手寫簽名 · A4 簽到表預覽
+                  </div>
+                  <div className="text-sm font-bold text-stone-950 truncate">
+                    {previewRoster.meeting.title}（{previewRoster.checkins.length} 人）
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isGeneratingPdf}
+                    onClick={handleDownloadRealPdf}
+                    className="px-3.5 py-2 text-xs font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-lg inline-flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>
+                      {isGeneratingPdf ? '正在產生 PDF...' : '直接下載 PDF 檔'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleNativePrintSheet}
+                    className="px-3.5 py-2 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-300 hover:bg-stone-200/70 rounded-lg inline-flex items-center gap-1.5"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                    <span>系統列印 / 另存 PDF</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadOfflineHtml}
+                    className="px-3 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 rounded-lg inline-flex items-center gap-1.5"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>下載 HTML</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPreviewRoster(null)}
+                    aria-label="關閉預覽"
+                    className="p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {(pdfNotice || readyPdfDownload) && (
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-lg px-3 py-2 text-xs">
+                  <span>{pdfNotice}</span>
+                  {readyPdfDownload && (
+                    <a
+                      href={readyPdfDownload.url}
+                      download={readyPdfDownload.filename}
+                      className="px-2.5 py-1 bg-[#1E3A8A] text-white font-semibold rounded-md hover:bg-[#172554] shrink-0"
+                    >
+                      手動下載 PDF 檔
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* A4 Printable Sheet Surface */}
+            <div
+              id="printable-attendance-sheet-card"
+              className="w-full max-w-4xl bg-white border border-stone-200 rounded-xl shadow-xl p-5 sm:p-8 space-y-5 text-stone-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="space-y-1.5 border-b border-stone-200 pb-4">
+                <div className="text-xs font-bold tracking-wider text-[#1E3A8A]">
+                  臺北市西門國小數學領域教師社群 · PesMath 會議出席簽到表
+                </div>
+                <h2 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
+                  {previewRoster.meeting.title}
+                </h2>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-[#FAF8F5] border border-stone-200 rounded-lg p-3.5 text-stone-700">
+                <div>
+                  <strong className="text-stone-900">學年度：</strong>
+                  {previewRoster.meeting.academicYear}
+                </div>
+                <div>
+                  <strong className="text-stone-900">會議時間：</strong>
+                  {previewRoster.meeting.meetingDate}
+                </div>
+                <div>
+                  <strong className="text-stone-900">會議地點：</strong>
+                  {previewRoster.meeting.location || '校內共備會議'}
+                </div>
+                <div>
+                  <strong className="text-stone-900">總簽到人數：</strong>
+                  {previewRoster.checkins.length} 位教師
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-[#F5F2EB] text-stone-800">
+                      <th className="border border-stone-300 py-2.5 px-2.5 text-center w-10">
+                        #
+                      </th>
+                      <th className="border border-stone-300 py-2.5 px-3">
+                        教師姓名
+                      </th>
+                      <th className="border border-stone-300 py-2.5 px-3">
+                        校內帳號信箱
+                      </th>
+                      <th className="border border-stone-300 py-2.5 px-3">
+                        職務 / 年段備註
+                      </th>
+                      <th className="border border-stone-300 py-2.5 px-3 text-center w-40">
+                        親自手寫簽名
+                      </th>
+                      <th className="border border-stone-300 py-2.5 px-3">
+                        簽到時間
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRoster.checkins.map((rec, idx) => (
+                      <tr key={rec.id}>
+                        <td className="border border-stone-300 py-2 px-2.5 text-center font-mono-tabular text-stone-600">
+                          {idx + 1}
+                        </td>
+                        <td className="border border-stone-300 py-2 px-3 font-semibold text-stone-950">
+                          {rec.userName}
+                        </td>
+                        <td className="border border-stone-300 py-2 px-3 font-mono-tabular text-stone-600 break-all">
+                          {rec.userEmail}
+                        </td>
+                        <td className="border border-stone-300 py-2 px-3 text-stone-700">
+                          {rec.roleOrNote || '—'}
+                        </td>
+                        <td className="border border-stone-300 py-1.5 px-2 text-center bg-white">
+                          {isValidSignatureDataUrl(rec.signatureDataUrl) ? (
+                            <img
+                              src={rec.signatureDataUrl}
+                              alt={`${rec.userName}親筆簽名`}
+                              className="h-12 w-32 object-contain mx-auto"
+                            />
+                          ) : (
+                            <span className="text-[11px] text-stone-400">
+                              （未附簽名）
+                            </span>
+                          )}
+                        </td>
+                        <td className="border border-stone-300 py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
+                          {formatDateTime(rec.checkedInAtMs)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
