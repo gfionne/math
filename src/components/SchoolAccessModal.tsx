@@ -152,70 +152,77 @@ export const SchoolAccessModal: React.FC<SchoolAccessModalProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs leading-relaxed">
-            <div className="p-4 rounded-xl bg-white border border-stone-200 space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-stone-950 text-sm">
-                <CalendarCheck className="w-4 h-4 text-[#1E3A8A]" />
-                <span>社群教師校內登入</span>
+          {!isSchoolAuthorized && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="p-4 rounded-xl bg-white border border-[#1E3A8A]/25 flex flex-col justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-stone-950 text-sm">
+                    <CalendarCheck className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+                    <span>方法一：社群教師登入</span>
+                  </div>
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    使用 <span className="font-mono-tabular font-semibold text-[#1E3A8A]">@{SCHOOL_DOMAIN}</span> 學校帳號，即可解鎖校內文章並進行教師會議簽到。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onSchoolSignIn}
+                  disabled={isSigningIn}
+                  className="w-full min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
+                >
+                  <ShieldCheck className="w-4 h-4 shrink-0" />
+                  <span>{isSigningIn ? '登入驗證中...' : `@${SCHOOL_DOMAIN} 教師登入`}</span>
+                </button>
               </div>
-              <p className="text-stone-600">
-                適用所有{' '}
-                <span className="font-mono-tabular font-semibold text-[#1E3A8A]">
-                  @{SCHOOL_DOMAIN}
-                </span>{' '}
-                師生，可解鎖受保護文章、校內選項、專案圖庫與進行會議簽到。
-              </p>
-            </div>
 
-            <div className="p-4 rounded-xl bg-white border border-stone-200 space-y-2">
-              <div className="flex items-center gap-1.5 font-bold text-stone-950 text-sm">
-                <Sheet className="w-4 h-4 text-[#1E3A8A]" />
-                <span>網站管理員授權</span>
+              <div className="p-4 rounded-xl bg-white border border-stone-200 flex flex-col justify-between gap-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5 font-bold text-stone-950 text-sm">
+                    <Sheet className="w-4 h-4 text-stone-700 shrink-0" />
+                    <span>方法二：網站管理員登入</span>
+                  </div>
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    限授權管理員使用，可開啟會議／學校日場次、產生簽到 QR Code、匯出 PDF 與編輯網站。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onAdminSignIn}
+                  disabled={isSigningIn}
+                  className="w-full min-h-[42px] px-3.5 py-2 text-xs sm:text-sm font-semibold text-stone-800 bg-[#FBF9F5] border border-stone-300 hover:bg-stone-100 disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
+                >
+                  <Sheet className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+                  <span>管理員帳號登入</span>
+                </button>
               </div>
-              <p className="text-stone-600">
-                供試算表管理者編輯期刊文章、設定鎖定選項、建立會議場次與匯出全體簽到名冊。
-              </p>
             </div>
-          </div>
+          )}
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 pt-1">
-            {!isSchoolAuthorized && (
-              <button
-                type="button"
-                onClick={onSchoolSignIn}
-                disabled={isSigningIn}
-                className="flex-1 min-h-[44px] px-4 py-2.5 text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
-              >
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>
-                  {isSigningIn
-                    ? 'Google 驗證中...'
-                    : `使用 @${SCHOOL_DOMAIN} 登入解鎖`}
-                </span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={onAdminSignIn}
-              disabled={isSigningIn}
-              className="min-h-[44px] px-4 py-2.5 text-xs sm:text-sm font-semibold text-stone-800 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
-            >
-              <Sheet className="w-4 h-4 text-[#1E3A8A] shrink-0" />
-              <span>管理員登入（後台權限）</span>
-            </button>
-
-            {user && (
-              <button
-                type="button"
-                onClick={onSignOut}
-                className="min-h-[44px] px-3.5 py-2.5 text-xs font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-                <span>登出</span>
-              </button>
-            )}
-          </div>
+          {isSchoolAuthorized && (
+            <div className="flex flex-wrap items-center justify-end gap-2.5 pt-1">
+              {!isTeacherAdmin && (
+                <button
+                  type="button"
+                  onClick={onAdminSignIn}
+                  disabled={isSigningIn}
+                  className="min-h-[40px] px-4 py-2 text-xs font-semibold text-stone-800 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
+                >
+                  <Sheet className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+                  <span>切換為管理員後台授權</span>
+                </button>
+              )}
+              {user && (
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-stone-600 bg-stone-100 hover:bg-stone-200 rounded-xl transition-colors inline-flex items-center justify-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>登出</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

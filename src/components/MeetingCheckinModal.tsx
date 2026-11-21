@@ -160,12 +160,17 @@ function parseDateTimeLocalValue(raw: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function buildParentDirectUrl(meetingId: string): string {
-  if (typeof window === 'undefined') return `?checkin=parent&meeting=${meetingId}`;
+function buildDirectCheckinUrl(
+  audience: 'parent' | 'teacher',
+  meetingId: string,
+): string {
+  if (typeof window === 'undefined') {
+    return `?checkin=${audience}&meeting=${meetingId}`;
+  }
   const url = new URL(window.location.href);
   url.search = '';
   url.hash = '';
-  url.searchParams.set('checkin', 'parent');
+  url.searchParams.set('checkin', audience);
   url.searchParams.set('meeting', meetingId);
   return url.toString();
 }
@@ -503,18 +508,22 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     };
   }, [isOpen, viewTrack, isSchoolAuthorized, isTeacherAdmin, user]);
 
-  // Generate QR codes lazily whenever an admin opens a parent session's QR drawer
+  // Generate QR codes lazily whenever an admin opens any session's QR drawer (parent or teacher)
   useEffect(() => {
-    if (!expandedQrMeetingId || qrDataUrlByMeeting[expandedQrMeetingId]) {
+    if (!expandedQrMeetingId) {
       return;
     }
-    const targetUrl = buildParentDirectUrl(expandedQrMeetingId);
+    const cacheKey = `${viewTrack}:${expandedQrMeetingId}`;
+    if (qrDataUrlByMeeting[cacheKey]) {
+      return;
+    }
+    const targetUrl = buildDirectCheckinUrl(viewTrack, expandedQrMeetingId);
     let active = true;
     void QRCode.toDataURL(targetUrl, {
       width: 320,
       margin: 2,
       color: {
-        dark: '#1E3A8A',
+        dark: viewTrack === 'parent' ? '#065F46' : '#1E3A8A',
         light: '#FFFFFF',
       },
     })
@@ -522,7 +531,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         if (active) {
           setQrDataUrlByMeeting((prev) => ({
             ...prev,
-            [expandedQrMeetingId]: dataUrl,
+            [cacheKey]: dataUrl,
           }));
         }
       })
@@ -532,7 +541,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     return () => {
       active = false;
     };
-  }, [expandedQrMeetingId, qrDataUrlByMeeting]);
+  }, [expandedQrMeetingId, viewTrack, qrDataUrlByMeeting]);
 
   const checkedOrphanIdsRef = useRef<Set<string>>(new Set());
 
@@ -712,7 +721,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     nowMs,
   ]);
 
-  // Auto-open signature pad for the first open unchecked-in teacher meeting
+  // Auto-open signature pad for the initialMeetingId (if open & unchecked) or first open unchecked-in teacher meeting
   useEffect(() => {
     if (!isOpen || viewTrack !== 'teacher' || !isSchoolAuthorized) return;
     if (activeSigningMeetingId) {
@@ -724,11 +733,21 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       );
       if (stillOpenUnchecked) return;
     }
-    const nextOpen = meetings.find(
-      (m) =>
-        getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
-        !myCheckinByMeetingId.has(m.id),
-    );
+    const targetInitial = initialMeetingId
+      ? meetings.find(
+          (m) =>
+            m.id === initialMeetingId &&
+            getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
+            !myCheckinByMeetingId.has(m.id),
+        )
+      : undefined;
+    const nextOpen =
+      targetInitial ??
+      meetings.find(
+        (m) =>
+          getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
+          !myCheckinByMeetingId.has(m.id),
+      );
     setActiveSigningMeetingId(nextOpen ? nextOpen.id : null);
   }, [
     isOpen,
@@ -737,6 +756,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     meetings,
     myCheckinByMeetingId,
     activeSigningMeetingId,
+    initialMeetingId,
     nowMs,
   ]);
 
@@ -962,13 +982,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       setNewCheckinEndLocal('');
       setSessionFilter('all');
       setActiveTab('sessions');
+      setExpandedQrMeetingId(createdId);
       if (audience === 'parent') {
-        setExpandedQrMeetingId(createdId);
         setStatusBanner(
-          '已建立「學校日／家長免登入」簽到場次！下方已為您開啟專屬 QR Code 與直達網址。',
+          '已建立「學校日／家長免登入」場次，並已開啟專屬掃碼 QR Code 與直達網址。',
         );
       } else {
-        setStatusBanner('已成功建立新的教師社群會議簽到場次！');
+        setStatusBanner(
+          '已成功建立教師社群會議場次，並已產生專屬掃碼 QR Code 與直達網址！',
+        );
       }
     } catch (err: any) {
       setDbError(err?.message || '建立場次失敗。');
@@ -1047,29 +1069,37 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     }
   };
 
-  const handleCopyParentLink = async (meetingId: string) => {
-    const directUrl = buildParentDirectUrl(meetingId);
+  const handleCopyDirectLink = async (
+    audience: 'parent' | 'teacher',
+    meetingId: string,
+  ) => {
+    const directUrl = buildDirectCheckinUrl(audience, meetingId);
     try {
       await navigator.clipboard.writeText(directUrl);
       setCopiedLinkMeetingId(meetingId);
       setStatusBanner(
-        '已複製「家長免登入簽到直達網址」，可直接貼到班級通知或 LINE 群組！',
+        audience === 'parent'
+          ? '已複製「家長免登入簽到直達網址」，可直接貼到班級通知或 LINE 群組！'
+          : '已複製「教師會議簽到直達網址」，可貼給與會教師或搭配 QR Code 投影！',
       );
       window.setTimeout(() => {
         setCopiedLinkMeetingId((curr) => (curr === meetingId ? null : curr));
       }, 2500);
     } catch {
-      setStatusBanner(`家長簽到直達網址：${directUrl}`);
+      setStatusBanner(`簽到直達網址：${directUrl}`);
     }
   };
 
   const handleDownloadQrPng = (meeting: MeetingSession) => {
-    const dataUrl = qrDataUrlByMeeting[meeting.id];
+    const cacheKey = `${meeting.audience}:${meeting.id}`;
+    const dataUrl = qrDataUrlByMeeting[cacheKey];
     if (!dataUrl) return;
     const safeFile = meeting.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+    const prefix =
+      meeting.audience === 'parent' ? '家長簽到QRCode' : '教師會議簽到QRCode';
     const a = document.createElement('a');
     a.href = dataUrl;
-    a.download = `家長簽到QRCode_${safeFile}.png`;
+    a.download = `${prefix}_${safeFile}.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2203,9 +2233,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               {isQrExpanded && (
                                 <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
                                   <div className="w-36 h-36 bg-white border border-emerald-200 rounded-xl p-2 flex items-center justify-center shrink-0">
-                                    {qrDataUrlByMeeting[meeting.id] ? (
+                                    {qrDataUrlByMeeting[`parent:${meeting.id}`] ? (
                                       <img
-                                        src={qrDataUrlByMeeting[meeting.id]}
+                                        src={
+                                          qrDataUrlByMeeting[
+                                            `parent:${meeting.id}`
+                                          ]
+                                        }
                                         alt={`${meeting.title} 家長免登入簽到 QR Code`}
                                         className="w-full h-full object-contain"
                                       />
@@ -2223,13 +2257,16 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       家長用手機掃描此 QR Code 或點擊連結，將直接開啟本場次簽到表單，填寫學生班級姓名與親筆簽名即可完成。
                                     </p>
                                     <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
-                                      {buildParentDirectUrl(meeting.id)}
+                                      {buildDirectCheckinUrl('parent', meeting.id)}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
                                       <button
                                         type="button"
                                         onClick={() =>
-                                          handleCopyParentLink(meeting.id)
+                                          handleCopyDirectLink(
+                                            'parent',
+                                            meeting.id,
+                                          )
                                         }
                                         className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-800 rounded-lg hover:bg-emerald-900 inline-flex items-center gap-1.5"
                                       >
@@ -2244,7 +2281,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                             : '複製家長簽到網址'}
                                         </span>
                                       </button>
-                                      {qrDataUrlByMeeting[meeting.id] && (
+                                      {qrDataUrlByMeeting[
+                                        `parent:${meeting.id}`
+                                      ] && (
                                         <button
                                           type="button"
                                           onClick={() =>
@@ -2605,45 +2644,39 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
             )
           ) : /* ==================== TRACK 2: TEACHER COMMUNITY MEETINGS ==================== */
           !isSchoolAuthorized ? (
-            /* Unauthenticated Teacher Gate (Zero parent sessions or info shown) */
-            <div className="max-w-2xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 space-y-5">
-              <div className="space-y-2">
-                <div className="text-xs font-mono-tabular font-semibold text-[#1E3A8A]">
-                  教師社群專屬 · 需登入 @{SCHOOL_DOMAIN}
-                </div>
+            /* Clean & Simple Teacher Sign-in Gate (Zero parent sessions or clutter shown) */
+            <div className="max-w-lg mx-auto bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 space-y-5 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-[#1E3A8A]/10 text-[#1E3A8A] flex items-center justify-center mx-auto">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+
+              <div className="space-y-1.5">
                 <h3 className="font-editorial text-xl font-bold text-stone-950">
-                  登入校內教師帳號以參與領域會議簽到
+                  教師會議簽到登入
                 </h3>
-                <p className="text-sm text-stone-600 leading-relaxed">
-                  領域共備會議與教師手寫簽名僅開放西門國小{' '}
+                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                  請登入西門國小{' '}
                   <span className="font-mono-tabular font-semibold text-[#1E3A8A]">
                     @{SCHOOL_DOMAIN}
                   </span>{' '}
-                  帳號與授權管理教師存取，確保校內會議內容與簽到紀錄不外流。
+                  Google 帳號，登入後即可直接手寫簽名完成報到。
                 </p>
               </div>
 
               {user && (
                 <div
                   role="alert"
-                  className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-950 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left"
                 >
-                  <div className="flex items-start gap-2 min-w-0">
-                    <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                    <div className="min-w-0 break-all">
-                      目前登入的是{' '}
-                      <span className="font-mono-tabular font-semibold">
-                        {user.email}
-                      </span>
-                      ，非 @{SCHOOL_DOMAIN} 帳號或授權管理員。
-                    </div>
+                  <div className="min-w-0 break-all">
+                    目前帳號 <span className="font-mono-tabular font-semibold">{user.email}</span> 非校內驗證網域。
                   </div>
                   <button
                     type="button"
                     onClick={onSignOut}
-                    className="px-3 py-1.5 text-xs font-semibold text-amber-950 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 whitespace-nowrap shrink-0 self-start sm:self-center"
+                    className="px-2.5 py-1 text-xs font-semibold text-amber-950 bg-white border border-amber-300 rounded-lg hover:bg-amber-100 whitespace-nowrap shrink-0 self-start sm:self-center"
                   >
-                    登出切換帳號
+                    登出切換
                   </button>
                 </div>
               )}
@@ -2651,7 +2684,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               {authError && (
                 <div
                   role="alert"
-                  className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs flex items-start justify-between gap-3"
+                  className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-900 text-xs flex items-start justify-between gap-3 text-left"
                 >
                   <span className="leading-relaxed">{authError}</span>
                   <button
@@ -2664,27 +2697,28 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 </div>
               )}
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <div className="space-y-2.5 pt-1">
                 <button
                   type="button"
                   onClick={onSchoolSignIn}
                   disabled={isSigningIn}
-                  className="flex-1 min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
+                  className="w-full min-h-[46px] px-5 py-3 text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2"
                 >
                   <ShieldCheck className="w-4 h-4 shrink-0" />
                   <span>
                     {isSigningIn
                       ? 'Google 驗證中...'
-                      : `使用 @${SCHOOL_DOMAIN} 帳號登入`}
+                      : `使用 @${SCHOOL_DOMAIN} 教師帳號登入`}
                   </span>
                 </button>
+
                 <button
                   type="button"
                   onClick={onAdminSignIn}
                   disabled={isSigningIn}
-                  className="min-h-[44px] px-4 py-2.5 text-xs sm:text-sm font-semibold text-stone-800 bg-white border border-stone-300 hover:bg-stone-50 disabled:opacity-60 rounded-xl transition-colors inline-flex items-center justify-center gap-2 text-center leading-snug"
+                  className="w-full py-2 text-xs font-medium text-stone-500 hover:text-[#1E3A8A] transition-colors"
                 >
-                  <span>管理教師登入</span>
+                  管理員登入（建立會議與匯出名冊）
                 </button>
               </div>
             </div>
@@ -3337,7 +3371,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                             </div>
 
                             {/* Admin Controls for Teacher Session */}
-                            {isTeacherAdmin && (
+                            {isTeacherAdmin && (() => {
+                              const isTeacherQrExpanded =
+                                expandedQrMeetingId === meeting.id;
+                              return (
                               <div className="pt-3 border-t border-stone-200/80 space-y-3">
                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                   <div className="flex flex-wrap items-center gap-2">
@@ -3390,10 +3427,104 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       <Download className="w-3.5 h-3.5" />
                                       <span>匯出 CSV</span>
                                     </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedQrMeetingId(
+                                          isTeacherQrExpanded
+                                            ? null
+                                            : meeting.id,
+                                        )
+                                      }
+                                      className={`px-3 py-1.5 text-xs font-semibold border rounded-lg inline-flex items-center gap-1.5 ${
+                                        isTeacherQrExpanded
+                                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                          : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/25 hover:bg-[#1E3A8A]/15'
+                                      }`}
+                                    >
+                                      <QrCode className="w-3.5 h-3.5" />
+                                      <span>會議掃碼 QR / 網址</span>
+                                    </button>
                                   </div>
 
                                   {renderAdminScheduleAndDeleteControls(meeting)}
                                 </div>
+
+                                {isTeacherQrExpanded && (
+                                  <div className="bg-[#1E3A8A]/[0.03] border border-[#1E3A8A]/20 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
+                                    <div className="w-36 h-36 bg-white border border-stone-200 rounded-xl p-2 flex items-center justify-center shrink-0">
+                                      {qrDataUrlByMeeting[
+                                        `teacher:${meeting.id}`
+                                      ] ? (
+                                        <img
+                                          src={
+                                            qrDataUrlByMeeting[
+                                              `teacher:${meeting.id}`
+                                            ]
+                                          }
+                                          alt={`${meeting.title} 教師會議簽到 QR Code`}
+                                          className="w-full h-full object-contain"
+                                        />
+                                      ) : (
+                                        <span className="text-[11px] text-stone-400">
+                                          產生 QR Code 中...
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex-1 min-w-0 space-y-2.5 text-xs">
+                                      <div className="font-bold text-[#1E3A8A] text-sm">
+                                        教師社群會議現場掃碼 · 專屬簽到連結
+                                      </div>
+                                      <p className="text-stone-700 leading-relaxed">
+                                        教師掃描此 QR Code 後，系統將導引使用 @{SCHOOL_DOMAIN} 帳號登入並直接展開本場次手寫簽名板（校外人士與家長無法檢視此會議）。
+                                      </p>
+                                      <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
+                                        {buildDirectCheckinUrl(
+                                          'teacher',
+                                          meeting.id,
+                                        )}
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleCopyDirectLink(
+                                              'teacher',
+                                              meeting.id,
+                                            )
+                                          }
+                                          className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5"
+                                        >
+                                          {copiedLinkMeetingId === meeting.id ? (
+                                            <Check className="w-3.5 h-3.5" />
+                                          ) : (
+                                            <Copy className="w-3.5 h-3.5" />
+                                          )}
+                                          <span>
+                                            {copiedLinkMeetingId === meeting.id
+                                              ? '已複製直達連結'
+                                              : '複製教師簽到網址'}
+                                          </span>
+                                        </button>
+                                        {qrDataUrlByMeeting[
+                                          `teacher:${meeting.id}`
+                                        ] && (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleDownloadQrPng(meeting)
+                                            }
+                                            className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5"
+                                          >
+                                            <Download className="w-3.5 h-3.5" />
+                                            <span>下載 QR Code 圖檔</span>
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {renderAdminScheduleEditor(meeting)}
 
@@ -3479,7 +3610,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                   </div>
                                 )}
                               </div>
-                            )}
+                              );
+                            })()}
                           </article>
                         );
                       })}
