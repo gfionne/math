@@ -26,6 +26,9 @@ import {
 
 const MEETINGS_COLLECTION = 'meetings';
 const CHECKINS_COLLECTION = 'meetingCheckins';
+const PARENT_CHECKINS_COLLECTION = 'parentCheckins';
+
+export type MeetingAudience = 'teacher' | 'parent';
 
 export interface MeetingSession {
   id: string;
@@ -36,6 +39,7 @@ export interface MeetingSession {
   agendaSummary: string;
   meetUrl: string;
   linkedPostSlug: string;
+  audience: MeetingAudience;
   isOpen: boolean;
   checkinStartAtMs: number | null;
   checkinEndAtMs: number | null;
@@ -53,6 +57,18 @@ export interface MeetingCheckin {
   userName: string;
   userEmail: string;
   roleOrNote: string;
+  signatureDataUrl: string;
+  checkedInAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface ParentCheckin {
+  id: string;
+  meetingId: string;
+  meetingTitle: string;
+  studentClassAndSeat: string;
+  parentName: string;
+  relationshipOrNote: string;
   signatureDataUrl: string;
   checkedInAtMs: number;
   updatedAtMs: number;
@@ -78,6 +94,7 @@ export interface CreateMeetingSessionInput {
   agendaSummary: string;
   meetUrl: string;
   linkedPostSlug: string;
+  audience?: MeetingAudience;
   isOpen: boolean;
   checkinStartAtMs?: number | null;
   checkinEndAtMs?: number | null;
@@ -106,6 +123,9 @@ export function getMeetingCheckinWindowState(
   meeting: MeetingSession,
   nowMs = Date.now(),
 ): MeetingWindowState {
+  const signerLabel =
+    meeting.audience === 'parent' ? '家長親自手寫簽名' : '校內教師親自手寫簽名';
+
   if (!meeting.isOpen) {
     return {
       status: 'closed',
@@ -117,7 +137,7 @@ export function getMeetingCheckinWindowState(
     return {
       status: 'not-started',
       badgeLabel: '尚未到開放時間',
-      detailText: `將於 ${formatScheduleDateTime(meeting.checkinStartAtMs)} 開放親自手寫簽名。`,
+      detailText: `將於 ${formatScheduleDateTime(meeting.checkinStartAtMs)} 開放${signerLabel}。`,
     };
   }
   if (meeting.checkinEndAtMs !== null && nowMs > meeting.checkinEndAtMs) {
@@ -137,7 +157,7 @@ export function getMeetingCheckinWindowState(
   return {
     status: 'open',
     badgeLabel: '開放簽名中',
-    detailText: '目前開放校內教師親自手寫簽名。',
+    detailText: `目前開放${signerLabel}。`,
   };
 }
 
@@ -193,6 +213,53 @@ function generateMeetingId(): string {
   return `mtg_${Date.now()}_${rand}`;
 }
 
+function generateParentCheckinId(): string {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `par_${Date.now()}_${rand}`;
+}
+
+function mapDocToMeetingSession(
+  id: string,
+  d: Record<string, unknown>,
+): MeetingSession {
+  const rawAudience = d.audience === 'parent' ? 'parent' : 'teacher';
+  return {
+    id,
+    title: String(d.title ?? ''),
+    meetingDate: String(d.meetingDate ?? ''),
+    academicYear: String(d.academicYear ?? ''),
+    location: String(d.location ?? ''),
+    agendaSummary: String(d.agendaSummary ?? ''),
+    meetUrl: String(d.meetUrl ?? ''),
+    linkedPostSlug: String(d.linkedPostSlug ?? ''),
+    audience: rawAudience,
+    isOpen: Boolean(d.isOpen),
+    checkinStartAtMs: toOptionalTimestampMs(d.checkinStartAt),
+    checkinEndAtMs: toOptionalTimestampMs(d.checkinEndAt),
+    createdByName: String(d.createdByName ?? '領域召集教師'),
+    createdByUid: String(d.createdByUid ?? ''),
+    createdAtMs: toTimestampMs(d.createdAt),
+    updatedAtMs: toTimestampMs(d.updatedAt),
+  };
+}
+
+function sortMeetingSessions(items: MeetingSession[]): MeetingSession[] {
+  const nowMs = Date.now();
+  const rank = (m: MeetingSession) => {
+    const s = getMeetingCheckinWindowState(m, nowMs).status;
+    if (s === 'open') return 0;
+    if (s === 'not-started') return 1;
+    return 2;
+  };
+  return [...items].sort((a, b) => {
+    const rDiff = rank(a) - rank(b);
+    if (rDiff !== 0) return rDiff;
+    return (
+      b.meetingDate.localeCompare(a.meetingDate) || b.createdAtMs - a.createdAtMs
+    );
+  });
+}
+
 export function subscribeMeetings(
   onUpdate: (sessions: MeetingSession[]) => void,
   onError?: (err: Error) => void,
@@ -211,39 +278,10 @@ export function subscribeMeetings(
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: MeetingSession[] = snapshot.docs.map((snap) => {
-        const d = snap.data();
-        return {
-          id: snap.id,
-          title: String(d.title ?? ''),
-          meetingDate: String(d.meetingDate ?? ''),
-          academicYear: String(d.academicYear ?? ''),
-          location: String(d.location ?? ''),
-          agendaSummary: String(d.agendaSummary ?? ''),
-          meetUrl: String(d.meetUrl ?? ''),
-          linkedPostSlug: String(d.linkedPostSlug ?? ''),
-          isOpen: Boolean(d.isOpen),
-          checkinStartAtMs: toOptionalTimestampMs(d.checkinStartAt),
-          checkinEndAtMs: toOptionalTimestampMs(d.checkinEndAt),
-          createdByName: String(d.createdByName ?? '領域召集教師'),
-          createdByUid: String(d.createdByUid ?? ''),
-          createdAtMs: toTimestampMs(d.createdAt),
-          updatedAtMs: toTimestampMs(d.updatedAt),
-        };
-      });
-      const nowMs = Date.now();
-      const rank = (m: MeetingSession) => {
-        const s = getMeetingCheckinWindowState(m, nowMs).status;
-        if (s === 'open') return 0;
-        if (s === 'not-started') return 1;
-        return 2;
-      };
-      items.sort((a, b) => {
-        const rDiff = rank(a) - rank(b);
-        if (rDiff !== 0) return rDiff;
-        return b.meetingDate.localeCompare(a.meetingDate) || b.createdAtMs - a.createdAtMs;
-      });
-      onUpdate(items);
+      const items = snapshot.docs.map((snap) =>
+        mapDocToMeetingSession(snap.id, snap.data() as Record<string, unknown>),
+      );
+      onUpdate(sortMeetingSessions(items));
     },
     (error) => {
       try {
@@ -251,6 +289,40 @@ export function subscribeMeetings(
       } catch (wrapped) {
         onError?.(
           formatFriendlyMeetingError(wrapped, '讀取社群會議場次失敗。'),
+        );
+      }
+    },
+  );
+}
+
+/**
+ * Public real-time subscription strictly filtered to `audience == 'parent'` sessions
+ * so parents can sign in on School Day without logging into any Google account.
+ */
+export function subscribeParentMeetings(
+  onUpdate: (sessions: MeetingSession[]) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  const q = query(
+    collection(db, MEETINGS_COLLECTION),
+    where('audience', '==', 'parent'),
+    limit(50),
+  );
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items = snapshot.docs.map((snap) =>
+        mapDocToMeetingSession(snap.id, snap.data() as Record<string, unknown>),
+      );
+      onUpdate(sortMeetingSessions(items));
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, MEETINGS_COLLECTION);
+      } catch (wrapped) {
+        onError?.(
+          formatFriendlyMeetingError(wrapped, '讀取學校日家長簽到場次失敗。'),
         );
       }
     },
@@ -347,7 +419,56 @@ export function subscribeAllCheckinsForAdmin(
         handleFirestoreError(error, OperationType.LIST, CHECKINS_COLLECTION);
       } catch (wrapped) {
         onError?.(
-          formatFriendlyMeetingError(wrapped, '讀取全體會議簽到名冊失敗。'),
+          formatFriendlyMeetingError(wrapped, '讀取全體教師簽到名冊失敗。'),
+        );
+      }
+    },
+  );
+}
+
+export function subscribeAllParentCheckinsForAdmin(
+  onUpdate: (checkins: ParentCheckin[]) => void,
+  onError?: (err: Error) => void,
+): Unsubscribe {
+  if (!auth.currentUser) {
+    onUpdate([]);
+    return () => {};
+  }
+
+  const q = query(collection(db, PARENT_CHECKINS_COLLECTION), limit(800));
+
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: ParentCheckin[] = snapshot.docs.map((snap) => {
+        const d = snap.data();
+        return {
+          id: snap.id,
+          meetingId: String(d.meetingId ?? ''),
+          meetingTitle: String(d.meetingTitle ?? ''),
+          studentClassAndSeat: String(d.studentClassAndSeat ?? ''),
+          parentName: String(d.parentName ?? ''),
+          relationshipOrNote: String(d.relationshipOrNote ?? ''),
+          signatureDataUrl: isValidSignatureDataUrl(d.signatureDataUrl)
+            ? d.signatureDataUrl
+            : '',
+          checkedInAtMs: toTimestampMs(d.checkedInAt),
+          updatedAtMs: toTimestampMs(d.updatedAt),
+        };
+      });
+      items.sort((a, b) => b.checkedInAtMs - a.checkedInAtMs);
+      onUpdate(items);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(
+          error,
+          OperationType.LIST,
+          PARENT_CHECKINS_COLLECTION,
+        );
+      } catch (wrapped) {
+        onError?.(
+          formatFriendlyMeetingError(wrapped, '讀取學校日家長簽到名冊失敗。'),
         );
       }
     },
@@ -373,13 +494,15 @@ export async function createMeetingSession(
   }
   const safeMeetUrl = truncateChars(rawMeetUrl, 500);
   const safeSlug = truncateChars(input.linkedPostSlug, 160);
+  const safeAudience: MeetingAudience =
+    input.audience === 'parent' ? 'parent' : 'teacher';
   const safeCreatorName = truncateChars(
     currentUser.displayName || currentUser.email || '領域召集教師',
     100,
   );
 
   if (!safeTitle || safeDate.length < 4) {
-    throw new Error('請填寫會議名稱與有效的日期時間。');
+    throw new Error('請填寫活動／會議名稱與有效的日期時間。');
   }
 
   const startMs =
@@ -406,6 +529,7 @@ export async function createMeetingSession(
     agendaSummary: safeAgenda,
     meetUrl: safeMeetUrl,
     linkedPostSlug: safeSlug,
+    audience: safeAudience,
     isOpen: Boolean(input.isOpen),
     checkinStartAt: startMs !== null ? Timestamp.fromMillis(startMs) : null,
     checkinEndAt: endMs !== null ? Timestamp.fromMillis(endMs) : null,
@@ -422,7 +546,7 @@ export async function createMeetingSession(
     try {
       handleFirestoreError(error, OperationType.CREATE, docPath);
     } catch (wrapped) {
-      throw formatFriendlyMeetingError(wrapped, '建立會議簽到場次失敗。');
+      throw formatFriendlyMeetingError(wrapped, '建立簽到場次失敗。');
     }
   }
 }
@@ -441,12 +565,12 @@ export async function updateMeetingSession(
   };
   if (updates.title !== undefined) {
     const t = truncateChars(updates.title, 160);
-    if (!t) throw new Error('會議名稱不可為空。');
+    if (!t) throw new Error('場次名稱不可為空。');
     sanitized.title = t;
   }
   if (updates.meetingDate !== undefined) {
     const d = truncateChars(updates.meetingDate, 40);
-    if (d.length < 4) throw new Error('請填寫有效的會議日期時間。');
+    if (d.length < 4) throw new Error('請填寫有效的活動日期時間。');
     sanitized.meetingDate = d;
   }
   if (updates.academicYear !== undefined) {
@@ -470,6 +594,9 @@ export async function updateMeetingSession(
   }
   if (updates.linkedPostSlug !== undefined) {
     sanitized.linkedPostSlug = truncateChars(updates.linkedPostSlug, 160);
+  }
+  if (updates.audience !== undefined) {
+    sanitized.audience = updates.audience === 'parent' ? 'parent' : 'teacher';
   }
   if (updates.isOpen !== undefined) {
     sanitized.isOpen = Boolean(updates.isOpen);
@@ -509,7 +636,7 @@ export async function updateMeetingSession(
     try {
       handleFirestoreError(error, OperationType.UPDATE, docPath);
     } catch (wrapped) {
-      throw formatFriendlyMeetingError(wrapped, '更新會議場次失敗。');
+      throw formatFriendlyMeetingError(wrapped, '更新場次設定失敗。');
     }
   }
 }
@@ -533,15 +660,24 @@ export async function deleteMeetingSession(meetingId: string): Promise<void> {
   const safeMeetingId = meetingId.trim();
   const docPath = `${MEETINGS_COLLECTION}/${safeMeetingId}`;
   try {
-    // Cascade-delete all check-in records & handwritten signatures belonging to this meeting
-    const checkinsSnap = await getDocs(
-      query(
-        collection(db, CHECKINS_COLLECTION),
-        where('meetingId', '==', safeMeetingId),
+    // Cascade-delete all teacher AND parent check-ins belonging to this meeting
+    const [teacherSnap, parentSnap] = await Promise.all([
+      getDocs(
+        query(
+          collection(db, CHECKINS_COLLECTION),
+          where('meetingId', '==', safeMeetingId),
+        ),
       ),
-    );
+      getDocs(
+        query(
+          collection(db, PARENT_CHECKINS_COLLECTION),
+          where('meetingId', '==', safeMeetingId),
+        ),
+      ),
+    ]);
     const refsToDelete: DocumentReference[] = [
-      ...checkinsSnap.docs.map((snap) => snap.ref),
+      ...teacherSnap.docs.map((snap) => snap.ref),
+      ...parentSnap.docs.map((snap) => snap.ref),
       doc(db, MEETINGS_COLLECTION, safeMeetingId),
     ];
     await batchDeleteDocumentRefs(refsToDelete);
@@ -551,7 +687,7 @@ export async function deleteMeetingSession(meetingId: string): Promise<void> {
     } catch (wrapped) {
       throw formatFriendlyMeetingError(
         wrapped,
-        '刪除會議場次及關聯簽到紀錄失敗。',
+        '刪除場次及關聯簽到紀錄失敗。',
       );
     }
   }
@@ -576,17 +712,29 @@ export async function cleanupOrphanedCheckinsForAdmin(
         continue;
       }
 
-      const orphanSnap = await getDocs(
-        query(
-          collection(db, CHECKINS_COLLECTION),
-          where('meetingId', '==', meetingId),
+      const [orphanTeacherSnap, orphanParentSnap] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, CHECKINS_COLLECTION),
+            where('meetingId', '==', meetingId),
+          ),
         ),
-      );
-      if (orphanSnap.empty) {
+        getDocs(
+          query(
+            collection(db, PARENT_CHECKINS_COLLECTION),
+            where('meetingId', '==', meetingId),
+          ),
+        ),
+      ]);
+      const refs = [
+        ...orphanTeacherSnap.docs.map((snap) => snap.ref),
+        ...orphanParentSnap.docs.map((snap) => snap.ref),
+      ];
+      if (refs.length === 0) {
         continue;
       }
-      await batchDeleteDocumentRefs(orphanSnap.docs.map((snap) => snap.ref));
-      deletedCount += orphanSnap.size;
+      await batchDeleteDocumentRefs(refs);
+      deletedCount += refs.length;
     } catch {
       // Best-effort cleanup of historical orphaned records; ignore transient read/delete failures
     }
@@ -646,8 +794,84 @@ export async function submitMeetingCheckin(params: {
     } catch (wrapped) {
       throw formatFriendlyMeetingError(
         wrapped,
-        '會議簽到失敗，請確認此場次目前仍為「開放簽到中」且已完成親筆簽名。',
+        '會議簽到失敗，請確認此場次目前仍為「開放簽名中」且已完成親筆簽名。',
       );
+    }
+  }
+}
+
+export async function submitParentCheckin(params: {
+  meetingId: string;
+  meetingTitle: string;
+  studentClassAndSeat: string;
+  parentName: string;
+  relationshipOrNote: string;
+  signatureDataUrl: string;
+}): Promise<{id: string; checkedInAtMs: number}> {
+  const safeMeetingId = params.meetingId.trim().slice(0, 90);
+  if (!safeMeetingId) {
+    throw new Error('找不到對應的學校日活動場次。');
+  }
+
+  const safeStudent = truncateChars(params.studentClassAndSeat, 80);
+  const safeParent = truncateChars(params.parentName, 80);
+  const safeRelation = truncateChars(params.relationshipOrNote || '', 120);
+  const safeTitle =
+    truncateChars(params.meetingTitle || '學校日家長簽到', 160) ||
+    '學校日家長簽到';
+
+  if (!safeStudent) {
+    throw new Error('請填寫學生班級座號或學生姓名。');
+  }
+  if (!safeParent) {
+    throw new Error('請填寫家長姓名或稱謂（例如：王爸爸、陳媽媽）。');
+  }
+  if (!isValidSignatureDataUrl(params.signatureDataUrl)) {
+    throw new Error('請先於簽名框內親筆簽名後再送出簽到。');
+  }
+
+  const checkinId = generateParentCheckinId();
+  const docPath = `${PARENT_CHECKINS_COLLECTION}/${checkinId}`;
+  const payload = {
+    meetingId: safeMeetingId,
+    meetingTitle: safeTitle,
+    studentClassAndSeat: safeStudent,
+    parentName: safeParent,
+    relationshipOrNote: safeRelation,
+    signatureDataUrl: params.signatureDataUrl,
+    checkedInAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    await setDoc(doc(db, PARENT_CHECKINS_COLLECTION, checkinId), payload);
+    return {id: checkinId, checkedInAtMs: Date.now()};
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.CREATE, docPath);
+    } catch (wrapped) {
+      throw formatFriendlyMeetingError(
+        wrapped,
+        '送出家長簽到失敗，請確認本場次目前仍為「開放簽名中」且已完成親筆簽名。',
+      );
+    }
+  }
+}
+
+export async function deleteParentCheckinForAdmin(
+  checkinId: string,
+): Promise<void> {
+  if (!auth.currentUser) {
+    throw new Error('請先登入管理教師帳號。');
+  }
+  const docPath = `${PARENT_CHECKINS_COLLECTION}/${checkinId}`;
+  try {
+    await deleteDoc(doc(db, PARENT_CHECKINS_COLLECTION, checkinId));
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.DELETE, docPath);
+    } catch (wrapped) {
+      throw formatFriendlyMeetingError(wrapped, '刪除家長簽到紀錄失敗。');
     }
   }
 }
@@ -713,8 +937,42 @@ function escapeSafeCsvCell(raw: string): string {
 
 export function buildMeetingCheckinsCsv(
   meeting: MeetingSession,
-  checkins: MeetingCheckin[],
+  teacherCheckins: MeetingCheckin[],
+  parentCheckins: ParentCheckin[] = [],
 ): string {
+  if (meeting.audience === 'parent') {
+    const headers = [
+      '序號',
+      '活動名稱',
+      '活動時間',
+      '學生班級 / 座號 / 姓名',
+      '家長姓名或稱謂',
+      '關係 / 備註',
+      '親自手寫簽名狀態',
+      '簽到時間',
+    ];
+    const rows = parentCheckins.map((item, idx) => {
+      const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
+        hour12: false,
+      });
+      return [
+        String(idx + 1),
+        meeting.title,
+        meeting.meetingDate,
+        item.studentClassAndSeat,
+        item.parentName,
+        item.relationshipOrNote,
+        isValidSignatureDataUrl(item.signatureDataUrl)
+          ? '已親自手寫簽名'
+          : '尚未附簽名',
+        dt,
+      ]
+        .map(escapeSafeCsvCell)
+        .join(',');
+    });
+    return '\uFEFF' + [headers.map(escapeSafeCsvCell).join(','), ...rows].join('\n');
+  }
+
   const headers = [
     '序號',
     '會議名稱',
@@ -725,7 +983,7 @@ export function buildMeetingCheckinsCsv(
     '親自手寫簽名狀態',
     '簽到時間',
   ];
-  const rows = checkins.map((item, idx) => {
+  const rows = teacherCheckins.map((item, idx) => {
     const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
       hour12: false,
     });
@@ -759,22 +1017,51 @@ function escapeHtml(raw: string): string {
 
 export function buildPrintableMeetingSheetHtml(
   meeting: MeetingSession,
-  checkins: MeetingCheckin[],
+  teacherCheckins: MeetingCheckin[],
+  parentCheckins: ParentCheckin[] = [],
 ): string {
-  const rowsHtml = checkins
-    .map((item, idx) => {
-      const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
-      const sigCell = isValidSignatureDataUrl(item.signatureDataUrl)
-        ? `<img src="${item.signatureDataUrl}" alt="${escapeHtml(item.userName)}親筆簽名" class="sig-img" />`
-        : '<span class="muted">（尚未附手寫簽名）</span>';
-      return `
+  const isParent = meeting.audience === 'parent';
+  const count = isParent ? parentCheckins.length : teacherCheckins.length;
+
+  const rowsHtml = isParent
+    ? parentCheckins
+        .map((item, idx) => {
+          const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+          const sigCell = isValidSignatureDataUrl(item.signatureDataUrl)
+            ? `<img src="${item.signatureDataUrl}" alt="${escapeHtml(item.parentName)}親筆簽名" class="sig-img" />`
+            : '<span class="muted">（尚未附手寫簽名）</span>';
+          return `
+        <tr>
+          <td class="num">${idx + 1}</td>
+          <td class="name">${escapeHtml(item.studentClassAndSeat)}</td>
+          <td class="name">${escapeHtml(item.parentName)}</td>
+          <td class="note">${escapeHtml(item.relationshipOrNote || '—')}</td>
+          <td class="sig">${sigCell}</td>
+          <td class="time">${escapeHtml(dt)}</td>
+        </tr>`;
+        })
+        .join('\n')
+    : teacherCheckins
+        .map((item, idx) => {
+          const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+          });
+          const sigCell = isValidSignatureDataUrl(item.signatureDataUrl)
+            ? `<img src="${item.signatureDataUrl}" alt="${escapeHtml(item.userName)}親筆簽名" class="sig-img" />`
+            : '<span class="muted">（尚未附手寫簽名）</span>';
+          return `
         <tr>
           <td class="num">${idx + 1}</td>
           <td class="name">${escapeHtml(item.userName)}</td>
@@ -783,15 +1070,23 @@ export function buildPrintableMeetingSheetHtml(
           <td class="sig">${sigCell}</td>
           <td class="time">${escapeHtml(dt)}</td>
         </tr>`;
-    })
-    .join('\n');
+        })
+        .join('\n');
+
+  const schoolBanner = isParent
+    ? '臺北市西門國小 · 學校日／親師活動家長出席簽到表'
+    : '臺北市西門國小數學領域教師社群 · PesMath 會議出席簽到表';
+  const countUnit = isParent ? '位家長' : '位教師';
+  const colHeaders = isParent
+    ? ['學生班級 / 姓名', '家長姓名', '關係 / 備註']
+    : ['教師姓名', '校內帳號信箱', '職務 / 年段備註'];
 
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>會議簽到表｜${escapeHtml(meeting.title)}</title>
+  <title>簽到表｜${escapeHtml(meeting.title)}</title>
   <style>
     @page { size: A4 portrait; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -863,7 +1158,7 @@ export function buildPrintableMeetingSheetHtml(
       color: #292524;
     }
     td.num { width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
-    td.name { width: 110px; font-weight: 600; }
+    td.name { width: 140px; font-weight: 600; }
     td.email { width: 190px; font-size: 11px; color: #57534e; word-break: break-all; }
     td.note { width: 140px; }
     td.sig { width: 170px; background: #ffffff; text-align: center; }
@@ -884,25 +1179,25 @@ export function buildPrintableMeetingSheetHtml(
 </head>
 <body>
   <div class="toolbar">
-    <span style="font-size:13px;color:#44403c;">西門國小數學社群 · 含親筆手寫簽名簽到表（可直接列印或存為 PDF）</span>
+    <span style="font-size:13px;color:#44403c;">${escapeHtml(schoolBanner)}（可直接列印或存為 PDF）</span>
     <button type="button" class="toolbar-btn" onclick="window.print()">列印 / 另存為 PDF</button>
   </div>
   <div class="sheet">
-    <div class="school">臺北市西門國小數學領域教師社群 · PesMath 會議出席簽到表</div>
+    <div class="school">${escapeHtml(schoolBanner)}</div>
     <h1>${escapeHtml(meeting.title)}</h1>
     <div class="meta">
       <div><strong>學年度：</strong>${escapeHtml(meeting.academicYear)}</div>
-      <div><strong>會議時間：</strong>${escapeHtml(meeting.meetingDate)}</div>
-      <div><strong>會議地點：</strong>${escapeHtml(meeting.location || '校內共備會議')}</div>
-      <div><strong>簽到人數：</strong>${checkins.length} 位教師</div>
+      <div><strong>活動時間：</strong>${escapeHtml(meeting.meetingDate)}</div>
+      <div><strong>地點：</strong>${escapeHtml(meeting.location || '西門國小')}</div>
+      <div><strong>簽到人數：</strong>${count} ${countUnit}</div>
     </div>
     <table>
       <thead>
         <tr>
           <th style="text-align:center;">#</th>
-          <th>教師姓名</th>
-          <th>校內帳號信箱</th>
-          <th>職務 / 年段備註</th>
+          <th>${escapeHtml(colHeaders[0])}</th>
+          <th>${escapeHtml(colHeaders[1])}</th>
+          <th>${escapeHtml(colHeaders[2])}</th>
           <th style="text-align:center;">親自手寫簽名</th>
           <th>簽到時間</th>
         </tr>

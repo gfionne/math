@@ -197,12 +197,12 @@
     },
     "MeetingSession": {
       "title": "MeetingSession",
-      "description": "Community teacher meeting session visible only to verified @hmes.tp.edu.tw school members and admins, managed by admins.",
+      "description": "Meeting or School Day check-in session. Sessions with audience 'teacher' (or omitted) are strictly private to @hmes.tp.edu.tw school members and admins; sessions with audience 'parent' (e.g. School Day) are publicly visible so parents can sign in without logging in.",
       "type": "object",
       "properties": {
         "title": {
           "type": "string",
-          "description": "Meeting title.",
+          "description": "Meeting or School Day event title.",
           "minLength": 1,
           "maxLength": 160
         },
@@ -225,7 +225,7 @@
         },
         "agendaSummary": {
           "type": "string",
-          "description": "Private community teacher agenda or meeting notes.",
+          "description": "Agenda summary or parent notice.",
           "maxLength": 1000
         },
         "meetUrl": {
@@ -238,6 +238,11 @@
           "description": "Optional slug of a related journal article.",
           "maxLength": 160
         },
+        "audience": {
+          "type": "string",
+          "description": "Target audience: 'teacher' requires @hmes.tp.edu.tw sign-in; 'parent' allows login-free School Day parent check-in.",
+          "enum": ["teacher", "parent"]
+        },
         "isOpen": {
           "type": "boolean",
           "description": "Whether check-in is manually enabled by admins."
@@ -245,7 +250,7 @@
         "checkinStartAt": {
           "type": "string",
           "format": "date-time",
-          "description": "Optional server-enforced start timestamp when teachers can begin signing."
+          "description": "Optional server-enforced start timestamp when attendees can begin signing."
         },
         "checkinEndAt": {
           "type": "string",
@@ -362,6 +367,70 @@
         "checkedInAt",
         "updatedAt"
       ]
+    },
+    "ParentCheckin": {
+      "title": "ParentCheckin",
+      "description": "School Day login-free parent attendance check-in record with handwritten signature. Write-only create for parents targeting an open 'parent' session; reads, lists, updates, and deletes are strictly restricted to admins to protect student/parent PII.",
+      "type": "object",
+      "properties": {
+        "meetingId": {
+          "type": "string",
+          "description": "Parent MeetingSession ID (must have audience == 'parent').",
+          "minLength": 1,
+          "maxLength": 90,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "meetingTitle": {
+          "type": "string",
+          "description": "Snapshot of the School Day session title.",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "studentClassAndSeat": {
+          "type": "string",
+          "description": "Student class/seat or student name entered by the parent.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "parentName": {
+          "type": "string",
+          "description": "Parent or guardian name/appellation.",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "relationshipOrNote": {
+          "type": "string",
+          "description": "Optional parent relationship label (e.g. 爸爸/媽媽/監護人) or brief remark.",
+          "maxLength": 120
+        },
+        "signatureDataUrl": {
+          "type": "string",
+          "description": "Base64-encoded PNG/WebP/JPEG data URL of the parent's handwritten signature.",
+          "minLength": 22,
+          "maxLength": 200000,
+          "pattern": "^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$"
+        },
+        "checkedInAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of parent check-in."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of last update."
+        }
+      },
+      "required": [
+        "meetingId",
+        "meetingTitle",
+        "studentClassAndSeat",
+        "parentName",
+        "relationshipOrNote",
+        "signatureDataUrl",
+        "checkedInAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -387,13 +456,19 @@
       "schema": {
         "$ref": "#/entities/MeetingSession"
       },
-      "description": "Community teacher meeting sessions readable only by verified @hmes.tp.edu.tw school members and admins; created/updated/deleted only by admins."
+      "description": "Teacher sessions (audience='teacher') readable only by @hmes.tp.edu.tw school members and admins; School Day parent sessions (audience='parent') publicly readable for login-free parent check-in; created/updated/deleted only by admins."
     },
     "/meetingCheckins/{checkinId}": {
       "schema": {
         "$ref": "#/entities/MeetingCheckin"
       },
-      "description": "Deterministic ({meetingId}_{uid}) attendance check-in records. School members may create/update/delete their own record while the meeting is open; reads/lists are isolated to the owner or admins to prevent PII scraping."
+      "description": "Deterministic ({meetingId}_{uid}) teacher attendance check-in records. School members may create/update/delete their own record while the meeting is open; reads/lists are isolated to the owner or admins to prevent PII scraping."
+    },
+    "/parentCheckins/{checkinId}": {
+      "schema": {
+        "$ref": "#/entities/ParentCheckin"
+      },
+      "description": "Login-free School Day parent attendance check-in records. Parents can create records only for open audience='parent' meetings within the allowed schedule window; all reads, lists, updates, and deletes are strictly restricted to admins."
     }
   }
 }

@@ -3,6 +3,7 @@ import {
   isValidSignatureDataUrl,
   MeetingCheckin,
   MeetingSession,
+  ParentCheckin,
 } from '../services/meetingCheckinDb';
 
 const PAGE_W = 1240;
@@ -15,15 +16,23 @@ const CONTENT_W = PAGE_W - MARGIN_X * 2; // 1096
 
 const COL_WIDTHS = {
   index: 56,
-  name: 140,
-  email: 240,
-  note: 200,
+  col1: 165,
+  col2: 215,
+  col3: 200,
   signature: 270,
   time: 190,
 } as const;
 
 const FONT_FAMILY =
   '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif';
+
+interface NormalizedAttendanceRow {
+  col1: string;
+  col2: string;
+  col3: string;
+  signatureDataUrl: string;
+  checkedInAtMs: number;
+}
 
 function loadImage(src: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -70,7 +79,11 @@ function wrapTextLines(
   return lines;
 }
 
-function drawTableHeader(ctx: CanvasRenderingContext2D, y: number): number {
+function drawTableHeader(
+  ctx: CanvasRenderingContext2D,
+  y: number,
+  isParent: boolean,
+): number {
   const headerH = 48;
   ctx.fillStyle = '#F5F2EB';
   ctx.fillRect(MARGIN_X, y, CONTENT_W, headerH);
@@ -78,14 +91,23 @@ function drawTableHeader(ctx: CanvasRenderingContext2D, y: number): number {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(MARGIN_X, y, CONTENT_W, headerH);
 
-  const cols: Array<{label: string; w: number; center?: boolean}> = [
-    {label: '#', w: COL_WIDTHS.index, center: true},
-    {label: '教師姓名', w: COL_WIDTHS.name},
-    {label: '校內帳號信箱', w: COL_WIDTHS.email},
-    {label: '職務 / 年段備註', w: COL_WIDTHS.note},
-    {label: '親自手寫簽名', w: COL_WIDTHS.signature, center: true},
-    {label: '簽到時間', w: COL_WIDTHS.time},
-  ];
+  const cols: Array<{label: string; w: number; center?: boolean}> = isParent
+    ? [
+        {label: '#', w: COL_WIDTHS.index, center: true},
+        {label: '學生班級 / 姓名', w: COL_WIDTHS.col1},
+        {label: '家長姓名', w: COL_WIDTHS.col2},
+        {label: '關係 / 備註', w: COL_WIDTHS.col3},
+        {label: '親自手寫簽名', w: COL_WIDTHS.signature, center: true},
+        {label: '簽到時間', w: COL_WIDTHS.time},
+      ]
+    : [
+        {label: '#', w: COL_WIDTHS.index, center: true},
+        {label: '教師姓名', w: COL_WIDTHS.col1},
+        {label: '校內帳號信箱', w: COL_WIDTHS.col2},
+        {label: '職務 / 年段備註', w: COL_WIDTHS.col3},
+        {label: '親自手寫簽名', w: COL_WIDTHS.signature, center: true},
+        {label: '簽到時間', w: COL_WIDTHS.time},
+      ];
 
   ctx.fillStyle = '#1C1917';
   ctx.font = `700 20px ${FONT_FAMILY}`;
@@ -129,11 +151,29 @@ function createA4PageCanvas(): {
 
 export async function generateMeetingAttendancePdfBlob(
   meeting: MeetingSession,
-  checkins: MeetingCheckin[],
+  teacherCheckins: MeetingCheckin[],
+  parentCheckins: ParentCheckin[] = [],
 ): Promise<Blob> {
+  const isParent = meeting.audience === 'parent';
+  const rows: NormalizedAttendanceRow[] = isParent
+    ? parentCheckins.map((rec) => ({
+        col1: rec.studentClassAndSeat,
+        col2: rec.parentName,
+        col3: rec.relationshipOrNote,
+        signatureDataUrl: rec.signatureDataUrl,
+        checkedInAtMs: rec.checkedInAtMs,
+      }))
+    : teacherCheckins.map((rec) => ({
+        col1: rec.userName,
+        col2: rec.userEmail,
+        col3: rec.roleOrNote,
+        signatureDataUrl: rec.signatureDataUrl,
+        checkedInAtMs: rec.checkedInAtMs,
+      }));
+
   // Preload all valid signature images concurrently
   const loadedSignatures = await Promise.all(
-    checkins.map((rec) =>
+    rows.map((rec) =>
       isValidSignatureDataUrl(rec.signatureDataUrl)
         ? loadImage(rec.signatureDataUrl)
         : Promise.resolve(null),
@@ -150,7 +190,9 @@ export async function generateMeetingAttendancePdfBlob(
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillText(
-    '臺北市西門國小數學領域教師社群 · PesMath 會議出席簽到表',
+    isParent
+      ? '臺北市西門國小 · 學校日／親師活動家長出席簽到表'
+      : '臺北市西門國小數學領域教師社群 · PesMath 會議出席簽到表',
     MARGIN_X,
     y,
   );
@@ -178,24 +220,24 @@ export async function generateMeetingAttendancePdfBlob(
   ctx.textBaseline = 'middle';
   const halfW = CONTENT_W / 2;
   ctx.fillText(`學年度：${meeting.academicYear}`, MARGIN_X + 20, y + 28);
-  ctx.fillText(`會議時間：${meeting.meetingDate}`, MARGIN_X + halfW + 12, y + 28);
+  ctx.fillText(`活動時間：${meeting.meetingDate}`, MARGIN_X + halfW + 12, y + 28);
   ctx.fillText(
-    `會議地點：${meeting.location || '校內共備會議'}`,
+    `活動地點：${meeting.location || '西門國小'}`,
     MARGIN_X + 20,
     y + 64,
   );
   ctx.fillText(
-    `總簽到人數：${checkins.length} 位教師`,
+    `總簽到人數：${rows.length} ${isParent ? '位家長' : '位教師'}`,
     MARGIN_X + halfW + 12,
     y + 64,
   );
   y += metaH + 22;
 
-  y = drawTableHeader(ctx, y);
+  y = drawTableHeader(ctx, y, isParent);
 
   // Render rows with automatic A4 pagination
   const rowH = 86;
-  for (let idx = 0; idx < checkins.length; idx++) {
+  for (let idx = 0; idx < rows.length; idx++) {
     if (y + rowH > CONTENT_BOTTOM) {
       pages.push(canvas);
       const nextPage = createA4PageCanvas();
@@ -207,12 +249,12 @@ export async function generateMeetingAttendancePdfBlob(
       ctx.font = `600 18px ${FONT_FAMILY}`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(`會議簽到表（續）｜${meeting.title}`, MARGIN_X, y);
+      ctx.fillText(`簽到表（續）｜${meeting.title}`, MARGIN_X, y);
       y += 34;
-      y = drawTableHeader(ctx, y);
+      y = drawTableHeader(ctx, y, isParent);
     }
 
-    const rec = checkins[idx];
+    const rec = rows[idx];
     const sigImg = loadedSignatures[idx];
     const dt = new Date(rec.checkedInAtMs).toLocaleString('zh-TW', {
       year: 'numeric',
@@ -233,9 +275,9 @@ export async function generateMeetingAttendancePdfBlob(
     let x = MARGIN_X;
     const widths = [
       COL_WIDTHS.index,
-      COL_WIDTHS.name,
-      COL_WIDTHS.email,
-      COL_WIDTHS.note,
+      COL_WIDTHS.col1,
+      COL_WIDTHS.col2,
+      COL_WIDTHS.col3,
       COL_WIDTHS.signature,
       COL_WIDTHS.time,
     ];
@@ -255,49 +297,46 @@ export async function generateMeetingAttendancePdfBlob(
     ctx.textBaseline = 'middle';
     ctx.fillText(String(idx + 1), x + COL_WIDTHS.index / 2, y + rowH / 2);
 
-    // Cell 2: Name
+    // Cell 2: Teacher Name OR Student Class/Name
     x += COL_WIDTHS.index;
     ctx.fillStyle = '#1C1917';
     ctx.font = `700 20px ${FONT_FAMILY}`;
     ctx.textAlign = 'left';
-    const nameLines = wrapTextLines(ctx, rec.userName, COL_WIDTHS.name - 24, 2);
-    const nameStartY = y + rowH / 2 - ((nameLines.length - 1) * 24) / 2;
-    nameLines.forEach((line, i) => {
-      ctx.fillText(line, x + 12, nameStartY + i * 24);
+    const col1Lines = wrapTextLines(ctx, rec.col1, COL_WIDTHS.col1 - 24, 2);
+    const col1StartY = y + rowH / 2 - ((col1Lines.length - 1) * 24) / 2;
+    col1Lines.forEach((line, i) => {
+      ctx.fillText(line, x + 12, col1StartY + i * 24);
     });
 
-    // Cell 3: Email
-    x += COL_WIDTHS.name;
-    ctx.fillStyle = '#57534E';
-    ctx.font = `400 16px ${FONT_FAMILY}`;
-    const emailLines = wrapTextLines(
-      ctx,
-      rec.userEmail,
-      COL_WIDTHS.email - 24,
-      2,
-    );
-    const emailStartY = y + rowH / 2 - ((emailLines.length - 1) * 20) / 2;
-    emailLines.forEach((line, i) => {
-      ctx.fillText(line, x + 12, emailStartY + i * 20);
+    // Cell 3: School Email OR Parent Name
+    x += COL_WIDTHS.col1;
+    ctx.fillStyle = isParent ? '#1C1917' : '#57534E';
+    ctx.font = isParent
+      ? `700 20px ${FONT_FAMILY}`
+      : `400 16px ${FONT_FAMILY}`;
+    const col2Lines = wrapTextLines(ctx, rec.col2, COL_WIDTHS.col2 - 24, 2);
+    const col2StartY = y + rowH / 2 - ((col2Lines.length - 1) * 22) / 2;
+    col2Lines.forEach((line, i) => {
+      ctx.fillText(line, x + 12, col2StartY + i * 22);
     });
 
-    // Cell 4: Note
-    x += COL_WIDTHS.email;
+    // Cell 4: Note / Relationship
+    x += COL_WIDTHS.col2;
     ctx.fillStyle = '#292524';
     ctx.font = `400 18px ${FONT_FAMILY}`;
-    const noteLines = wrapTextLines(
+    const col3Lines = wrapTextLines(
       ctx,
-      rec.roleOrNote || '—',
-      COL_WIDTHS.note - 24,
+      rec.col3 || '—',
+      COL_WIDTHS.col3 - 24,
       2,
     );
-    const noteStartY = y + rowH / 2 - ((noteLines.length - 1) * 22) / 2;
-    noteLines.forEach((line, i) => {
-      ctx.fillText(line, x + 12, noteStartY + i * 22);
+    const col3StartY = y + rowH / 2 - ((col3Lines.length - 1) * 22) / 2;
+    col3Lines.forEach((line, i) => {
+      ctx.fillText(line, x + 12, col3StartY + i * 22);
     });
 
     // Cell 5: Handwritten Signature Image
-    x += COL_WIDTHS.note;
+    x += COL_WIDTHS.col3;
     if (sigImg) {
       const boxW = COL_WIDTHS.signature - 28;
       const boxH = rowH - 18;

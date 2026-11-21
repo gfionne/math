@@ -186,6 +186,7 @@ service cloud.firestore {
         'agendaSummary',
         'meetUrl',
         'linkedPostSlug',
+        'audience',
         'isOpen',
         'checkinStartAt',
         'checkinEndAt',
@@ -202,6 +203,7 @@ service cloud.firestore {
       data.meetUrl is string && data.meetUrl.size() <= 500 &&
       (data.meetUrl == '' || data.meetUrl.matches('^https://.*')) &&
       data.linkedPostSlug is string && data.linkedPostSlug.size() <= 160 &&
+      (!('audience' in data) || (data.audience is string && data.audience in ['teacher', 'parent'])) &&
       data.isOpen is bool &&
       (!('checkinStartAt' in data) || data.checkinStartAt == null || data.checkinStartAt is timestamp) &&
       (!('checkinEndAt' in data) || data.checkinEndAt == null || data.checkinEndAt is timestamp) &&
@@ -259,8 +261,41 @@ service cloud.firestore {
       data.updatedAt is timestamp;
     }
 
+    function isValidParentCheckin(data) {
+      return data.keys().hasAll([
+        'meetingId',
+        'meetingTitle',
+        'studentClassAndSeat',
+        'parentName',
+        'relationshipOrNote',
+        'signatureDataUrl',
+        'checkedInAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'meetingId',
+        'meetingTitle',
+        'studentClassAndSeat',
+        'parentName',
+        'relationshipOrNote',
+        'signatureDataUrl',
+        'checkedInAt',
+        'updatedAt'
+      ]) &&
+      data.meetingId is string && isValidId(data.meetingId) && data.meetingId.size() <= 90 &&
+      data.meetingTitle is string && data.meetingTitle.size() >= 1 && data.meetingTitle.size() <= 160 &&
+      data.studentClassAndSeat is string && data.studentClassAndSeat.size() >= 1 && data.studentClassAndSeat.size() <= 80 &&
+      data.parentName is string && data.parentName.size() >= 1 && data.parentName.size() <= 80 &&
+      data.relationshipOrNote is string && data.relationshipOrNote.size() <= 120 &&
+      data.signatureDataUrl is string &&
+      data.signatureDataUrl.size() >= 22 &&
+      data.signatureDataUrl.size() <= 200000 &&
+      data.signatureDataUrl.matches('^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$') &&
+      data.checkedInAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
     match /siteConfig/{configId} {
-      // Publicly readable so visitors on GitHub Pages and AI Studio load the exact same config in real time
       allow get: if isValidId(configId) && configId == 'main';
       allow list: if false;
 
@@ -293,7 +328,6 @@ service cloud.firestore {
     }
 
     match /admins/{userId} {
-      // Only the admin themselves or the owner admin can read an individual admin doc (no PII list scraping)
       allow get: if isVerifiedUser() && isValidId(userId) && (request.auth.uid == userId || isOwnerAdmin());
       allow list: if false;
 
@@ -310,11 +344,9 @@ service cloud.firestore {
     }
 
     match /ximenGalleryItems/{itemId} {
-      // Teachers/admins and verified @hmes.tp.edu.tw school accounts may view and download gallery items
       allow get: if isValidId(itemId) && (isAdmin() || isSchoolMember());
       allow list: if isAdmin() || isSchoolMember();
 
-      // Only authenticated teachers/admins may upload or delete gallery items
       allow create: if isAdmin() &&
         isValidId(itemId) &&
         isValidXimenGalleryItem(incoming());
@@ -325,9 +357,15 @@ service cloud.firestore {
     }
 
     match /meetings/{meetingId} {
-      // Private community teacher meetings: strictly gated to @hmes.tp.edu.tw school members and admins
-      allow get: if isValidId(meetingId) && (isAdmin() || isSchoolMember());
-      allow list: if isAdmin() || isSchoolMember();
+      // Teacher meetings require @hmes.tp.edu.tw or admin; School Day parent sessions (audience == 'parent') are readable without login
+      allow get: if isValidId(meetingId) && (
+        isAdmin() ||
+        isSchoolMember() ||
+        ('audience' in existing() && existing().audience == 'parent')
+      );
+      allow list: if isAdmin() ||
+        isSchoolMember() ||
+        ('audience' in resource.data && resource.data.audience == 'parent');
 
       allow create: if isAdmin() &&
         isValidId(meetingId) &&
@@ -350,6 +388,7 @@ service cloud.firestore {
           'agendaSummary',
           'meetUrl',
           'linkedPostSlug',
+          'audience',
           'isOpen',
           'checkinStartAt',
           'checkinEndAt',
@@ -417,6 +456,37 @@ service cloud.firestore {
           isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data)
         )
       );
+    }
+
+    match /parentCheckins/{checkinId} {
+      // Strictly isolate parent/student check-in records to admins for roster management & PDF export (zero public read/list/scrape)
+      allow get: if isValidId(checkinId) && isAdmin();
+      allow list: if isAdmin();
+
+      // Login-free School Day parent check-in: permitted ONLY for existing, open, in-window 'parent' sessions
+      allow create: if isValidId(checkinId) &&
+        isValidParentCheckin(incoming()) &&
+        incoming().checkedInAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
+        get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.audience == 'parent' &&
+        isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data);
+
+      allow update: if isAdmin() &&
+        isValidId(checkinId) &&
+        isValidParentCheckin(incoming()) &&
+        incoming().meetingId == existing().meetingId &&
+        incoming().checkedInAt == existing().checkedInAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'studentClassAndSeat',
+          'parentName',
+          'relationshipOrNote',
+          'signatureDataUrl',
+          'updatedAt'
+        ]);
+
+      allow delete: if isAdmin() && isValidId(checkinId);
     }
   }
 }

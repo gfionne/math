@@ -188,6 +188,8 @@ export default function App() {
   const [meetingCheckinState, setMeetingCheckinState] = useState<{
     isOpen: boolean;
     linkedPostSlug?: string;
+    audienceMode?: 'parent' | 'teacher';
+    meetingId?: string;
   }>({isOpen: false});
   const handledQueryStageRef = useRef(false);
 
@@ -361,6 +363,8 @@ export default function App() {
       handledQueryStageRef.current = true;
       const ximenParam = params.get('ximen');
       const class403Param = params.get('class403');
+      const checkinParam = params.get('checkin');
+      const meetingParam = params.get('meeting');
       if (
         ximenParam === 'map' ||
         ximenParam === 'gallery' ||
@@ -376,6 +380,16 @@ export default function App() {
         class403Param === 'comments'
       ) {
         openClass403Stage(class403Param);
+      } else if (
+        checkinParam === 'parent' ||
+        checkinParam === 'teacher' ||
+        meetingParam
+      ) {
+        setMeetingCheckinState({
+          isOpen: true,
+          audienceMode: checkinParam === 'teacher' ? 'teacher' : 'parent',
+          meetingId: meetingParam || undefined,
+        });
       }
     }
 
@@ -1420,16 +1434,8 @@ export default function App() {
                     : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A]'
                 }`}
               >
-                {!isSchoolAuthorized ? (
-                  <Lock
-                    className={`w-3.5 h-3.5 ${
-                      meetingCheckinState.isOpen ? 'text-amber-200' : 'text-amber-700'
-                    }`}
-                  />
-                ) : (
-                  <PenTool className="w-3.5 h-3.5" />
-                )}
-                <span>會議簽到</span>
+                <PenTool className="w-3.5 h-3.5" />
+                <span>會議／家長簽到</span>
               </button>
             </nav>
 
@@ -1527,16 +1533,8 @@ export default function App() {
                   : 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
               }`}
             >
-              {!isSchoolAuthorized ? (
-                <Lock
-                  className={`w-3 h-3 ${
-                    meetingCheckinState.isOpen ? 'text-amber-200' : 'text-amber-700'
-                  }`}
-                />
-              ) : (
-                <PenTool className="w-3.5 h-3.5" />
-              )}
-              <span>會議簽到</span>
+              <PenTool className="w-3.5 h-3.5" />
+              <span>會議／家長簽到</span>
             </button>
             <button
               type="button"
@@ -2004,13 +2002,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Community Meeting Check-In Dedicated Strip */}
+            {/* Unified School Day Parent & Community Meeting Check-In Dedicated Strip */}
             <div className="bg-white/90 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-[#1E3A8A]/40 transition-all min-w-0">
               <div className="space-y-1 min-w-0">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                   <span className="font-semibold text-[#1E3A8A] inline-flex items-center gap-1">
                     <CalendarCheck className="w-3.5 h-3.5" />
-                    <span>西門數學社群 · 領域共備專區</span>
+                    <span>西門數學社群 · 學校日與共備簽到專區</span>
                   </span>
                   <span aria-hidden="true" className="text-stone-400">
                     ·
@@ -2018,8 +2016,8 @@ export default function App() {
                   <span className="inline-flex items-center gap-1 font-medium text-stone-700">
                     {!isSchoolAuthorized ? (
                       <>
-                        <Lock className="w-3 h-3 text-amber-700" />
-                        <span>須登入 @hmes.tp.edu.tw 解鎖簽到</span>
+                        <PenTool className="w-3 h-3 text-emerald-700" />
+                        <span>家長免登入簽到 · 社群教師可登入帳號簽到</span>
                       </>
                     ) : (
                       <>
@@ -2030,10 +2028,10 @@ export default function App() {
                   </span>
                 </div>
                 <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950">
-                  領域會議線上簽到與親筆簽名系統
+                  學校日家長與領域會議線上簽到系統
                 </h2>
                 <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                  社群老師使用 @hmes.tp.edu.tw 帳號登入後即可親自手寫簽名完成簽到並保留簽名存證；管理教師可建立場次、檢視簽名名單與匯出可列印含簽名之簽到表。
+                  家長參與學校日或親師活動無需登入帳號，選擇場次並手寫簽名即可快速完成報到；社群教師可使用 @hmes.tp.edu.tw 帳號登入進行共備簽到，管理教師可產生 QR Code、檢視名單並匯出含簽名之 A4 PDF 簽到表。
                 </p>
               </div>
 
@@ -2044,26 +2042,31 @@ export default function App() {
                     onClick={() =>
                       openSchoolAccessModal(
                         '登入 @hmes.tp.edu.tw 學校帳號',
-                        '登入後可同步解鎖網站上的校內限定專欄、選項與領域會議親自手寫簽名專區。',
+                        '社群教師登入後可同步解鎖網站校內限定專欄與領域共備會議簽到；若您為參加學校日之家長，請直接點選「家長免登入簽到」。',
                       )
                     }
                     className="min-h-[38px] px-3.5 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#FBF9F5] border border-[#1E3A8A]/30 rounded-lg hover:bg-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                   >
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>@hmes.tp.edu.tw 登入</span>
+                    <span>@hmes.tp.edu.tw 教師登入</span>
                   </button>
                 )}
                 <button
                   type="button"
-                  onClick={() => setMeetingCheckinState({isOpen: true})}
+                  onClick={() =>
+                    setMeetingCheckinState({
+                      isOpen: true,
+                      audienceMode: isSchoolAuthorized ? undefined : 'parent',
+                    })
+                  }
                   className="min-h-[38px] px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                 >
-                  {!isSchoolAuthorized ? (
-                    <Lock className="w-3.5 h-3.5" />
-                  ) : (
-                    <PenTool className="w-3.5 h-3.5" />
-                  )}
-                  <span>開啟會議手寫簽到</span>
+                  <PenTool className="w-3.5 h-3.5" />
+                  <span>
+                    {isSchoolAuthorized
+                      ? '開啟會議與家長簽到'
+                      : '家長免登入簽到'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -2126,18 +2129,8 @@ export default function App() {
                               : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/35 hover:bg-[#1E3A8A] hover:text-white'
                           }`}
                         >
-                          {!isSchoolAuthorized ? (
-                            <Lock
-                              className={`w-3.5 h-3.5 ${
-                                meetingCheckinState.isOpen
-                                  ? 'text-amber-200'
-                                  : 'text-amber-700'
-                              }`}
-                            />
-                          ) : (
-                            <PenTool className="w-3.5 h-3.5" />
-                          )}
-                          <span>會議簽到</span>
+                          <PenTool className="w-3.5 h-3.5" />
+                          <span>會議／家長簽到</span>
                           <span
                             className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
                               meetingCheckinState.isOpen
@@ -2145,7 +2138,7 @@ export default function App() {
                                 : 'bg-white text-[#1E3A8A] border border-[#1E3A8A]/20'
                             }`}
                           >
-                            親筆簽名
+                            親筆簽名・免登入可用
                           </span>
                         </button>
                       )}
@@ -2458,7 +2451,7 @@ export default function App() {
               className="inline-flex items-center gap-1.5 text-stone-700 hover:text-[#1E3A8A] font-medium"
             >
               <CalendarCheck className="w-3.5 h-3.5" />
-              <span>領域會議簽到</span>
+              <span>學校日與會議簽到</span>
             </button>
             {user && hasAccessToken ? (
               <>
@@ -2698,6 +2691,8 @@ export default function App() {
       <MeetingCheckinModal
         isOpen={meetingCheckinState.isOpen}
         initialLinkedPostSlug={meetingCheckinState.linkedPostSlug}
+        initialAudienceMode={meetingCheckinState.audienceMode}
+        initialMeetingId={meetingCheckinState.meetingId}
         onClose={() => setMeetingCheckinState({isOpen: false})}
         user={user}
         isTeacherAdmin={isTeacherAdmin}
