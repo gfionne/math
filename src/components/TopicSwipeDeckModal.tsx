@@ -40,8 +40,12 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
   onSelectPost,
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
+  const mobileStripRef = useRef<HTMLDivElement | null>(null);
+  const mobileTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const desktopTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [activeTopicIdx, setActiveTopicIdx] = useState(initialTopicIndex);
   const [activeCardIdx, setActiveCardIdx] = useState(initialCardIndex);
+  const [topicTransitionDir, setTopicTransitionDir] = useState<'up' | 'down' | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const lastTopicSwitchRef = useRef<number>(0);
@@ -92,6 +96,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
       if (clamped === safeTopicIdx) return;
       const now = Date.now();
       lastTopicSwitchRef.current = now;
+      setTopicTransitionDir(clamped > safeTopicIdx ? 'up' : 'down');
       setActiveTopicIdx(clamped);
       setActiveCardIdx(0);
       requestAnimationFrame(() => {
@@ -113,6 +118,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     const maxCard = Math.max(0, (groups[clampedTopic]?.posts.length ?? 1) - 1);
     const clampedCard = Math.max(0, Math.min(maxCard, initialCardIndex));
 
+    setTopicTransitionDir(null);
     setActiveTopicIdx(clampedTopic);
     setActiveCardIdx(clampedCard);
 
@@ -125,6 +131,27 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
       document.body.style.overflow = prevOverflow;
     };
   }, [isOpen, initialTopicIndex, initialCardIndex, groups, scrollToCard]);
+
+  // Keep active topic tab smoothly centered in mobile strip and visible in desktop sidebar
+  useEffect(() => {
+    if (!isOpen) return;
+    const raf = requestAnimationFrame(() => {
+      const strip = mobileStripRef.current;
+      const mobileBtn = mobileTabRefs.current[safeTopicIdx];
+      if (strip && mobileBtn) {
+        const targetLeft =
+          mobileBtn.offsetLeft -
+          (strip.clientWidth - mobileBtn.offsetWidth) / 2;
+        strip.scrollTo({
+          left: Math.max(0, targetLeft),
+          behavior: 'smooth',
+        });
+      }
+      const desktopBtn = desktopTabRefs.current[safeTopicIdx];
+      desktopBtn?.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen, safeTopicIdx]);
 
   useEffect(() => {
     if (!isOpen || isSuspended) return;
@@ -258,7 +285,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     const dy = e.changedTouches[0].clientY - touchStartRef.current.y;
     touchStartRef.current = null;
 
-    if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx) * 1.4) {
+    if (Math.abs(dy) > 45 && Math.abs(dy) > Math.abs(dx) * 1.25) {
       if (dy < 0 && safeTopicIdx < groups.length - 1) {
         switchTopic(safeTopicIdx + 1);
       } else if (dy > 0 && safeTopicIdx > 0) {
@@ -305,8 +332,8 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
       className="fixed inset-0 z-40 bg-[#EAE5DB] flex flex-col"
     >
       {/* Top Bar */}
-      <header className="h-14 shrink-0 border-b border-stone-200 bg-white px-4 sm:px-6 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="h-14 shrink-0 border-b border-stone-200 bg-white px-3.5 sm:px-6 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <span
             className={`font-mono-tabular text-xs font-bold whitespace-nowrap shrink-0 ${topicAccent.textClass}`}
           >
@@ -316,34 +343,41 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950 truncate">
             {currentGroup.topic}
           </h2>
-          <span className="hidden sm:inline text-xs font-mono-tabular text-stone-500">
-            · 第 {safeCardIdx + 1} / {currentPosts.length} 篇
+          <span className="text-xs font-mono-tabular text-stone-500 whitespace-nowrap shrink-0">
+            · {safeCardIdx + 1}/{currentPosts.length} 篇
           </span>
         </div>
 
         <button
           type="button"
           onClick={onClose}
-          className="min-h-[40px] px-3.5 py-1.5 text-xs font-medium text-stone-800 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+          className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-800 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
         >
           <X className="w-4 h-4" />
           <span>回到首頁</span>
         </button>
       </header>
 
-      {/* Mobile / Tablet Topic Channel Strip */}
-      <div className="lg:hidden shrink-0 bg-white border-b border-stone-200 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+      {/* Mobile / Tablet Topic Channel Strip (auto-centers active tab) */}
+      <div
+        ref={mobileStripRef}
+        className="lg:hidden shrink-0 bg-white border-b border-stone-200 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth"
+      >
         {groups.map((g, idx) => {
           const isAct = idx === safeTopicIdx;
           const acc = getCategoryAccent(g.topic);
           return (
             <button
               key={g.topic}
+              ref={(el) => {
+                mobileTabRefs.current[idx] = el;
+              }}
               type="button"
               onClick={() => switchTopic(idx)}
-              className={`min-h-[36px] px-3 py-1.5 text-xs rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+              aria-current={isAct ? 'true' : undefined}
+              className={`min-h-[36px] px-3 py-1.5 text-xs rounded-lg transition-all whitespace-nowrap shrink-0 ${
                 isAct
-                  ? `${acc.barClass} text-white font-semibold`
+                  ? `${acc.barClass} text-white font-semibold shadow-sm ring-2 ring-offset-1 ring-[#1E3A8A]/25`
                   : 'bg-[#F7F4EE] text-stone-700 hover:bg-stone-200/70 font-medium'
               }`}
             >
@@ -367,6 +401,9 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
               return (
                 <button
                   key={g.topic}
+                  ref={(el) => {
+                    desktopTabRefs.current[idx] = el;
+                  }}
                   type="button"
                   onClick={() => switchTopic(idx)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex items-center justify-between gap-2 ${
@@ -402,72 +439,115 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           onWheel={handleWheel}
           className="flex-1 min-w-0 flex flex-col justify-between relative overflow-hidden"
         >
-          {/* Story-Style Progress Bars */}
-          <div className="max-w-2xl w-full mx-auto px-5 pt-4 pb-1 flex items-center gap-1.5 shrink-0">
-            {currentPosts.map((p, idx) => (
-              <button
-                key={`${p.slug}-bar-${p.rowIndex ?? idx}`}
-                type="button"
-                onClick={() => scrollToCard(idx)}
-                aria-label={`跳至第 ${idx + 1} 篇：${p.title}`}
-                className="flex-1 py-2 focus-visible:outline-none group"
-              >
-                <span
-                  className={`block h-1.5 w-full rounded-full transition-colors ${
-                    idx === safeCardIdx
-                      ? topicAccent.barClass
-                      : idx < safeCardIdx
-                      ? 'bg-stone-500/60'
-                      : 'bg-stone-400/40 group-hover:bg-stone-400'
-                  }`}
-                />
-              </button>
-            ))}
-          </div>
-
-          {/* Peekable Horizontal Card Carousel */}
-          <div className="flex-1 min-h-0 relative flex items-center">
-            <div
-              ref={railRef}
-              onScroll={handleRailScroll}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUpOrCancel}
-              onPointerCancel={handlePointerUpOrCancel}
-              onClickCapture={handleClickCapture}
-              className={`w-full h-full flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar px-[7vw] sm:px-[14%] lg:px-[16%] py-2 select-none ${
-                isDragging
-                  ? 'cursor-grabbing'
-                  : 'snap-x snap-mandatory scroll-smooth cursor-grab'
-              }`}
-            >
-              {currentPosts.map((post, idx) => {
-                const isActive = idx === safeCardIdx;
-                const hasCover = Boolean(
-                  post.coverImageUrl && !failedImages[post.slug],
-                );
-                const embedMeta = post.embedUrl
-                  ? inferEmbedProvider(post.embedUrl)
-                  : null;
-                const readMins = estimateReadMinutes(
-                  post.content || post.summary,
-                );
-                const cardAccent = getCategoryAccent(post.category || currentGroup.topic);
-
-                return (
-                  <div
-                    key={`${post.slug}-card-${post.rowIndex ?? idx}`}
-                    onClick={() => {
-                      if (!isActive) {
-                        scrollToCard(idx);
-                      }
-                    }}
-                    className={`w-[86vw] sm:w-[72%] md:w-[68%] max-w-2xl h-full max-h-[600px] snap-center shrink-0 flex items-center transition-all duration-200 ${
-                      isActive
-                        ? 'opacity-100 scale-100'
-                        : 'opacity-55 scale-[0.94] hover:opacity-80 cursor-pointer'
-                    }`}
+          <div
+            key={currentGroup.topic}
+            className={`flex-1 min-h-0 flex flex-col justify-between ${
+              topicTransitionDir === 'up'
+                ? 'animate-topic-slide-up'
+                : topicTransitionDir === 'down'
+                ? 'animate-topic-slide-down'
+                : ''
+            }`}
+          >
+            {/* Story-Style Progress Bars + Compact Card Controls */}
+            <div className="max-w-2xl w-full mx-auto px-4 sm:px-5 pt-3 pb-1 shrink-0 space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                {currentPosts.map((p, idx) => (
+                  <button
+                    key={`${p.slug}-bar-${p.rowIndex ?? idx}`}
+                    type="button"
+                    onClick={() => scrollToCard(idx)}
+                    aria-label={`跳至第 ${idx + 1} 篇：${p.title}`}
+                    className="flex-1 py-1.5 focus-visible:outline-none group"
                   >
+                    <span
+                      className={`block h-1.5 w-full rounded-full transition-all ${
+                        idx === safeCardIdx
+                          ? `${topicAccent.barClass} scale-y-125`
+                          : idx < safeCardIdx
+                          ? 'bg-stone-500/60'
+                          : 'bg-stone-400/40 group-hover:bg-stone-400'
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+
+              {currentPosts.length > 1 && (
+                <div className="flex items-center justify-between text-[11px] text-stone-600">
+                  <span className="font-medium truncate">
+                    左右滑動切換同主題文章（共 {currentPosts.length} 篇）
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => scrollToCard(safeCardIdx - 1)}
+                      disabled={safeCardIdx <= 0}
+                      aria-label="上一篇"
+                      className="w-7 h-7 rounded-md bg-white/85 border border-stone-300/80 text-stone-800 flex items-center justify-center disabled:opacity-35 hover:bg-white transition-colors"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="font-mono-tabular px-1.5 font-semibold text-stone-800">
+                      {safeCardIdx + 1}/{currentPosts.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => scrollToCard(safeCardIdx + 1)}
+                      disabled={safeCardIdx >= currentPosts.length - 1}
+                      aria-label="下一篇"
+                      className="w-7 h-7 rounded-md bg-white/85 border border-stone-300/80 text-stone-800 flex items-center justify-center disabled:opacity-35 hover:bg-white transition-colors"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Peekable Horizontal Card Carousel */}
+            <div className="flex-1 min-h-0 relative flex items-center">
+              <div
+                ref={railRef}
+                onScroll={handleRailScroll}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUpOrCancel}
+                onPointerCancel={handlePointerUpOrCancel}
+                onClickCapture={handleClickCapture}
+                className={`w-full h-full flex items-center gap-3.5 sm:gap-6 overflow-x-auto no-scrollbar px-[9vw] sm:px-[14%] lg:px-[16%] py-2 select-none ${
+                  isDragging
+                    ? 'cursor-grabbing'
+                    : 'snap-x snap-mandatory scroll-smooth cursor-grab'
+                }`}
+              >
+                {currentPosts.map((post, idx) => {
+                  const isActive = idx === safeCardIdx;
+                  const hasCover = Boolean(
+                    post.coverImageUrl && !failedImages[post.slug],
+                  );
+                  const embedMeta = post.embedUrl
+                    ? inferEmbedProvider(post.embedUrl)
+                    : null;
+                  const readMins = estimateReadMinutes(
+                    post.content || post.summary,
+                  );
+                  const cardAccent = getCategoryAccent(post.category || currentGroup.topic);
+
+                  return (
+                    <div
+                      key={`${post.slug}-card-${post.rowIndex ?? idx}`}
+                      onClick={() => {
+                        if (!isActive) {
+                          scrollToCard(idx);
+                        }
+                      }}
+                      className={`w-[82vw] sm:w-[72%] md:w-[68%] max-w-2xl h-full max-h-[600px] snap-center shrink-0 flex items-center transition-all duration-200 ${
+                        isActive
+                          ? 'opacity-100 scale-100'
+                          : 'opacity-60 scale-[0.92] hover:opacity-85 cursor-pointer'
+                      }`}
+                    >
                     <article className="w-full h-full bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-lg flex flex-col">
                       {/* Distinct Top Category Accent Bar */}
                       <div className={`h-1.5 w-full shrink-0 ${cardAccent.barClass}`} />
@@ -520,14 +600,14 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
 
                       <div className="p-6 sm:p-7 flex-1 min-h-0 flex flex-col justify-between gap-4 overflow-y-auto">
                         <div className="space-y-3">
-                          <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-stone-100 text-xs">
-                            <span className={`font-bold tracking-wide ${cardAccent.textClass}`}>
+                          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-2.5 border-b border-stone-100 text-xs">
+                            <span className={`font-bold tracking-wide truncate min-w-0 ${cardAccent.textClass}`}>
                               {formatCategoryDisplay(post.category, currentGroup.topic)}
                             </span>
-                            <div className="flex items-center gap-2 text-stone-500 font-mono-tabular">
+                            <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">
                               <span>{post.academicYear}</span>
                               <span aria-hidden="true">·</span>
-                              <span>{readMins} 分鐘閱讀</span>
+                              <span className="font-sans">{readMins} 分鐘閱讀</span>
                               <span aria-hidden="true">·</span>
                               <span>
                                 {idx + 1} / {currentPosts.length}
@@ -625,6 +705,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 <ChevronRight className="w-5 h-5" />
               </button>
             )}
+            </div>
           </div>
 
           {/* Bottom Topic Switcher Dock */}

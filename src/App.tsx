@@ -467,6 +467,19 @@ export default function App() {
     searchQuery,
   ]);
 
+  useEffect(() => {
+    const bar = categoryBarRef.current;
+    if (!bar) return;
+    const activeEl = bar.querySelector('[data-active="true"]') as HTMLElement | null;
+    if (!activeEl) return;
+    const targetLeft =
+      activeEl.offsetLeft - (bar.clientWidth - activeEl.offsetWidth) / 2;
+    bar.scrollTo({
+      left: Math.max(0, targetLeft),
+      behavior: 'smooth',
+    });
+  }, [selectedCategory]);
+
   // Deep-link hash support (#post=slug)
   useEffect(() => {
     const hash = window.location.hash;
@@ -1815,6 +1828,7 @@ export default function App() {
                     <button
                       key={cat}
                       type="button"
+                      data-active={isActive ? 'true' : undefined}
                       onClick={() => setSelectedCategory(cat)}
                       className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
                         isActive

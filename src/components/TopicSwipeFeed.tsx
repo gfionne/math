@@ -173,7 +173,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
           </button>
 
           {group.posts.length > 1 && (
-            <div className="hidden sm:flex items-center gap-1">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => scrollToCard(activeCardIdx - 1)}
