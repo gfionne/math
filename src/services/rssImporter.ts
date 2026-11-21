@@ -22,7 +22,7 @@ function cleanHtmlForJournal(rawHtml: string): string {
   // Remove dangerous or noisy tags
   doc.querySelectorAll('script, style, noscript').forEach((el) => el.remove());
 
-  // Clean inline dimensions/styles on images & tables so they stay responsive
+  // Clean inline dimensions/styles on images, iframes & tables so they stay responsive
   doc.querySelectorAll('img').forEach((img) => {
     img.removeAttribute('width');
     img.removeAttribute('height');
@@ -30,6 +30,15 @@ function cleanHtmlForJournal(rawHtml: string): string {
     img.setAttribute('referrerpolicy', 'no-referrer');
     img.setAttribute('loading', 'lazy');
   });
+
+  doc
+    .querySelectorAll('iframe, video, embed, object, table, td, th, col')
+    .forEach((el) => {
+      el.removeAttribute('width');
+      el.removeAttribute('height');
+      el.removeAttribute('align');
+      el.removeAttribute('style');
+    });
 
   doc.querySelectorAll('a').forEach((a) => {
     const href = a.getAttribute('href') || '';

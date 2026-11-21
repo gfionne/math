@@ -144,17 +144,17 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
   return (
     <section
       id={`swipe-topic-${topicIndex}`}
-      className="scroll-mt-24 border-t-2 border-stone-900 pt-5 space-y-4"
+      className="scroll-mt-24 border-t-2 border-stone-900 pt-5 space-y-4 min-w-0 max-w-full"
     >
       {/* Clear Editorial Topic Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
           <span
             className={`font-mono-tabular text-sm font-bold ${accent.textClass}`}
           >
             {sectionNumber}
           </span>
-          <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 truncate">
+          <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 break-words">
             {group.topic}
           </h3>
           <span className="text-xs font-mono-tabular text-stone-500">
@@ -198,7 +198,7 @@ const TopicCarouselRow: React.FC<TopicCarouselRowProps> = ({
       </div>
 
       {/* Distinct Warm Limestone Tray Making White Cards Stand Out Clearly */}
-      <div className="bg-[#EFECE4] border border-stone-200/90 rounded-2xl p-3.5 sm:p-5 relative">
+      <div className="bg-[#EFECE4] border border-stone-200/90 rounded-2xl p-3 sm:p-5 relative min-w-0 max-w-full overflow-hidden">
         <div
           ref={railRef}
           onScroll={handleScroll}

@@ -84,8 +84,8 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({post, onSelect}) => {
       <div className="p-5 flex-1 flex flex-col justify-between gap-4">
         <div className="space-y-2.5">
           {/* Unboxed High-Contrast Category & Metadata Row */}
-          <div className="flex items-center justify-between gap-2 pb-2 border-b border-stone-100 text-xs">
-            <span className={`font-bold tracking-wide truncate ${accent.textClass}`}>
+          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-2 border-b border-stone-100 text-xs min-w-0">
+            <span className={`font-bold tracking-wide truncate min-w-0 ${accent.textClass}`}>
               {formatCategoryDisplay(post.category)}
             </span>
             <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">

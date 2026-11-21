@@ -116,6 +116,10 @@
   color: #292524;
   font-size: 1rem;
   line-height: 1.85;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .journal-prose h1,
@@ -172,10 +176,18 @@
   color: #44403C;
 }
 
+.journal-prose .journal-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.5rem 0;
+}
+
 .journal-prose table {
   width: 100%;
   border-collapse: collapse;
-  margin: 1.5rem 0;
+  margin: 0;
   font-size: 0.875rem;
   font-variant-numeric: tabular-nums;
 }
@@ -199,15 +211,41 @@
   color: #1E3A8A;
   text-decoration: underline;
   text-underline-offset: 3px;
+  overflow-wrap: anywhere;
 }
 
 .journal-prose img {
-  max-width: 100%;
-  height: auto;
+  max-width: 100% !important;
+  height: auto !important;
   border-radius: 8px;
   border: 1px solid #E7E5E4;
   margin: 1.25rem auto;
   display: block;
+}
+
+.journal-prose iframe,
+.journal-prose video,
+.journal-prose embed,
+.journal-prose object {
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.journal-prose .journal-embed-frame {
+  width: 100%;
+  max-width: 100%;
+  margin: 1.25rem auto;
+  border-radius: 0.75rem;
+  border: 1px solid #E7E5E4;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+.journal-prose .journal-embed-frame iframe {
+  display: block;
+  width: 100% !important;
+  height: min(440px, 62vh) !important;
+  border: 0;
 }
 
 .journal-prose code {
@@ -224,6 +262,7 @@
   padding: 1rem 1.25rem;
   border-radius: 6px;
   overflow-x: auto;
+  max-width: 100%;
   margin: 1.25rem 0;
   font-family: var(--font-mono);
   font-size: 0.85rem;

@@ -628,21 +628,21 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           </div>
 
           {/* Bottom Topic Switcher Dock */}
-          <div className="shrink-0 border-t border-stone-200 bg-white px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3">
+          <div className="shrink-0 border-t border-stone-200 bg-white px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2 sm:gap-3 min-w-0">
             {prevTopic ? (
               <button
                 type="button"
                 onClick={() => switchTopic(safeTopicIdx - 1)}
-                className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 whitespace-nowrap"
+                className="min-h-[40px] max-w-[48%] min-w-0 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5"
               >
-                <ArrowUp className="w-3.5 h-3.5" />
-                <span>上個主題：{prevTopic.topic}</span>
+                <ArrowUp className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">上個主題：{prevTopic.topic}</span>
               </button>
             ) : (
-              <span className="text-xs text-stone-400">已是第一個主題</span>
+              <span className="text-xs text-stone-400 truncate">已是第一個主題</span>
             )}
 
-            <span className="hidden md:inline text-xs text-stone-500 font-mono-tabular">
+            <span className="hidden md:inline text-xs text-stone-500 font-mono-tabular shrink-0">
               {currentGroup.topic} · 第 {safeCardIdx + 1} / {currentPosts.length} 篇
             </span>
 
@@ -650,15 +650,15 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
               <button
                 type="button"
                 onClick={() => switchTopic(safeTopicIdx + 1)}
-                className="min-h-[40px] px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                className="min-h-[40px] max-w-[48%] min-w-0 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-colors"
               >
-                <span>
+                <span className="truncate">
                   下個主題：{nextTopic.topic}（{nextTopic.posts.length} 篇）
                 </span>
-                <ArrowDown className="w-3.5 h-3.5" />
+                <ArrowDown className="w-3.5 h-3.5 shrink-0" />
               </button>
             ) : (
-              <span className="text-xs text-stone-400">已是最後一個主題</span>
+              <span className="text-xs text-stone-400 truncate">已是最後一個主題</span>
             )}
           </div>
         </div>

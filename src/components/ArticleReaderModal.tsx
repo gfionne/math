@@ -28,11 +28,73 @@ interface ArticleReaderModalProps {
 }
 
 function sanitizeHtml(html: string): string {
-  return html
+  const basicClean = html
     .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
     .replace(/\son\w+="[^"]*"/gi, '')
     .replace(/\son\w+='[^']*'/gi, '')
     .replace(/javascript:/gi, '');
+
+  if (typeof DOMParser === 'undefined') {
+    return basicClean;
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(basicClean, 'text/html');
+    doc.querySelectorAll('script, style, noscript').forEach((el) => el.remove());
+
+    doc.querySelectorAll('img').forEach((img) => {
+      img.removeAttribute('width');
+      img.removeAttribute('height');
+      img.removeAttribute('style');
+      img.setAttribute('referrerpolicy', 'no-referrer');
+    });
+
+    doc.querySelectorAll('iframe, video, embed, object').forEach((el) => {
+      el.removeAttribute('width');
+      el.removeAttribute('height');
+      el.removeAttribute('style');
+
+      const parent = el.parentElement;
+      const insideAspectVideo = parent?.classList.contains('aspect-video');
+      if (el.tagName.toLowerCase() === 'iframe') {
+        if (insideAspectVideo && parent) {
+          parent.classList.add('max-w-full');
+          el.setAttribute('class', 'w-full h-full border-0');
+        } else if (!parent?.classList.contains('journal-embed-frame')) {
+          const wrapper = doc.createElement('div');
+          wrapper.setAttribute('class', 'journal-embed-frame');
+          el.parentNode?.insertBefore(wrapper, el);
+          wrapper.appendChild(el);
+        }
+      }
+    });
+
+    doc.querySelectorAll('table').forEach((table) => {
+      table.removeAttribute('width');
+      table.removeAttribute('style');
+      table.querySelectorAll('td, th, col').forEach((cell) => {
+        cell.removeAttribute('width');
+        cell.removeAttribute('style');
+      });
+      if (!table.parentElement?.classList.contains('journal-table-wrap')) {
+        const wrapper = doc.createElement('div');
+        wrapper.setAttribute('class', 'journal-table-wrap');
+        table.parentNode?.insertBefore(wrapper, table);
+        wrapper.appendChild(table);
+      }
+    });
+
+    doc.querySelectorAll('[style]').forEach((el) => {
+      const styleVal = el.getAttribute('style') || '';
+      if (/\b(?:min-)?width\s*:/i.test(styleVal)) {
+        el.removeAttribute('style');
+      }
+    });
+
+    return doc.body.innerHTML;
+  } catch {
+    return basicClean;
+  }
 }
 
 function toEmbeddableUrl(url: string): string | null {
@@ -151,42 +213,42 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/50 backdrop-blur-xs flex justify-center p-4 sm:p-6 md:p-10"
+      className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/50 backdrop-blur-xs flex justify-center p-2.5 sm:p-6 md:p-10"
       role="dialog"
       aria-modal="true"
       aria-labelledby="reader-article-title"
       onClick={onClose}
     >
-      <div className="w-full max-w-4xl my-auto flex justify-center">
+      <div className="w-full max-w-4xl min-w-0 my-auto flex justify-center">
         <article
-          className="w-full max-w-4xl bg-[#FBF9F5] border border-stone-200 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] overflow-y-auto"
+          className="w-full max-w-4xl min-w-0 bg-[#FBF9F5] border border-stone-200 rounded-xl shadow-2xl overflow-x-hidden overflow-y-auto flex flex-col max-h-[92vh]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top Reader Utility Bar */}
-          <div className="px-6 sm:px-10 py-4 bg-white border-b border-stone-200 flex items-center justify-between gap-4">
+          <div className="px-4 sm:px-10 py-3 sm:py-4 bg-white border-b border-stone-200 flex flex-wrap items-center justify-between gap-2 sm:gap-4 shrink-0">
             <button
               type="button"
               onClick={onClose}
-              className="inline-flex items-center gap-2 text-sm font-medium text-stone-700 hover:text-stone-950 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-stone-700 hover:text-stone-950 transition-colors whitespace-nowrap shrink-0"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-4 h-4 shrink-0" />
               <span>返回期刊目錄</span>
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 type="button"
                 onClick={handleCopyPermalink}
-                className="px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                className="px-2.5 sm:px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
               >
                 {copied ? (
                   <>
-                    <Check className="w-3.5 h-3.5 text-emerald-700" />
+                    <Check className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                     <span>已複製連結</span>
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3.5 h-3.5" />
+                    <Copy className="w-3.5 h-3.5 shrink-0" />
                     <span>複製分享連結</span>
                   </>
                 )}
@@ -196,9 +258,9 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                 <button
                   type="button"
                   onClick={() => onEditPost(post)}
-                  className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                  className="px-2.5 sm:px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                 >
-                  <Edit3 className="w-3.5 h-3.5" />
+                  <Edit3 className="w-3.5 h-3.5 shrink-0" />
                   <span>編輯文章</span>
                 </button>
               )}
@@ -206,7 +268,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors"
+                className="p-2 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors shrink-0"
                 aria-label="關閉文章"
               >
                 <X className="w-4 h-4" />
@@ -215,7 +277,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           </div>
 
           {/* Article Header */}
-          <header className="px-6 sm:px-12 pt-8 sm:pt-12 pb-8 bg-white border-b border-stone-200">
+          <header className="px-4 sm:px-12 pt-6 sm:pt-12 pb-6 sm:pb-8 bg-white border-b border-stone-200 min-w-0">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-stone-500 mb-4">
               <span className="font-mono-tabular font-medium text-[#1E3A8A]">
                 {post.academicYear}
@@ -279,7 +341,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
           {/* Optional Cover Image */}
           {post.coverImageUrl && (
-            <figure className="bg-[#F7F4EE] border-b border-stone-200 px-6 sm:px-12 py-6">
+            <figure className="bg-[#F7F4EE] border-b border-stone-200 px-4 sm:px-12 py-5 sm:py-6 min-w-0">
               <div className="aspect-[16/9] w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-100">
                 <img
                   src={post.coverImageUrl}
@@ -295,21 +357,21 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           )}
 
           {/* Main Markdown Reading Body */}
-          <div className="px-6 sm:px-12 py-8 sm:py-10 bg-white">
+          <div className="px-4 sm:px-12 py-6 sm:py-10 bg-white min-w-0">
             <div
-              className="journal-prose max-w-2xl mx-auto"
+              className="journal-prose max-w-2xl w-full min-w-0 mx-auto"
               dangerouslySetInnerHTML={{__html: renderedHtml}}
             />
 
             {/* Embedded Google Drive / Meet / Forms / Interactive HTML Attachment */}
             {post.embedUrl && embedMeta && (
-              <section className="max-w-2xl mx-auto mt-10 pt-8 border-t border-stone-200">
+              <section className="max-w-2xl mx-auto mt-10 pt-8 border-t border-stone-200 min-w-0">
                 <h2 className="font-editorial text-lg font-semibold text-stone-900 mb-4">
                   {embedMeta.provider === '站內互動網頁'
                     ? '站內互動學習舞台與教學資源'
                     : '相關雲端附件與教學資源'}
                 </h2>
-                <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-5 space-y-4">
+                <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-4 sm:p-5 space-y-4 min-w-0">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-start gap-3 min-w-0">
                       <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
@@ -399,7 +461,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           </div>
 
           {/* Footer Navigation Between Articles */}
-          <footer className="px-6 sm:px-12 py-6 bg-[#F7F4EE] border-t border-stone-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <footer className="px-4 sm:px-12 py-5 sm:py-6 bg-[#F7F4EE] border-t border-stone-200 grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">
             <div>
               {prevPost && (
                 <button

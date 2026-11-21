@@ -1696,7 +1696,7 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 max-w-full">
                   <button
                     type="button"
                     onClick={() => openXimenStage('map')}
@@ -1762,7 +1762,7 @@ export default function App() {
                   ))}
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex flex-wrap items-center gap-1.5 max-w-full">
                   <button
                     type="button"
                     onClick={() => openClass403Stage('agenda')}
@@ -1788,9 +1788,9 @@ export default function App() {
         </section>
 
         {/* Journal Catalog & Single-Line Channel Bar */}
-        <section id="journal-catalog" className="max-w-7xl mx-auto px-6 py-8 lg:py-10 space-y-6">
+        <section id="journal-catalog" className="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10 space-y-6 min-w-0">
           {/* Unified Channel Tabs + View Mode Switcher Row (No Redundant Middle Search Box) */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2 min-w-0">
             {/* Horizontal Scrollable Topic Channel Strip */}
             <div className="flex-1 min-w-0 flex items-center">
               <button
@@ -1848,7 +1848,7 @@ export default function App() {
             </div>
 
             {/* Right Controls: Draft Toggle + View Mode Switcher */}
-            <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pb-1 lg:pb-0">
+            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3 min-w-0 pb-1 lg:pb-0">
               {user && hasAccessToken && (
                 <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
                   <input
@@ -1861,11 +1861,11 @@ export default function App() {
                 </label>
               )}
 
-              <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg">
+              <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg max-w-full overflow-x-auto no-scrollbar">
                 <button
                   type="button"
                   onClick={() => setViewMode('swipe')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'swipe'
                       ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
                       : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
@@ -1877,7 +1877,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setViewMode('grid')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'grid'
                       ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
                       : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
@@ -1889,7 +1889,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setViewMode('list')}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'list'
                       ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
                       : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
