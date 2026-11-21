@@ -2,6 +2,9 @@ import {
   collection,
   deleteDoc,
   doc,
+  DocumentReference,
+  getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -12,6 +15,7 @@ import {
   Unsubscribe,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import {auth, db} from './googleAuth';
 import {
@@ -33,6 +37,8 @@ export interface MeetingSession {
   meetUrl: string;
   linkedPostSlug: string;
   isOpen: boolean;
+  checkinStartAtMs: number | null;
+  checkinEndAtMs: number | null;
   createdByName: string;
   createdByUid: string;
   createdAtMs: number;
@@ -73,6 +79,66 @@ export interface CreateMeetingSessionInput {
   meetUrl: string;
   linkedPostSlug: string;
   isOpen: boolean;
+  checkinStartAtMs?: number | null;
+  checkinEndAtMs?: number | null;
+}
+
+export type MeetingWindowStatus = 'open' | 'not-started' | 'ended' | 'closed';
+
+export interface MeetingWindowState {
+  status: MeetingWindowStatus;
+  badgeLabel: string;
+  detailText: string;
+}
+
+function formatScheduleDateTime(ms: number): string {
+  return new Date(ms).toLocaleString('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+export function getMeetingCheckinWindowState(
+  meeting: MeetingSession,
+  nowMs = Date.now(),
+): MeetingWindowState {
+  if (!meeting.isOpen) {
+    return {
+      status: 'closed',
+      badgeLabel: '已關閉簽到',
+      detailText: '管理教師目前已手動關閉此場次簽到。',
+    };
+  }
+  if (meeting.checkinStartAtMs !== null && nowMs < meeting.checkinStartAtMs) {
+    return {
+      status: 'not-started',
+      badgeLabel: '尚未到開放時間',
+      detailText: `將於 ${formatScheduleDateTime(meeting.checkinStartAtMs)} 開放親自手寫簽名。`,
+    };
+  }
+  if (meeting.checkinEndAtMs !== null && nowMs > meeting.checkinEndAtMs) {
+    return {
+      status: 'ended',
+      badgeLabel: '簽名時間已截止',
+      detailText: `本場次已於 ${formatScheduleDateTime(meeting.checkinEndAtMs)} 截止簽名。`,
+    };
+  }
+  if (meeting.checkinEndAtMs !== null) {
+    return {
+      status: 'open',
+      badgeLabel: '開放簽名中',
+      detailText: `開放手寫簽名至 ${formatScheduleDateTime(meeting.checkinEndAtMs)} 止。`,
+    };
+  }
+  return {
+    status: 'open',
+    badgeLabel: '開放簽名中',
+    detailText: '目前開放校內教師親自手寫簽名。',
+  };
 }
 
 function truncateChars(value: string, maxLength: number): string {
@@ -94,6 +160,22 @@ function toTimestampMs(raw: unknown): number {
     return (raw as {toMillis: () => number}).toMillis();
   }
   return Date.now();
+}
+
+function toOptionalTimestampMs(raw: unknown): number | null {
+  if (raw === null || raw === undefined) return null;
+  if (raw instanceof Timestamp) {
+    return raw.toMillis();
+  }
+  if (
+    raw &&
+    typeof raw === 'object' &&
+    'toMillis' in raw &&
+    typeof (raw as {toMillis: () => number}).toMillis === 'function'
+  ) {
+    return (raw as {toMillis: () => number}).toMillis();
+  }
+  return null;
 }
 
 function formatFriendlyMeetingError(err: unknown, fallback: string): Error {
@@ -141,14 +223,24 @@ export function subscribeMeetings(
           meetUrl: String(d.meetUrl ?? ''),
           linkedPostSlug: String(d.linkedPostSlug ?? ''),
           isOpen: Boolean(d.isOpen),
+          checkinStartAtMs: toOptionalTimestampMs(d.checkinStartAt),
+          checkinEndAtMs: toOptionalTimestampMs(d.checkinEndAt),
           createdByName: String(d.createdByName ?? '領域召集教師'),
           createdByUid: String(d.createdByUid ?? ''),
           createdAtMs: toTimestampMs(d.createdAt),
           updatedAtMs: toTimestampMs(d.updatedAt),
         };
       });
+      const nowMs = Date.now();
+      const rank = (m: MeetingSession) => {
+        const s = getMeetingCheckinWindowState(m, nowMs).status;
+        if (s === 'open') return 0;
+        if (s === 'not-started') return 1;
+        return 2;
+      };
       items.sort((a, b) => {
-        if (a.isOpen !== b.isOpen) return a.isOpen ? -1 : 1;
+        const rDiff = rank(a) - rank(b);
+        if (rDiff !== 0) return rDiff;
         return b.meetingDate.localeCompare(a.meetingDate) || b.createdAtMs - a.createdAtMs;
       });
       onUpdate(items);
@@ -290,6 +382,20 @@ export async function createMeetingSession(
     throw new Error('請填寫會議名稱與有效的日期時間。');
   }
 
+  const startMs =
+    typeof input.checkinStartAtMs === 'number' &&
+    Number.isFinite(input.checkinStartAtMs)
+      ? input.checkinStartAtMs
+      : null;
+  const endMs =
+    typeof input.checkinEndAtMs === 'number' &&
+    Number.isFinite(input.checkinEndAtMs)
+      ? input.checkinEndAtMs
+      : null;
+  if (startMs !== null && endMs !== null && endMs <= startMs) {
+    throw new Error('簽名截止時間必須晚於開放開始時間。');
+  }
+
   const id = generateMeetingId();
   const docPath = `${MEETINGS_COLLECTION}/${id}`;
   const payload = {
@@ -301,6 +407,8 @@ export async function createMeetingSession(
     meetUrl: safeMeetUrl,
     linkedPostSlug: safeSlug,
     isOpen: Boolean(input.isOpen),
+    checkinStartAt: startMs !== null ? Timestamp.fromMillis(startMs) : null,
+    checkinEndAt: endMs !== null ? Timestamp.fromMillis(endMs) : null,
     createdByName: safeCreatorName,
     createdByUid: currentUser.uid.slice(0, 128),
     createdAt: serverTimestamp(),
@@ -367,6 +475,33 @@ export async function updateMeetingSession(
     sanitized.isOpen = Boolean(updates.isOpen);
   }
 
+  if (
+    updates.checkinStartAtMs !== undefined ||
+    updates.checkinEndAtMs !== undefined
+  ) {
+    const startMs =
+      typeof updates.checkinStartAtMs === 'number' &&
+      Number.isFinite(updates.checkinStartAtMs)
+        ? updates.checkinStartAtMs
+        : null;
+    const endMs =
+      typeof updates.checkinEndAtMs === 'number' &&
+      Number.isFinite(updates.checkinEndAtMs)
+        ? updates.checkinEndAtMs
+        : null;
+    if (startMs !== null && endMs !== null && endMs <= startMs) {
+      throw new Error('簽名截止時間必須晚於開放開始時間。');
+    }
+    if (updates.checkinStartAtMs !== undefined) {
+      sanitized.checkinStartAt =
+        startMs !== null ? Timestamp.fromMillis(startMs) : null;
+    }
+    if (updates.checkinEndAtMs !== undefined) {
+      sanitized.checkinEndAt =
+        endMs !== null ? Timestamp.fromMillis(endMs) : null;
+    }
+  }
+
   const docPath = `${MEETINGS_COLLECTION}/${meetingId}`;
   try {
     await updateDoc(doc(db, MEETINGS_COLLECTION, meetingId), sanitized);
@@ -379,20 +514,85 @@ export async function updateMeetingSession(
   }
 }
 
+async function batchDeleteDocumentRefs(refs: DocumentReference[]): Promise<void> {
+  const BATCH_LIMIT = 400;
+  for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
+    const chunk = refs.slice(i, i + BATCH_LIMIT);
+    const batch = writeBatch(db);
+    for (const ref of chunk) {
+      batch.delete(ref);
+    }
+    await batch.commit();
+  }
+}
+
 export async function deleteMeetingSession(meetingId: string): Promise<void> {
   if (!auth.currentUser) {
     throw new Error('請先登入管理教師帳號。');
   }
-  const docPath = `${MEETINGS_COLLECTION}/${meetingId}`;
+  const safeMeetingId = meetingId.trim();
+  const docPath = `${MEETINGS_COLLECTION}/${safeMeetingId}`;
   try {
-    await deleteDoc(doc(db, MEETINGS_COLLECTION, meetingId));
+    // Cascade-delete all check-in records & handwritten signatures belonging to this meeting
+    const checkinsSnap = await getDocs(
+      query(
+        collection(db, CHECKINS_COLLECTION),
+        where('meetingId', '==', safeMeetingId),
+      ),
+    );
+    const refsToDelete: DocumentReference[] = [
+      ...checkinsSnap.docs.map((snap) => snap.ref),
+      doc(db, MEETINGS_COLLECTION, safeMeetingId),
+    ];
+    await batchDeleteDocumentRefs(refsToDelete);
   } catch (error) {
     try {
       handleFirestoreError(error, OperationType.DELETE, docPath);
     } catch (wrapped) {
-      throw formatFriendlyMeetingError(wrapped, '刪除會議場次失敗。');
+      throw formatFriendlyMeetingError(
+        wrapped,
+        '刪除會議場次及關聯簽到紀錄失敗。',
+      );
     }
   }
+}
+
+export async function cleanupOrphanedCheckinsForAdmin(
+  candidateMeetingIds: string[],
+): Promise<number> {
+  if (!auth.currentUser || candidateMeetingIds.length === 0) {
+    return 0;
+  }
+
+  const uniqueIds = Array.from(
+    new Set(candidateMeetingIds.map((id) => id.trim()).filter(Boolean)),
+  );
+  let deletedCount = 0;
+
+  for (const meetingId of uniqueIds) {
+    try {
+      const parentSnap = await getDoc(doc(db, MEETINGS_COLLECTION, meetingId));
+      if (parentSnap.exists()) {
+        continue;
+      }
+
+      const orphanSnap = await getDocs(
+        query(
+          collection(db, CHECKINS_COLLECTION),
+          where('meetingId', '==', meetingId),
+        ),
+      );
+      if (orphanSnap.empty) {
+        continue;
+      }
+      await batchDeleteDocumentRefs(orphanSnap.docs.map((snap) => snap.ref));
+      deletedCount += orphanSnap.size;
+    } catch {
+      // Best-effort cleanup of historical orphaned records; ignore transient read/delete failures
+    }
+  }
+
+  return deletedCount;
 }
 
 export async function submitMeetingCheckin(params: {

@@ -187,6 +187,8 @@ service cloud.firestore {
         'meetUrl',
         'linkedPostSlug',
         'isOpen',
+        'checkinStartAt',
+        'checkinEndAt',
         'createdByName',
         'createdByUid',
         'createdAt',
@@ -201,10 +203,23 @@ service cloud.firestore {
       (data.meetUrl == '' || data.meetUrl.matches('^https://.*')) &&
       data.linkedPostSlug is string && data.linkedPostSlug.size() <= 160 &&
       data.isOpen is bool &&
+      (!('checkinStartAt' in data) || data.checkinStartAt == null || data.checkinStartAt is timestamp) &&
+      (!('checkinEndAt' in data) || data.checkinEndAt == null || data.checkinEndAt is timestamp) &&
+      (
+        !('checkinStartAt' in data) || data.checkinStartAt == null ||
+        !('checkinEndAt' in data) || data.checkinEndAt == null ||
+        data.checkinEndAt > data.checkinStartAt
+      ) &&
       data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 100 &&
       data.createdByUid is string && isValidId(data.createdByUid) &&
       data.createdAt is timestamp &&
       data.updatedAt is timestamp;
+    }
+
+    function isMeetingWithinWindow(meetingData) {
+      return meetingData.isOpen == true &&
+        (!('checkinStartAt' in meetingData) || meetingData.checkinStartAt == null || request.time >= meetingData.checkinStartAt) &&
+        (!('checkinEndAt' in meetingData) || meetingData.checkinEndAt == null || request.time <= meetingData.checkinEndAt);
     }
 
     function isValidMeetingCheckin(data) {
@@ -336,6 +351,8 @@ service cloud.firestore {
           'meetUrl',
           'linkedPostSlug',
           'isOpen',
+          'checkinStartAt',
+          'checkinEndAt',
           'updatedAt'
         ]);
 
@@ -343,17 +360,21 @@ service cloud.firestore {
     }
 
     match /meetingCheckins/{checkinId} {
-      // Strict PII isolation: teacher may read only their own check-in; admins may read/export full roster
+      // Strict PII isolation: teacher may read only their own check-in for an existing meeting; admins may read/export full roster
       allow get: if isValidId(checkinId) && (
         isAdmin() ||
-        (isSchoolMember() && existing().userUid == request.auth.uid)
+        (
+          isSchoolMember() &&
+          existing().userUid == request.auth.uid &&
+          exists(/databases/$(database)/documents/meetings/$(existing().meetingId))
+        )
       );
       allow list: if isAdmin() || (
         isSchoolMember() &&
         resource.data.userUid == request.auth.uid
       );
 
-      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; Master Gate ensures meeting exists and is open
+      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; Master Gate ensures meeting exists, is open, and is within scheduled signature window
       allow create: if isValidId(checkinId) &&
         isValidMeetingCheckin(incoming()) &&
         (isAdmin() || isSchoolMember()) &&
@@ -364,7 +385,7 @@ service cloud.firestore {
         incoming().checkedInAt == request.time &&
         incoming().updatedAt == request.time &&
         exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
-        get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.isOpen == true;
+        isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data);
 
       allow update: if isValidId(checkinId) &&
         isValidMeetingCheckin(incoming()) &&
@@ -384,7 +405,7 @@ service cloud.firestore {
               'updatedAt'
             ]) &&
             exists(/databases/$(database)/documents/meetings/$(existing().meetingId)) &&
-            get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data.isOpen == true
+            isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data)
           )
         );
 
@@ -393,7 +414,7 @@ service cloud.firestore {
           isSchoolMember() &&
           existing().userUid == request.auth.uid &&
           exists(/databases/$(database)/documents/meetings/$(existing().meetingId)) &&
-          get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data.isOpen == true
+          isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data)
         )
       );
     }

@@ -240,7 +240,17 @@
         },
         "isOpen": {
           "type": "boolean",
-          "description": "Whether check-in is currently open for community teachers."
+          "description": "Whether check-in is manually enabled by admins."
+        },
+        "checkinStartAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional server-enforced start timestamp when teachers can begin signing."
+        },
+        "checkinEndAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional server-enforced cutoff timestamp after which signing closes."
         },
         "createdByName": {
           "type": "string",

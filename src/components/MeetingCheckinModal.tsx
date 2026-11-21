@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
   AlertCircle,
@@ -6,6 +6,7 @@ import {
   CalendarCheck,
   CheckCircle2,
   ClipboardCheck,
+  Clock,
   Download,
   ExternalLink,
   FileText,
@@ -26,8 +27,10 @@ import {
   buildMeetingCheckinsCsv,
   buildPrintableMeetingSheetHtml,
   cancelMeetingCheckin,
+  cleanupOrphanedCheckinsForAdmin,
   createMeetingSession,
   deleteMeetingSession,
+  getMeetingCheckinWindowState,
   isValidSignatureDataUrl,
   MeetingCheckin,
   MeetingSession,
@@ -77,6 +80,20 @@ function saveTeacherNote(note: string): void {
   } catch {
     // ignore storage errors
   }
+}
+
+function toDateTimeLocalValue(ms: number | null | undefined): string {
+  if (typeof ms !== 'number' || !Number.isFinite(ms)) return '';
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function parseDateTimeLocalValue(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parsed = new Date(trimmed).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
@@ -140,18 +157,38 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   const [newMeetUrl, setNewMeetUrl] = useState('');
   const [newLinkedSlug, setNewLinkedSlug] = useState('');
   const [newIsOpen, setNewIsOpen] = useState(true);
+  const [newCheckinStartLocal, setNewCheckinStartLocal] = useState('');
+  const [newCheckinEndLocal, setNewCheckinEndLocal] = useState('');
   const [isCreatingSession, setIsCreatingSession] = useState(false);
 
-  // Admin Roster Inspection & Delete Confirmation
+  // Live clock ticker for automatic window opening/closing
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  // Admin Roster Inspection, Schedule Edit & Delete Confirmation
   const [expandedRosterMeetingId, setExpandedRosterMeetingId] = useState<
     string | null
   >(null);
+  const [editingScheduleMeetingId, setEditingScheduleMeetingId] = useState<
+    string | null
+  >(null);
+  const [editStartLocal, setEditStartLocal] = useState('');
+  const [editEndLocal, setEditEndLocal] = useState('');
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [confirmDeleteMeetingId, setConfirmDeleteMeetingId] = useState<
     string | null
   >(null);
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(
     null,
   );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -228,13 +265,57 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     };
   }, [isOpen, isSchoolAuthorized, isTeacherAdmin, user]);
 
+  const checkedOrphanIdsRef = useRef<Set<string>>(new Set());
+
+  const activeMeetingIdSet = useMemo(
+    () => new Set(meetings.map((m) => m.id)),
+    [meetings],
+  );
+
+  // Only surface check-ins whose parent meeting still exists (never expose signatures from deleted meetings)
+  const activeMyCheckins = useMemo(() => {
+    if (isLoadingMeetings) return [];
+    return myCheckins.filter((item) => activeMeetingIdSet.has(item.meetingId));
+  }, [isLoadingMeetings, myCheckins, activeMeetingIdSet]);
+
   const myCheckinByMeetingId = useMemo(() => {
     const map = new Map<string, MeetingCheckin>();
-    for (const item of myCheckins) {
+    for (const item of activeMyCheckins) {
       map.set(item.meetingId, item);
     }
     return map;
-  }, [myCheckins]);
+  }, [activeMyCheckins]);
+
+  // If an admin deleted meetings prior to cascade-delete, clean up any remaining orphaned check-in docs automatically
+  useEffect(() => {
+    if (
+      !isOpen ||
+      !isTeacherAdmin ||
+      isLoadingMeetings ||
+      allCheckins.length === 0
+    ) {
+      return;
+    }
+
+    const candidates = Array.from(
+      new Set(
+        allCheckins
+          .map((c) => c.meetingId)
+          .filter(
+            (id) =>
+              Boolean(id) &&
+              !activeMeetingIdSet.has(id) &&
+              !checkedOrphanIdsRef.current.has(id),
+          ),
+      ),
+    );
+    if (candidates.length === 0) return;
+
+    for (const id of candidates) {
+      checkedOrphanIdsRef.current.add(id);
+    }
+    void cleanupOrphanedCheckinsForAdmin(candidates);
+  }, [isOpen, isTeacherAdmin, isLoadingMeetings, allCheckins, activeMeetingIdSet]);
 
   const checkinsByMeetingIdForAdmin = useMemo(() => {
     const map = new Map<string, MeetingCheckin[]>();
@@ -248,14 +329,19 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
 
   const displayedMeetings = useMemo(() => {
     if (sessionFilter === 'open') {
-      return meetings.filter((m) => m.isOpen);
+      return meetings.filter(
+        (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
+      );
     }
     return meetings;
-  }, [meetings, sessionFilter]);
+  }, [meetings, sessionFilter, nowMs]);
 
   const openMeetingsCount = useMemo(
-    () => meetings.filter((m) => m.isOpen).length,
-    [meetings],
+    () =>
+      meetings.filter(
+        (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
+      ).length,
+    [meetings, nowMs],
   );
 
   // Auto-open signature pad for the first open unchecked-in meeting so teachers can sign right away
@@ -265,13 +351,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       const stillOpenUnchecked = meetings.some(
         (m) =>
           m.id === activeSigningMeetingId &&
-          m.isOpen &&
+          getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
           !myCheckinByMeetingId.has(m.id),
       );
       if (stillOpenUnchecked) return;
     }
     const nextOpen = meetings.find(
-      (m) => m.isOpen && !myCheckinByMeetingId.has(m.id),
+      (m) =>
+        getMeetingCheckinWindowState(m, nowMs).status === 'open' &&
+        !myCheckinByMeetingId.has(m.id),
     );
     setActiveSigningMeetingId(nextOpen ? nextOpen.id : null);
   }, [
@@ -280,6 +368,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     meetings,
     myCheckinByMeetingId,
     activeSigningMeetingId,
+    nowMs,
   ]);
 
   const meetingPostsForLinking = useMemo(() => {
@@ -368,6 +457,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isTeacherAdmin) return;
+    const startMs = parseDateTimeLocalValue(newCheckinStartLocal);
+    const endMs = parseDateTimeLocalValue(newCheckinEndLocal);
+    if (startMs !== null && endMs !== null && endMs <= startMs) {
+      setDbError('簽名截止時間必須晚於開放開始時間。');
+      return;
+    }
+
     setIsCreatingSession(true);
     setDbError(null);
     setStatusBanner(null);
@@ -381,17 +477,51 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         meetUrl: newMeetUrl,
         linkedPostSlug: newLinkedSlug,
         isOpen: newIsOpen,
+        checkinStartAtMs: startMs,
+        checkinEndAtMs: endMs,
       });
       setNewTitle('');
       setNewAgenda('');
       setNewMeetUrl('');
       setNewLinkedSlug('');
+      setNewCheckinStartLocal('');
+      setNewCheckinEndLocal('');
       setActiveTab('sessions');
       setStatusBanner('已成功建立新的社群會議簽到場次！');
     } catch (err: any) {
       setDbError(err?.message || '建立會議場次失敗。');
     } finally {
       setIsCreatingSession(false);
+    }
+  };
+
+  const handleSaveMeetingSchedule = async (meeting: MeetingSession) => {
+    if (!isTeacherAdmin) return;
+    const startMs = parseDateTimeLocalValue(editStartLocal);
+    const endMs = parseDateTimeLocalValue(editEndLocal);
+    if (startMs !== null && endMs !== null && endMs <= startMs) {
+      setDbError('簽名截止時間必須晚於開放開始時間。');
+      return;
+    }
+
+    setIsSavingSchedule(true);
+    setDbError(null);
+    try {
+      await updateMeetingSession(meeting.id, {
+        isOpen: true,
+        checkinStartAtMs: startMs,
+        checkinEndAtMs: endMs,
+      });
+      setEditingScheduleMeetingId(null);
+      setStatusBanner(
+        startMs !== null || endMs !== null
+          ? `已更新「${meeting.title}」的開放簽名時段。`
+          : `已將「${meeting.title}」設為不限時段開放簽名。`,
+      );
+    } catch (err: any) {
+      setDbError(err?.message || '更新開放簽名時間失敗。');
+    } finally {
+      setIsSavingSchedule(false);
     }
   };
 
@@ -417,7 +547,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     try {
       await deleteMeetingSession(meeting.id);
       setConfirmDeleteMeetingId(null);
-      setStatusBanner(`已刪除會議場次「${meeting.title}」。`);
+      setStatusBanner(
+        `已刪除會議場次「${meeting.title}」並同步清除所有相關簽到與簽名紀錄。`,
+      );
     } catch (err: any) {
       setDbError(err?.message || '刪除會議場次失敗。');
     } finally {
@@ -614,7 +746,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       ·
                     </span>
                     <span className="font-mono-tabular text-stone-600">
-                      我的簽到 {myCheckins.length} 場
+                      我的簽到 {activeMyCheckins.length} 場
                     </span>
                   </div>
                   <div className="text-sm font-medium text-stone-900 truncate">
@@ -736,7 +868,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           : 'bg-stone-100 text-stone-700'
                       }`}
                     >
-                      {myCheckins.length} 筆
+                      {activeMyCheckins.length} 筆
                     </span>
                   </button>
 
@@ -875,11 +1007,19 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                     <div className="space-y-4">
                       {displayedMeetings.map((meeting) => {
                         const myRecord = myCheckinByMeetingId.get(meeting.id);
+                        const windowState = getMeetingCheckinWindowState(
+                          meeting,
+                          nowMs,
+                        );
+                        const isCurrentlySignable =
+                          windowState.status === 'open';
                         const adminRoster = isTeacherAdmin
                           ? checkinsByMeetingIdForAdmin.get(meeting.id) || []
                           : [];
                         const isRosterExpanded =
                           expandedRosterMeetingId === meeting.id;
+                        const isEditingSchedule =
+                          editingScheduleMeetingId === meeting.id;
                         const isEditingThis =
                           myRecord && editingCheckinId === myRecord.id;
 
@@ -893,12 +1033,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                 <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
                                   <span
                                     className={`font-semibold ${
-                                      meeting.isOpen
+                                      windowState.status === 'open'
                                         ? 'text-emerald-800'
-                                        : 'text-stone-500'
+                                        : windowState.status === 'not-started'
+                                          ? 'text-amber-800'
+                                          : 'text-stone-500'
                                     }`}
                                   >
-                                    {meeting.isOpen ? '開放簽到中' : '已截止簽到'}
+                                    {windowState.badgeLabel}
                                   </span>
                                   <span aria-hidden="true" className="text-stone-300">
                                     ·
@@ -917,6 +1059,25 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                 <h3 className="font-editorial text-lg font-bold text-stone-950 break-words">
                                   {meeting.title}
                                 </h3>
+
+                                {(meeting.checkinStartAtMs !== null ||
+                                  meeting.checkinEndAtMs !== null) && (
+                                  <div className="inline-flex flex-wrap items-center gap-1.5 text-xs text-[#1E3A8A] bg-[#1E3A8A]/6 border border-[#1E3A8A]/15 rounded-md px-2.5 py-1">
+                                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                                    <span>
+                                      開放簽名時段：
+                                      {meeting.checkinStartAtMs !== null
+                                        ? formatDateTime(
+                                            meeting.checkinStartAtMs,
+                                          )
+                                        : '立即開放'}
+                                      {' ～ '}
+                                      {meeting.checkinEndAtMs !== null
+                                        ? formatDateTime(meeting.checkinEndAtMs)
+                                        : '不限截止'}
+                                    </span>
+                                  </div>
+                                )}
 
                                 {meeting.location && (
                                   <div className="flex items-center gap-1.5 text-xs text-stone-600">
@@ -985,7 +1146,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                         </span>
                                       </div>
 
-                                      {!isEditingThis && meeting.isOpen && (
+                                      {!isEditingThis && isCurrentlySignable && (
                                         <div className="flex flex-wrap items-center gap-3 text-xs pt-0.5">
                                           <button
                                             type="button"
@@ -1136,7 +1297,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                     </div>
                                   )}
                                 </div>
-                              ) : meeting.isOpen ? (
+                              ) : isCurrentlySignable ? (
                                 (() => {
                                   const isPadExpanded =
                                     activeSigningMeetingId === meeting.id;
@@ -1174,7 +1335,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                             </span>
                                           ) : (
                                             <span>
-                                              需先完成親自手寫簽名（系統會保存筆跡並記錄時間戳記）。
+                                              {windowState.detailText}
                                             </span>
                                           )}
                                         </span>
@@ -1214,7 +1375,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                   ) : (
                                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                       <span className="text-xs text-stone-600">
-                                        本場次採「親自手寫簽名」認證出席（帳號：{user?.email}）。
+                                        {windowState.detailText}（帳號：{user?.email}）
                                       </span>
                                       <button
                                         type="button"
@@ -1230,9 +1391,16 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                   );
                                 })()
                               ) : (
-                                <span className="text-xs text-stone-500">
-                                  此場次簽到已截止，您未留存本場簽到紀錄。
-                                </span>
+                                <div
+                                  className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border ${
+                                    windowState.status === 'not-started'
+                                      ? 'bg-amber-50 border-amber-200 text-amber-900 font-medium'
+                                      : 'bg-stone-50 border-stone-200 text-stone-600'
+                                  }`}
+                                >
+                                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                                  <span>{windowState.detailText}</span>
+                                </div>
                               )}
                             </div>
 
@@ -1288,6 +1456,37 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                   <div className="flex flex-wrap items-center gap-2">
                                     <button
                                       type="button"
+                                      onClick={() => {
+                                        if (isEditingSchedule) {
+                                          setEditingScheduleMeetingId(null);
+                                        } else {
+                                          setEditingScheduleMeetingId(
+                                            meeting.id,
+                                          );
+                                          setEditStartLocal(
+                                            toDateTimeLocalValue(
+                                              meeting.checkinStartAtMs,
+                                            ),
+                                          );
+                                          setEditEndLocal(
+                                            toDateTimeLocalValue(
+                                              meeting.checkinEndAtMs,
+                                            ),
+                                          );
+                                        }
+                                      }}
+                                      className={`px-3 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center gap-1.5 ${
+                                        isEditingSchedule
+                                          ? 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/40 font-semibold'
+                                          : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+                                      }`}
+                                    >
+                                      <Clock className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                                      <span>設定開放簽名時間</span>
+                                    </button>
+
+                                    <button
+                                      type="button"
                                       onClick={() =>
                                         handleToggleMeetingOpen(meeting)
                                       }
@@ -1306,7 +1505,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                           }
                                           className="px-2.5 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg"
                                         >
-                                          確認刪除場次
+                                          確認刪除（含簽名紀錄）
                                         </button>
                                         <button
                                           type="button"
@@ -1332,6 +1531,99 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                     )}
                                   </div>
                                 </div>
+
+                                {isEditingSchedule && (
+                                  <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1.5">
+                                        <Clock className="w-3.5 h-3.5" />
+                                        <span>調整「{meeting.title}」開放簽名時段</span>
+                                      </span>
+                                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const start = Date.now();
+                                            setEditStartLocal(
+                                              toDateTimeLocalValue(start),
+                                            );
+                                            setEditEndLocal(
+                                              toDateTimeLocalValue(
+                                                start + 2 * 60 * 60 * 1000,
+                                              ),
+                                            );
+                                          }}
+                                          className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
+                                        >
+                                          立即起開放 2 小時
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditStartLocal('');
+                                            setEditEndLocal('');
+                                          }}
+                                          className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-stone-400 text-stone-600"
+                                        >
+                                          清除時限（改為不限時）
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div className="space-y-1">
+                                        <label className="block text-[11px] font-medium text-stone-700">
+                                          開放簽名開始時間（留白＝立即開放）
+                                        </label>
+                                        <input
+                                          type="datetime-local"
+                                          value={editStartLocal}
+                                          onChange={(e) =>
+                                            setEditStartLocal(e.target.value)
+                                          }
+                                          className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                        />
+                                      </div>
+                                      <div className="space-y-1">
+                                        <label className="block text-[11px] font-medium text-stone-700">
+                                          簽名截止時間（留白＝手動關閉前皆可簽）
+                                        </label>
+                                        <input
+                                          type="datetime-local"
+                                          value={editEndLocal}
+                                          onChange={(e) =>
+                                            setEditEndLocal(e.target.value)
+                                          }
+                                          className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setEditingScheduleMeetingId(null)
+                                        }
+                                        className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
+                                      >
+                                        取消
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={isSavingSchedule}
+                                        onClick={() =>
+                                          handleSaveMeetingSchedule(meeting)
+                                        }
+                                        className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-60"
+                                      >
+                                        {isSavingSchedule
+                                          ? '儲存中...'
+                                          : '儲存簽名時間設定'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {isRosterExpanded && (
                                   <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl overflow-hidden">
@@ -1410,13 +1702,13 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               {/* Tab 2: Personal Check-in History */}
               {activeTab === 'my-history' && (
                 <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-                  {myCheckins.length === 0 ? (
+                  {activeMyCheckins.length === 0 ? (
                     <div className="p-8 text-center text-sm text-stone-500">
                       您目前尚無任何會議簽到紀錄。
                     </div>
                   ) : (
                     <div className="divide-y divide-stone-100">
-                      {myCheckins.map((item) => (
+                      {activeMyCheckins.map((item) => (
                         <div
                           key={item.id}
                           className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
@@ -1578,6 +1870,99 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       />
                     </div>
 
+                    <div className="sm:col-span-2 bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E3A8A]">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>開放手寫簽名時段設定（選填，留白代表不限時段）</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const start = Date.now();
+                              setNewCheckinStartLocal(
+                                toDateTimeLocalValue(start),
+                              );
+                              setNewCheckinEndLocal(
+                                toDateTimeLocalValue(
+                                  start + 2 * 60 * 60 * 1000,
+                                ),
+                              );
+                            }}
+                            className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
+                          >
+                            現在起開放 2 小時
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const parsedMeeting = new Date(
+                                newDate.trim().replace(' ', 'T'),
+                              ).getTime();
+                              const base = Number.isFinite(parsedMeeting)
+                                ? parsedMeeting
+                                : Date.now();
+                              setNewCheckinStartLocal(
+                                toDateTimeLocalValue(base - 15 * 60 * 1000),
+                              );
+                              setNewCheckinEndLocal(
+                                toDateTimeLocalValue(base + 2 * 60 * 60 * 1000),
+                              );
+                            }}
+                            className="px-2 py-1 bg-white border border-stone-300 rounded-md hover:border-[#1E3A8A] hover:text-[#1E3A8A]"
+                          >
+                            依會議時間（前 15 分～後 2 小時）
+                          </button>
+                          {(newCheckinStartLocal || newCheckinEndLocal) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNewCheckinStartLocal('');
+                                setNewCheckinEndLocal('');
+                              }}
+                              className="px-2 py-1 bg-white border border-stone-300 rounded-md text-stone-600 hover:border-stone-400"
+                            >
+                              清除時限
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-stone-700">
+                            開放簽名開始時間（預約開啟）
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={newCheckinStartLocal}
+                            onChange={(e) =>
+                              setNewCheckinStartLocal(e.target.value)
+                            }
+                            className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-stone-700">
+                            簽名截止時間（到期自動停止簽到）
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={newCheckinEndLocal}
+                            onChange={(e) =>
+                              setNewCheckinEndLocal(e.target.value)
+                            }
+                            className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                          />
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] text-stone-500">
+                        時間由雲端伺服器時間嚴格把關：未到開始時間或超過截止時間，將自動鎖定無法送出簽名。
+                      </p>
+                    </div>
+
                     <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-1">
                       <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
                         <input
@@ -1586,7 +1971,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           onChange={(e) => setNewIsOpen(e.target.checked)}
                           className="rounded border-stone-300 text-[#1E3A8A]"
                         />
-                        <span>建立後立即開放簽到</span>
+                        <span>啟用此場次簽到功能（若設定預約開始時間，將於該時間自動開放）</span>
                       </label>
 
                       <button

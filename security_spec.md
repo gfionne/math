@@ -9,7 +9,7 @@
    - Immutable fields after creation: `createdAt`, `createdByUid`. `updatedAt` must equal `request.time`.
 4. **Meeting Check-Ins (`/meetingCheckins/{checkinId}`)**:
    - Deterministic ID invariant: `checkinId == incoming().meetingId + '_' + request.auth.uid`.
-   - Master Gate invariant: A check-in cannot be created, updated (by non-admin), or deleted (by non-admin) unless the parent `/meetings/{meetingId}` exists AND has `isOpen == true`.
+   - Master Gate invariant: A check-in cannot be created, updated (by non-admin), deleted (by non-admin), or fetched via `get` (by non-admin) unless the parent `/meetings/{meetingId}` exists; furthermore, non-admin writes require `isOpen == true` AND `request.time` to fall within optional `[checkinStartAt, checkinEndAt]`. Deleting a meeting cascades to delete all associated check-in records.
    - Identity & Anti-Spoofing invariant: `incoming().userUid == request.auth.uid` and `incoming().userEmail.lower() == request.auth.token.email.lower()`.
    - PII Isolation invariant: Check-in documents contain `userEmail`, so `get` and `list` are strictly restricted to `isAdmin()` or the owning teacher (`resource.data.userUid == request.auth.uid`).
    - Temporal Integrity invariant: `checkedInAt == request.time` on create; `checkedInAt`, `meetingId`, `userUid`, and `userEmail` are immutable on update.
