@@ -11,10 +11,12 @@ import {
   BellRing,
   BookOpen,
   CalendarCheck,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
+  Copy,
   ExternalLink,
   FileText,
   GalleryHorizontalEnd,
@@ -25,12 +27,15 @@ import {
   Lock,
   MonitorPlay,
   PenTool,
+  QrCode,
   RefreshCw,
   Search,
   Sheet,
   ShieldCheck,
   UserCheck,
+  X,
 } from 'lucide-react';
+import QRCode from 'qrcode';
 import {ArticleCard} from './components/ArticleCard';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
@@ -80,6 +85,7 @@ import {
   subscribeSharedSiteConfig,
 } from './services/firestoreSync';
 import {
+  buildDirectCheckinUrl,
   getMeetingCheckinCountdown,
   getMeetingCheckinWindowState,
   MeetingCheckin,
@@ -211,6 +217,14 @@ function MainKnowledgeBaseApp() {
   const [myTeacherCheckins, setMyTeacherCheckins] = useState<MeetingCheckin[]>(
     [],
   );
+  const [meetingQrDataUrls, setMeetingQrDataUrls] = useState<
+    Record<string, string>
+  >({});
+  const [viewingEnlargedQrMeeting, setViewingEnlargedQrMeeting] =
+    useState<MeetingSession | null>(null);
+  const [copiedTeacherLinkMeetingId, setCopiedTeacherLinkMeetingId] = useState<
+    string | null
+  >(null);
   const [checkinClockMs, setCheckinClockMs] = useState<number>(() =>
     Date.now(),
   );
@@ -317,12 +331,10 @@ function MainKnowledgeBaseApp() {
     };
   }, [user]);
 
-  // Subscribe strictly by current audience/role so homepage check-in UI ONLY appears when an admin has an open session
+  // Detect whether any teacher meeting is open and has a deadline countdown
   const hasTimedTeacherSession = useMemo(
-    () =>
-      isSchoolAuthorized &&
-      liveTeacherSessions.some((m) => m.isOpen && m.checkinEndAtMs !== null),
-    [isSchoolAuthorized, liveTeacherSessions],
+    () => liveTeacherSessions.some((m) => m.isOpen && m.checkinEndAtMs !== null),
+    [liveTeacherSessions],
   );
 
   useEffect(() => {
@@ -334,20 +346,30 @@ function MainKnowledgeBaseApp() {
     return () => window.clearInterval(timer);
   }, [hasTimedTeacherSession]);
 
+  // Always subscribe to teacher meetings regardless of login state so all teachers receive live notices
   useEffect(() => {
-    if (!isSchoolAuthorized) {
-      setLiveTeacherSessions([]);
+    const unsubTeachers = subscribeMeetings(
+      (sessions) => {
+        setLiveTeacherSessions(sessions);
+      },
+      (err) => {
+        console.warn('Teacher sessions subscription notice:', err);
+      },
+    );
+    return () => unsubTeachers();
+  }, []);
+
+  // Subscribe to personal check-ins only when user is logged in
+  useEffect(() => {
+    if (!isSchoolAuthorized || !user?.uid) {
       setMyTeacherCheckins([]);
       return;
     }
-    const unsubTeachers = subscribeMeetings(setLiveTeacherSessions);
-    const unsubMyCheckins = user?.uid
-      ? subscribeMyCheckins(user.uid, setMyTeacherCheckins)
-      : () => {};
-    return () => {
-      unsubTeachers();
-      unsubMyCheckins();
-    };
+    const unsubMyCheckins = subscribeMyCheckins(
+      user.uid,
+      setMyTeacherCheckins,
+    );
+    return () => unsubMyCheckins();
   }, [isSchoolAuthorized, user?.uid]);
 
   const activeOpenTeacherSessions = useMemo(
@@ -378,6 +400,37 @@ function MainKnowledgeBaseApp() {
       ),
     [activeOpenTeacherSessions, checkedTeacherMeetingIds],
   );
+
+  // Automatically generate QR codes for all active open teacher meetings
+  useEffect(() => {
+    if (activeOpenTeacherSessions.length === 0) return;
+    activeOpenTeacherSessions.forEach((session) => {
+      if (meetingQrDataUrls[session.id]) return;
+      const directUrl = buildDirectCheckinUrl('teacher', session.id);
+      void QRCode.toDataURL(directUrl, {
+        margin: 1,
+        width: 220,
+        errorCorrectionLevel: 'M',
+        color: {dark: '#1E3A8A', light: '#FFFFFF'},
+      })
+        .then((dataUrl) => {
+          setMeetingQrDataUrls((prev) => ({...prev, [session.id]: dataUrl}));
+        })
+        .catch((err) => {
+          console.error('Failed to generate teacher meeting QR code:', err);
+        });
+    });
+  }, [activeOpenTeacherSessions, meetingQrDataUrls]);
+
+  const handleCopyTeacherLink = useCallback((meetingId: string) => {
+    const url = buildDirectCheckinUrl('teacher', meetingId);
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopiedTeacherLinkMeetingId(meetingId);
+      setTimeout(() => {
+        setCopiedTeacherLinkMeetingId(null);
+      }, 2500);
+    });
+  }, []);
 
   const applyRemoteSettingsIfEnabled = useCallback(
     (remote: Partial<SiteSettings> | null, fallbackSpreadsheetTitle?: string) => {
@@ -1691,6 +1744,172 @@ function MainKnowledgeBaseApp() {
         </div>
       </header>
 
+      {/* Dynamic Teacher Meeting Notice Bar: Regardless of whether teachers are logged in, prompt open meetings with a clean single-line bar */}
+      {activeOpenTeacherSessions.length > 0 && (
+        <aside
+          aria-label="即時會議簽到快訊"
+          className={`border-b transition-colors px-4 sm:px-6 py-2.5 ${
+            getMeetingCheckinCountdown(
+              activeOpenTeacherSessions[0],
+              checkinClockMs,
+            )?.isUrgent
+              ? 'bg-red-50 border-red-200 text-red-900'
+              : 'bg-[#1E3A8A]/6 border-[#1E3A8A]/15 text-[#1E3A8A]'
+          }`}
+        >
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+            <div className="flex items-center gap-2 min-w-0">
+              {getMeetingCheckinCountdown(
+                activeOpenTeacherSessions[0],
+                checkinClockMs,
+              )?.isUrgent ? (
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+              ) : (
+                <CalendarCheck className="w-4 h-4 text-[#1E3A8A] shrink-0" />
+              )}
+              <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                <span className="font-semibold whitespace-nowrap">
+                  {getMeetingCheckinCountdown(
+                    activeOpenTeacherSessions[0],
+                    checkinClockMs,
+                  )?.isUrgent
+                    ? '【即將截止】會議簽到進行中'
+                    : '會議簽到通知'}
+                </span>
+                <span aria-hidden="true" className="text-stone-300">
+                  ·
+                </span>
+                <span className="font-medium text-stone-900 truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-xl">
+                  {activeOpenTeacherSessions[0].title}
+                </span>
+                {activeOpenTeacherSessions.length > 1 && (
+                  <span className="font-mono-tabular text-stone-600 whitespace-nowrap">
+                    （共 {activeOpenTeacherSessions.length} 場）
+                  </span>
+                )}
+                {(() => {
+                  const cd = getMeetingCheckinCountdown(
+                    activeOpenTeacherSessions[0],
+                    checkinClockMs,
+                  );
+                  if (!cd) return null;
+                  return (
+                    <span
+                      className={`font-mono-tabular whitespace-nowrap ${
+                        cd.isUrgent
+                          ? 'font-bold text-red-600'
+                          : 'text-stone-600 font-medium'
+                      }`}
+                    >
+                      （{cd.formattedText}）
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              {!isSchoolAuthorized ? (
+                <>
+                  <span className="text-[11px] text-stone-500 hidden md:inline">
+                    需登入 @hmes.tp.edu.tw 手寫簽名
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewingEnlargedQrMeeting(activeOpenTeacherSessions[0])
+                    }
+                    className="px-2.5 py-1 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/8 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>手機掃碼</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openSchoolAccessModal(
+                        '教師社群會議簽到',
+                        `目前正開放「${activeOpenTeacherSessions[0].title}」線上親筆簽名，請先以學校 Google 帳號 (@hmes.tp.edu.tw) 登入。`,
+                      )
+                    }
+                    className="px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] active:scale-[0.98] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0 shadow-2xs"
+                  >
+                    <Lock className="w-3 h-3" />
+                    <span>登入並簽到</span>
+                  </button>
+                </>
+              ) : uncheckedOpenTeacherSessions.length > 0 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewingEnlargedQrMeeting(
+                        uncheckedOpenTeacherSessions[0],
+                      )
+                    }
+                    className="px-2.5 py-1 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/8 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>手機 QR 碼</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMeetingCheckinState({
+                        isOpen: true,
+                        audienceMode: 'teacher',
+                        meetingId: uncheckedOpenTeacherSessions[0].id,
+                      })
+                    }
+                    className={`px-3 py-1 text-xs font-semibold text-white rounded-lg active:scale-[0.98] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0 shadow-2xs ${
+                      getMeetingCheckinCountdown(
+                        uncheckedOpenTeacherSessions[0],
+                        checkinClockMs,
+                      )?.isUrgent
+                        ? 'bg-red-600 hover:bg-red-700'
+                        : 'bg-[#1E3A8A] hover:bg-[#172554]'
+                    }`}
+                  >
+                    <PenTool className="w-3.5 h-3.5" />
+                    <span>尚未簽到 · 立即簽名</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] text-emerald-800 font-semibold inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>您已完成簽到</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setViewingEnlargedQrMeeting(activeOpenTeacherSessions[0])
+                    }
+                    className="px-2 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <QrCode className="w-3.5 h-3.5 text-[#1E3A8A]" />
+                    <span>提供 QR 給他人掃描</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setMeetingCheckinState({
+                        isOpen: true,
+                        audienceMode: 'teacher',
+                        meetingId: checkedOpenTeacherSessions[0].id,
+                      })
+                    }
+                    className="px-2.5 py-1 text-xs font-medium text-emerald-950 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100/70 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <span>檢視紀錄</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </aside>
+      )}
+
       {syncError && !isDrawerOpen && (
         <div
           role="alert"
@@ -1744,11 +1963,11 @@ function MainKnowledgeBaseApp() {
 
                     return (
                       <div
-                        className={`bg-white border-2 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                        className={`bg-white border-2 rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4 sm:gap-6 ${
                           isUrgent ? 'border-red-600' : 'border-[#1E3A8A]'
                         }`}
                       >
-                        <div className="flex items-start gap-3.5 min-w-0">
+                        <div className="flex items-start gap-3.5 min-w-0 flex-1">
                           <div
                             className={`w-11 h-11 rounded-xl text-white flex items-center justify-center shrink-0 ${
                               isUrgent ? 'bg-red-600' : 'bg-[#1E3A8A]'
@@ -1835,7 +2054,57 @@ function MainKnowledgeBaseApp() {
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        {/* Inline Phone Scan QR Code Box + Primary CTA */}
+                        <div className="flex flex-col sm:flex-row lg:flex-row items-stretch sm:items-center gap-3 shrink-0">
+                          <div className="bg-[#F8FAFC] border border-stone-200 rounded-xl p-2.5 flex items-center gap-3">
+                            <div className="w-18 h-18 sm:w-20 sm:h-20 bg-white border border-stone-200 rounded-lg p-1 flex items-center justify-center shrink-0 shadow-2xs">
+                              {meetingQrDataUrls[targetMeeting.id] ? (
+                                <img
+                                  src={meetingQrDataUrls[targetMeeting.id]}
+                                  alt={`${targetMeeting.title} 手機簽到 QR Code`}
+                                  className="w-full h-full object-contain"
+                                />
+                              ) : (
+                                <span className="text-[10px] text-stone-400">
+                                  QR 產生中
+                                </span>
+                              )}
+                            </div>
+                            <div className="space-y-1 text-left min-w-[110px]">
+                              <div className="text-xs font-semibold text-[#1E3A8A] flex items-center gap-1">
+                                <QrCode className="w-3.5 h-3.5 shrink-0" />
+                                <span>手機掃碼簽名</span>
+                              </div>
+                              <p className="text-[11px] text-stone-500 leading-tight">
+                                相機對準即可在手機親筆簽名
+                              </p>
+                              <div className="flex items-center gap-2 pt-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setViewingEnlargedQrMeeting(targetMeeting)
+                                  }
+                                  className="text-[11px] font-semibold text-[#1E3A8A] hover:underline"
+                                >
+                                  點擊放大
+                                </button>
+                                <span className="text-stone-300">·</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleCopyTeacherLink(targetMeeting.id)
+                                  }
+                                  className="text-[11px] font-medium text-stone-600 hover:text-stone-900"
+                                >
+                                  {copiedTeacherLinkMeetingId ===
+                                  targetMeeting.id
+                                    ? '已複製！'
+                                    : '複製網址'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
                           <button
                             type="button"
                             onClick={() =>
@@ -1845,7 +2114,7 @@ function MainKnowledgeBaseApp() {
                                 meetingId: targetMeeting.id,
                               })
                             }
-                            className={`min-h-[44px] px-5 py-2.5 text-sm font-semibold text-white rounded-xl active:scale-[0.98] inline-flex items-center justify-center gap-2 transition-all shadow-xs whitespace-nowrap shrink-0 ${
+                            className={`min-h-[46px] px-5 py-2.5 text-sm font-semibold text-white rounded-xl active:scale-[0.98] inline-flex items-center justify-center gap-2 transition-all shadow-xs whitespace-nowrap shrink-0 ${
                               isUrgent
                                 ? 'bg-red-600 hover:bg-red-700'
                                 : 'bg-[#1E3A8A] hover:bg-[#172554]'
@@ -1867,8 +2136,8 @@ function MainKnowledgeBaseApp() {
                     const isUrgent = Boolean(countdown?.isUrgent);
 
                     return (
-                      <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div className="flex items-start sm:items-center gap-3 min-w-0">
+                      <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
                           <div className="w-10 h-10 rounded-xl bg-emerald-700 text-white flex items-center justify-center shrink-0">
                             <CheckCircle2 className="w-5 h-5" />
                           </div>
@@ -1902,20 +2171,32 @@ function MainKnowledgeBaseApp() {
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setMeetingCheckinState({
-                              isOpen: true,
-                              audienceMode: 'teacher',
-                              meetingId: signedMeeting.id,
-                            })
-                          }
-                          className="min-h-[38px] px-4 py-2 text-xs font-semibold text-emerald-950 bg-white border border-emerald-300 rounded-xl hover:bg-emerald-100/70 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                        >
-                          <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
-                          <span>檢視 / 修改簽名</span>
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewingEnlargedQrMeeting(signedMeeting)
+                            }
+                            className="min-h-[38px] px-3.5 py-2 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-xl hover:bg-[#1E3A8A]/8 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 shadow-2xs"
+                          >
+                            <QrCode className="w-3.5 h-3.5 shrink-0" />
+                            <span>查看簽到 QR 碼</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMeetingCheckinState({
+                                isOpen: true,
+                                audienceMode: 'teacher',
+                                meetingId: signedMeeting.id,
+                              })
+                            }
+                            className="min-h-[38px] px-4 py-2 text-xs font-semibold text-emerald-950 bg-white border border-emerald-300 rounded-xl hover:bg-emerald-100/70 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
+                            <span>檢視 / 修改簽名</span>
+                          </button>
+                        </div>
                       </div>
                     );
                   })()}
@@ -2929,6 +3210,92 @@ function MainKnowledgeBaseApp() {
         state={confirmState}
         onClose={() => setConfirmState(null)}
       />
+
+      {/* Teacher Meeting Quick Scan / Enlarge QR Code Modal */}
+      {viewingEnlargedQrMeeting && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="qr-enlarge-title"
+          className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+        >
+          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-sm w-full p-6 space-y-4 text-center animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-stone-100">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#1E3A8A]">
+                <QrCode className="w-4 h-4 shrink-0" />
+                <span id="qr-enlarge-title">手機掃碼簽到 QR Code</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingEnlargedQrMeeting(null)}
+                className="p-1 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors"
+                aria-label="關閉"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="font-editorial text-base sm:text-lg font-bold text-stone-950 leading-snug">
+                {viewingEnlargedQrMeeting.title}
+              </h3>
+              <p className="text-xs text-stone-500 font-mono-tabular">
+                {viewingEnlargedQrMeeting.meetingDate}
+                {viewingEnlargedQrMeeting.location
+                  ? ` · ${viewingEnlargedQrMeeting.location}`
+                  : ''}
+              </p>
+            </div>
+
+            <div className="w-56 h-56 mx-auto bg-white border border-stone-200 rounded-2xl p-3 shadow-xs flex items-center justify-center">
+              {meetingQrDataUrls[viewingEnlargedQrMeeting.id] ? (
+                <img
+                  src={meetingQrDataUrls[viewingEnlargedQrMeeting.id]}
+                  alt={`${viewingEnlargedQrMeeting.title} 簽到 QR Code`}
+                  className="w-full h-full object-contain"
+                />
+              ) : (
+                <span className="text-xs text-stone-400">QR 碼產生中...</span>
+              )}
+            </div>
+
+            <p className="text-xs text-stone-600 leading-relaxed bg-[#F8FAFC] border border-stone-200/80 rounded-xl p-3 text-left">
+              以手機相機或 LINE 掃描此碼，登入學校 @hmes.tp.edu.tw
+              帳號後即可立即手寫親筆簽名，完成會議簽到。
+            </p>
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopyTeacherLink(viewingEnlargedQrMeeting.id)
+                }
+                className="flex-1 py-2 px-3 text-xs font-semibold text-[#1E3A8A] bg-[#1E3A8A]/8 hover:bg-[#1E3A8A]/15 border border-[#1E3A8A]/20 rounded-xl inline-flex items-center justify-center gap-1.5 transition-colors"
+              >
+                {copiedTeacherLinkMeetingId ===
+                viewingEnlargedQrMeeting.id ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>已複製直達連結</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>複製簽到連結</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingEnlargedQrMeeting(null)}
+                className="py-2 px-4 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-xl hover:bg-stone-50 transition-colors"
+              >
+                關閉
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

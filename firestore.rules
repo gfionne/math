@@ -357,15 +357,9 @@ service cloud.firestore {
     }
 
     match /meetings/{meetingId} {
-      // Teacher community meetings only (plus temporary compatibility for legacy audience=='parent' docs until migrated to /parentMeetings)
-      allow get: if isValidId(meetingId) && (
-        isAdmin() ||
-        isSchoolMember() ||
-        ('audience' in existing() && existing().audience == 'parent')
-      );
-      allow list: if isAdmin() ||
-        isSchoolMember() ||
-        ('audience' in resource.data && resource.data.audience == 'parent');
+      // Teacher community meetings: public read allowed so all teachers (logged in or not) can receive live meeting notices and QR codes
+      allow get: if isValidId(meetingId);
+      allow list: if true;
 
       allow create: if isAdmin() &&
         isValidId(meetingId) &&

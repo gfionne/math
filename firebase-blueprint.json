@@ -456,7 +456,7 @@
       "schema": {
         "$ref": "#/entities/MeetingSession"
       },
-      "description": "Teacher community meeting sessions readable only by @hmes.tp.edu.tw school members and admins (plus temporary legacy parent migration compatibility); created/updated/deleted only by admins."
+      "description": "Teacher community meeting sessions publicly readable so all teachers (logged in or not) can receive live check-in notices and scan QR codes; created/updated/deleted only by admins."
     },
     "/parentMeetings/{meetingId}": {
       "schema": {

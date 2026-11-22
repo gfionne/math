@@ -309,15 +309,25 @@ function sortMeetingSessions(items: MeetingSession[]): MeetingSession[] {
   });
 }
 
+export function buildDirectCheckinUrl(
+  audience: 'parent' | 'teacher',
+  meetingId: string,
+): string {
+  if (typeof window === 'undefined') {
+    return `?checkin=${audience}&meeting=${meetingId}`;
+  }
+  const url = new URL(window.location.href);
+  url.search = '';
+  url.hash = '';
+  url.searchParams.set('checkin', audience);
+  url.searchParams.set('meeting', meetingId);
+  return url.toString();
+}
+
 export function subscribeMeetings(
   onUpdate: (sessions: MeetingSession[]) => void,
   onError?: (err: Error) => void,
 ): Unsubscribe {
-  if (!auth.currentUser) {
-    onUpdate([]);
-    return () => {};
-  }
-
   const q = query(
     collection(db, MEETINGS_COLLECTION),
     orderBy('createdAt', 'desc'),
