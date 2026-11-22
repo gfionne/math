@@ -1,7 +1,9 @@
 import React, {useEffect, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
+  AlertTriangle,
   Check,
+  CheckCircle2,
   Copy,
   Database,
   Download,
@@ -35,9 +37,12 @@ import {
   XIMEN_SCRATCH_POST,
 } from '../data/seedPosts';
 import {
+  extractGoogleDriveFileId,
   formatCategories,
   formatCategoryDisplay,
+  getDriveThumbnailFallbackUrl,
   normalizeAcademicYear,
+  normalizeDriveImageUrl,
   parseCategories,
 } from '../utils/postFormatting';
 import {
@@ -229,10 +234,47 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
     });
   }, [siteSettings]);
 
-  // Cover image upload to Google Drive
+  // Cover image upload to Google Drive & URL normalization
   const coverFileInputRef = React.useRef<HTMLInputElement>(null);
   const [isUploadingCover, setIsUploadingCover] = useState(false);
   const [coverUploadMsg, setCoverUploadMsg] = useState<string | null>(null);
+  const [coverImgFailed, setCoverImgFailed] = useState(false);
+  const [triedThumbnailFallback, setTriedThumbnailFallback] = useState(false);
+  const [autoConvertedDriveUrl, setAutoConvertedDriveUrl] = useState(false);
+
+  const handleCoverUrlChange = (val: string) => {
+    const trimmed = val.trim();
+    const driveId = extractGoogleDriveFileId(trimmed);
+    const normalized = normalizeDriveImageUrl(trimmed);
+
+    setCoverImgFailed(false);
+    setTriedThumbnailFallback(false);
+
+    // If user pasted a drive link like drive.google.com/file/d/... or drive.google.com/open?id=
+    if (
+      driveId &&
+      (trimmed.includes('drive.google.com/file/d/') ||
+        trimmed.includes('drive.google.com/open?id=') ||
+        trimmed.includes('drive.google.com/uc?'))
+    ) {
+      setAutoConvertedDriveUrl(true);
+      setTimeout(() => setAutoConvertedDriveUrl(false), 5000);
+      setFormState((prev) => ({...prev, coverImageUrl: normalized}));
+    } else {
+      setFormState((prev) => ({...prev, coverImageUrl: val}));
+    }
+  };
+
+  const handleCoverUrlBlur = () => {
+    if (formState.coverImageUrl) {
+      const normalized = normalizeDriveImageUrl(formState.coverImageUrl);
+      if (normalized !== formState.coverImageUrl) {
+        setFormState((prev) => ({...prev, coverImageUrl: normalized}));
+        setAutoConvertedDriveUrl(true);
+        setTimeout(() => setAutoConvertedDriveUrl(false), 5000);
+      }
+    }
+  };
 
   const handleUploadCoverToDrive = async (file: File) => {
     const token = getAccessToken();
@@ -245,6 +287,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
     try {
       const res = await uploadImageToGoogleDrive(file, token);
       setFormState((prev) => ({...prev, coverImageUrl: res.directImageUrl}));
+      setCoverImgFailed(false);
+      setTriedThumbnailFallback(false);
       setCoverUploadMsg('封面圖已成功上傳並套用！');
       setTimeout(() => setCoverUploadMsg(null), 4000);
     } catch (err: any) {
@@ -263,7 +307,16 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
 
   useEffect(() => {
     if (editingPost) {
-      setFormState({...EMPTY_FORM, ...editingPost});
+      const normalizedCover = editingPost.coverImageUrl
+        ? normalizeDriveImageUrl(editingPost.coverImageUrl)
+        : '';
+      setFormState({
+        ...EMPTY_FORM,
+        ...editingPost,
+        coverImageUrl: normalizedCover,
+      });
+      setCoverImgFailed(false);
+      setTriedThumbnailFallback(false);
       setIsNewPost(false);
       setActiveTab('editor');
     }
@@ -1181,31 +1234,137 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       </div>
                     )}
 
-                    <div className="flex items-center gap-3">
-                      {formState.coverImageUrl ? (
-                        <div className="w-16 h-12 rounded-lg border border-stone-300 overflow-hidden shrink-0 bg-stone-100">
-                          <img
-                            src={formState.coverImageUrl}
-                            alt="封面預覽"
-                            referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover"
-                          />
+                    {autoConvertedDriveUrl && (
+                      <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-1.5 font-medium">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>已自動將 Google Drive 檔案連結轉換為直達圖片網址！</span>
+                      </div>
+                    )}
+
+                    {(() => {
+                      const coverDriveId = extractGoogleDriveFileId(formState.coverImageUrl);
+                      const displayCoverUrl =
+                        triedThumbnailFallback && coverDriveId
+                          ? getDriveThumbnailFallbackUrl(coverDriveId)
+                          : normalizeDriveImageUrl(formState.coverImageUrl);
+
+                      return (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            {formState.coverImageUrl ? (
+                              <div className="w-16 h-12 rounded-lg border border-stone-300 overflow-hidden shrink-0 bg-stone-100 relative">
+                                {!coverImgFailed ? (
+                                  <img
+                                    src={displayCoverUrl}
+                                    alt="封面預覽"
+                                    referrerPolicy="no-referrer"
+                                    onError={() => {
+                                      if (coverDriveId && !triedThumbnailFallback) {
+                                        setTriedThumbnailFallback(true);
+                                      } else {
+                                        setCoverImgFailed(true);
+                                      }
+                                    }}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div
+                                    className="w-full h-full bg-amber-50 border border-amber-300 flex flex-col items-center justify-center text-amber-700 p-0.5 text-center"
+                                    title="圖片載入失敗，通常為 Google Drive 檔案尚未設為「知道連結的任何人均可查看」"
+                                  >
+                                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                    <span className="text-[9px] font-bold mt-0.5 leading-none">載入失敗</span>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-16 h-12 rounded-lg border border-dashed border-stone-300 flex items-center justify-center shrink-0 text-stone-400 bg-white">
+                                <Image className="w-5 h-5 text-stone-300" />
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0 relative flex items-center">
+                              <input
+                                type="text"
+                                value={formState.coverImageUrl || ''}
+                                onChange={(e) => handleCoverUrlChange(e.target.value)}
+                                onBlur={handleCoverUrlBlur}
+                                placeholder="https://... 封面圖片網址（支援貼上 Google Drive 檔案分享連結）"
+                                className={`w-full px-3 py-2 text-xs bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] pr-8 ${
+                                  coverImgFailed ? 'border-amber-400 bg-amber-50/20' : 'border-stone-300'
+                                }`}
+                              />
+                              {formState.coverImageUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFormState((prev) => ({...prev, coverImageUrl: ''}));
+                                    setCoverImgFailed(false);
+                                    setTriedThumbnailFallback(false);
+                                  }}
+                                  className="absolute right-2 text-stone-400 hover:text-stone-700 p-1 rounded-md"
+                                  title="清除封面圖網址"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Permission and Status Guidance */}
+                          {coverImgFailed ? (
+                            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1.5">
+                              <div className="font-semibold flex items-center gap-1.5 text-amber-900">
+                                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                                <span>封面圖片無法載入：請檢查 Google 雲端硬碟共用權限</span>
+                              </div>
+                              <p className="text-[11px] text-amber-800 leading-relaxed">
+                                Google Drive 的檔案預設為限制存取，瀏覽器無法直接載入顯示。請點擊下方按鈕前往 Google Drive，將檔案權限設為<strong>「知道連結的任何人均可查看」</strong>。
+                              </p>
+                              <div className="pt-1 flex flex-wrap items-center gap-3">
+                                {coverDriveId && (
+                                  <a
+                                    href={`https://drive.google.com/file/d/${coverDriveId}/view`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="px-2.5 py-1 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-blue-50 inline-flex items-center gap-1 shadow-2xs"
+                                  >
+                                    <span>前往設定 Google Drive 公開權限</span>
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCoverImgFailed(false);
+                                    setTriedThumbnailFallback(false);
+                                  }}
+                                  className="text-xs text-stone-600 hover:text-stone-900 underline font-medium"
+                                >
+                                  重新載入測試
+                                </button>
+                              </div>
+                            </div>
+                          ) : coverDriveId ? (
+                            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-stone-500 pt-0.5">
+                              <span className="flex items-center gap-1 text-emerald-700">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                <span>已套用 Google Drive 圖片直達加速連結</span>
+                              </span>
+                              <a
+                                href={`https://drive.google.com/file/d/${coverDriveId}/view`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[#1E3A8A] hover:underline inline-flex items-center gap-0.5 font-medium"
+                              >
+                                <span>開啟 Drive 檢查共用權限</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            </div>
+                          ) : null}
                         </div>
-                      ) : (
-                        <div className="w-16 h-12 rounded-lg border border-dashed border-stone-300 flex items-center justify-center shrink-0 text-stone-400 bg-white">
-                          <Image className="w-5 h-5 text-stone-300" />
-                        </div>
-                      )}
-                      <input
-                        type="url"
-                        value={formState.coverImageUrl || ''}
-                        onChange={(e) =>
-                          setFormState({...formState, coverImageUrl: e.target.value})
-                        }
-                        placeholder="https://... 封面圖片網址（可由上方按鈕上傳 Drive 自動填入）"
-                        className="flex-1 min-w-0 px-3 py-2 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                      />
-                    </div>
+                      );
+                    })()}
                   </div>
 
                   {/* RichFormat Visual Article Editor */}

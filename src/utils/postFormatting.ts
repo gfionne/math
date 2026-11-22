@@ -154,3 +154,77 @@ export function isPostLocked(
   return postCats.some((cat) => lockedCategories.includes(cat));
 }
 
+/**
+ * Extracts a Google Drive File ID from various Drive URL formats:
+ * - https://drive.google.com/file/d/{id}/view...
+ * - https://drive.google.com/file/d/{id}
+ * - https://drive.google.com/open?id={id}
+ * - https://drive.google.com/uc?id={id}
+ * - https://drive.google.com/uc?export=view&id={id}
+ * - https://drive.google.com/thumbnail?id={id}
+ * - https://lh3.googleusercontent.com/d/{id}
+ * - https://docs.google.com/file/d/{id}
+ */
+export function extractGoogleDriveFileId(url?: string): string | null {
+  if (!url) return null;
+  const str = url.trim();
+  if (!str) return null;
+
+  // 1. /file/d/{id}
+  const fileDMatch = str.match(/\/file\/d\/([a-zA-Z0-9_-]+)/i);
+  if (fileDMatch && fileDMatch[1]) return fileDMatch[1];
+
+  // 2. lh3.googleusercontent.com/d/{id}
+  const lh3Match = str.match(/lh3\.googleusercontent\.com\/d\/([a-zA-Z0-9_-]+)/i);
+  if (lh3Match && lh3Match[1]) return lh3Match[1];
+
+  // 3. Query param id={id}
+  const idMatch = str.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+  if (idMatch && idMatch[1]) return idMatch[1];
+
+  return null;
+}
+
+/**
+ * Normalizes any image URL (especially Google Drive links) into a direct image CDN URL.
+ * Google Drive viewer links (file/d/...) serve HTML which breaks <img> tags.
+ * This converts them to Google's direct image CDN (lh3.googleusercontent.com/d/{id}).
+ */
+export function normalizeDriveImageUrl(url?: string): string {
+  if (!url) return '';
+  const trimmed = url.trim();
+  if (!trimmed) return '';
+
+  const fileId = extractGoogleDriveFileId(trimmed);
+  if (fileId) {
+    return `https://lh3.googleusercontent.com/d/${fileId}`;
+  }
+
+  if (trimmed.startsWith('/src/assets/')) {
+    return `.${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+/**
+ * Secondary fallback thumbnail URL for Google Drive images in case lh3 CDN is restricted.
+ */
+export function getDriveThumbnailFallbackUrl(fileIdOrUrl: string, size = 'w1200'): string {
+  const fileId = extractGoogleDriveFileId(fileIdOrUrl) || fileIdOrUrl.trim();
+  if (!fileId) return '';
+  return `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=${size}`;
+}
+
+/**
+ * Normalizes Google Drive file/d/... links inside Markdown content to direct image URLs.
+ */
+export function normalizeMarkdownDriveImages(markdown: string): string {
+  if (!markdown) return '';
+  return markdown.replace(
+    /!\[(.*?)\]\((https:\/\/(?:drive|docs)\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)[^)]*)\)/gi,
+    (_, alt, __, id) => `![${alt}](https://lh3.googleusercontent.com/d/${id})`
+  );
+}
+
+

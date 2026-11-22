@@ -15,6 +15,7 @@ import {inferEmbedProvider} from '../services/sheetsDb';
 import {
   estimateReadMinutes,
   formatCategoryDisplay,
+  normalizeDriveImageUrl,
 } from '../utils/postFormatting';
 
 interface FeaturedSpotlightProps {
@@ -41,8 +42,9 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
 
   const currentPost = posts[activeIndex] ?? posts[0];
   const isLocked = checkPostLocked ? checkPostLocked(currentPost) : false;
+  const normalizedCover = normalizeDriveImageUrl(currentPost.coverImageUrl);
   const hasCover = Boolean(
-    !isLocked && currentPost.coverImageUrl && !failedImageSlugs[currentPost.slug],
+    !isLocked && normalizedCover && !failedImageSlugs[currentPost.slug],
   );
   const embedMeta = currentPost.embedUrl
     ? inferEmbedProvider(currentPost.embedUrl)
@@ -89,7 +91,7 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
         {hasCover ? (
           <>
             <img
-              src={currentPost.coverImageUrl}
+              src={normalizedCover}
               alt={currentPost.title}
               draggable={false}
               referrerPolicy="no-referrer"

@@ -27,6 +27,10 @@ import {
   Youtube,
 } from 'lucide-react';
 import {uploadImageToGoogleDrive} from '../services/driveUpload';
+import {
+  normalizeDriveImageUrl,
+  normalizeMarkdownDriveImages,
+} from '../utils/postFormatting';
 
 interface RichFormatEditorProps {
   value: string;
@@ -130,12 +134,13 @@ export const RichFormatEditor: React.FC<RichFormatEditorProps> = ({
 
   const handleInsertImageUrl = () => {
     if (!imgUrl.trim()) return;
+    const finalUrl = normalizeDriveImageUrl(imgUrl.trim());
     const alt = imgAlt.trim() || '文章插圖';
-    const markdownImage = `\n![${alt}](${imgUrl.trim()})\n`;
+    const markdownImage = `\n![${alt}](${finalUrl})\n`;
     insertText('', markdownImage, '');
 
     if (setAsCoverToo && onSetCoverImage) {
-      onSetCoverImage(imgUrl.trim());
+      onSetCoverImage(finalUrl);
     }
 
     setModalType(null);
@@ -157,10 +162,6 @@ export const RichFormatEditor: React.FC<RichFormatEditorProps> = ({
         markdownEmbed = `\n[📺 ${label}](${url})\n`;
       }
     } else if (embedType === 'drive') {
-      let previewUrl = url;
-      if (url.includes('/file/d/')) {
-        previewUrl = url.replace(/\/view.*$/, '/preview');
-      }
       markdownEmbed = `\n<div class="my-6 p-4 rounded-xl border border-stone-200 bg-[#F7F4EE] flex items-center justify-between gap-4">\n  <div>\n    <div class="text-xs font-semibold text-stone-900">📄 ${label}</div>\n    <div class="text-[11px] text-stone-500 truncate max-w-md">${url}</div>\n  </div>\n  <a href="${url}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 text-xs font-medium text-white bg-[#1E3A8A] rounded-md hover:bg-[#172554] shrink-0">開啟雲端檔案</a>\n</div>\n`;
     } else if (embedType === 'forms') {
       markdownEmbed = `\n<div class="my-6 p-4 rounded-xl border border-purple-200 bg-purple-50/50 flex items-center justify-between gap-4">\n  <div>\n    <div class="text-xs font-semibold text-purple-950">📝 雲端測驗／問卷表單：${label}</div>\n    <div class="text-[11px] text-purple-700 truncate max-w-md">${url}</div>\n  </div>\n  <a href="${url}" target="_blank" rel="noopener noreferrer" class="px-3 py-1.5 text-xs font-medium text-white bg-purple-700 rounded-md hover:bg-purple-800 shrink-0">填寫表單</a>\n</div>\n`;
@@ -174,8 +175,10 @@ export const RichFormatEditor: React.FC<RichFormatEditorProps> = ({
     setEmbedLabel('');
   };
 
-  // Safe HTML parser for preview
-  const previewHtml = marked.parse(value || '*尚無內文，請於上方輸入內容...*') as string;
+  // Safe HTML parser for preview with Google Drive image normalization
+  const previewHtml = marked.parse(
+    normalizeMarkdownDriveImages(value || '*尚無內文，請於上方輸入內容...*'),
+  ) as string;
 
   const charCount = value.length;
   const wordCount = value.trim() ? value.trim().split(/\s+/).length : 0;

@@ -18,6 +18,7 @@ import {
   estimateReadMinutes,
   formatCategoryDisplay,
   getCategoryAccent,
+  normalizeDriveImageUrl,
   TopicGroup,
 } from '../utils/postFormatting';
 
@@ -527,8 +528,9 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 {currentPosts.map((post, idx) => {
                   const isActive = idx === safeCardIdx;
                   const isLocked = checkPostLocked ? checkPostLocked(post) : false;
+                  const normalizedCover = normalizeDriveImageUrl(post.coverImageUrl);
                   const hasCover = Boolean(
-                    !isLocked && post.coverImageUrl && !failedImages[post.slug],
+                    !isLocked && normalizedCover && !failedImages[post.slug],
                   );
                   const embedMeta = post.embedUrl
                     ? inferEmbedProvider(post.embedUrl)
@@ -586,7 +588,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                           className="h-[36%] min-h-[160px] max-h-[250px] w-full bg-stone-100 border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
                         >
                           <img
-                            src={post.coverImageUrl}
+                            src={normalizedCover}
                             alt={post.title}
                             draggable={false}
                             referrerPolicy="no-referrer"

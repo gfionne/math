@@ -5,7 +5,10 @@ import {
   SpreadsheetMeta,
   SpreadsheetTabInfo,
 } from '../types/journal';
-import {normalizeAcademicYear} from '../utils/postFormatting';
+import {
+  normalizeAcademicYear,
+  normalizeDriveImageUrl,
+} from '../utils/postFormatting';
 
 export const SETTINGS_TAB_NAME = 'Settings';
 
@@ -53,7 +56,7 @@ function postToRow(post: JournalPost): string[] {
     post.author,
     post.isFeatured ? 'TRUE' : 'FALSE',
     post.status,
-    post.coverImageUrl || '',
+    post.coverImageUrl ? normalizeDriveImageUrl(post.coverImageUrl) : '',
     post.embedUrl || '',
     post.embedLabel || '',
   ];
@@ -116,9 +119,7 @@ function rowToPost(
 
   const rawCover = getCell(['coverimageurl', '封面圖片', 'cover']);
   const coverImageUrl = rawCover
-    ? rawCover.startsWith('/src/assets/')
-      ? `.${rawCover}`
-      : rawCover
+    ? normalizeDriveImageUrl(rawCover)
     : undefined;
 
   return {

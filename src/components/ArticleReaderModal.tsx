@@ -19,7 +19,11 @@ import {
 import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
 import {SCHOOL_DOMAIN} from '../services/googleAuth';
-import {formatCategoryDisplay} from '../utils/postFormatting';
+import {
+  formatCategoryDisplay,
+  normalizeDriveImageUrl,
+  normalizeMarkdownDriveImages,
+} from '../utils/postFormatting';
 
 interface ArticleReaderModalProps {
   post: JournalPost | null;
@@ -161,7 +165,8 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
   const renderedHtml = useMemo(() => {
     if (!post || isLocked) return '';
-    const raw = marked.parse(post.content || post.summary || '', {
+    const rawContent = normalizeMarkdownDriveImages(post.content || post.summary || '');
+    const raw = marked.parse(rawContent, {
       async: false,
       gfm: true,
       breaks: true,
@@ -403,7 +408,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                 <figure className="bg-[#F7F4EE] border-b border-stone-200 px-4 sm:px-12 py-5 sm:py-6 min-w-0">
                   <div className="aspect-[16/9] w-full overflow-hidden rounded-lg border border-stone-200 bg-stone-100">
                     <img
-                      src={post.coverImageUrl}
+                      src={normalizeDriveImageUrl(post.coverImageUrl)}
                       alt={post.title}
                       referrerPolicy="no-referrer"
                       className="w-full h-full object-cover"

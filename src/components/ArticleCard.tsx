@@ -12,8 +12,11 @@ import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
 import {
   estimateReadMinutes,
+  extractGoogleDriveFileId,
   formatCategoryDisplay,
   getCategoryAccent,
+  getDriveThumbnailFallbackUrl,
+  normalizeDriveImageUrl,
 } from '../utils/postFormatting';
 
 interface ArticleCardProps {
@@ -28,9 +31,18 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   isLocked = false,
 }) => {
   const [imgFailed, setImgFailed] = useState(false);
+  const [triedThumbnail, setTriedThumbnail] = useState(false);
+
+  const driveId = extractGoogleDriveFileId(post.coverImageUrl);
+  const normalizedCover = normalizeDriveImageUrl(post.coverImageUrl);
+  const currentImgSrc =
+    triedThumbnail && driveId
+      ? getDriveThumbnailFallbackUrl(driveId)
+      : normalizedCover;
+
   const embedMeta = post.embedUrl ? inferEmbedProvider(post.embedUrl) : null;
   const readMins = estimateReadMinutes(post.content || post.summary);
-  const hasCover = Boolean(!isLocked && post.coverImageUrl && !imgFailed);
+  const hasCover = Boolean(!isLocked && normalizedCover && !imgFailed);
   const accent = getCategoryAccent(post.category);
 
   const renderEmbedIcon = () => {
@@ -75,11 +87,17 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
       ) : hasCover ? (
         <div className="aspect-[16/9] w-full bg-stone-100 overflow-hidden border-b border-stone-200 shrink-0">
           <img
-            src={post.coverImageUrl}
+            src={currentImgSrc}
             alt={post.title}
             draggable={false}
             referrerPolicy="no-referrer"
-            onError={() => setImgFailed(true)}
+            onError={() => {
+              if (driveId && !triedThumbnail) {
+                setTriedThumbnail(true);
+              } else {
+                setImgFailed(true);
+              }
+            }}
             className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.04]"
           />
         </div>
