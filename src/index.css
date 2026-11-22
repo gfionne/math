@@ -266,10 +266,18 @@
 }
 
 .journal-prose a {
+  overflow-wrap: anywhere;
+}
+
+.journal-prose a:not([class*="bg-"]):not(.text-white) {
   color: #1E3A8A;
   text-decoration: underline;
   text-underline-offset: 3px;
-  overflow-wrap: anywhere;
+}
+
+.journal-prose a.text-white {
+  color: #ffffff;
+  text-decoration: none;
 }
 
 .journal-prose img {
