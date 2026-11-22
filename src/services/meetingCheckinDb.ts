@@ -210,6 +210,95 @@ export function getMeetingCheckinCountdown(
   };
 }
 
+export interface UnauthedMeetingNotice {
+  meeting: MeetingSession;
+  status: 'open' | 'urgent' | 'upcoming';
+  badgeLabel: string;
+  detailText: string;
+  isUpcomingNotStarted: boolean;
+  scheduledStartMs: number | null;
+}
+
+export function getUnauthedMeetingNotice(
+  meetings: MeetingSession[],
+  nowMs = Date.now(),
+): UnauthedMeetingNotice | null {
+  const teacherMeetings = meetings.filter(
+    (m) => m.isOpen && m.audience !== 'parent',
+  );
+  if (teacherMeetings.length === 0) return null;
+
+  // 1. Look for currently open sessions first
+  const openSessions = teacherMeetings.filter(
+    (m) => getMeetingCheckinWindowState(m, nowMs).status === 'open',
+  );
+  if (openSessions.length > 0) {
+    const target = openSessions[0];
+    const countdown = getMeetingCheckinCountdown(target, nowMs);
+    const isUrgent = Boolean(countdown?.isUrgent);
+
+    let detailText = '';
+    if (countdown) {
+      detailText = isUrgent
+        ? `簽到即將截止（剩餘 ${countdown.formattedText}），請盡速登入完成簽名`
+        : `開放手寫簽名中（剩餘 ${countdown.formattedText}）`;
+    } else if (target.checkinEndAtMs !== null) {
+      detailText = `開放手寫簽名至 ${formatScheduleDateTime(target.checkinEndAtMs)} 止`;
+    } else {
+      detailText = '現正開放校內教師手寫親筆簽名';
+    }
+
+    return {
+      meeting: target,
+      status: isUrgent ? 'urgent' : 'open',
+      badgeLabel: isUrgent ? '最後倒數 · 即將截止' : '會議簽到開放中',
+      detailText,
+      isUpcomingNotStarted: false,
+      scheduledStartMs: null,
+    };
+  }
+
+  // 2. Look for upcoming sessions starting within 36 hours (e.g. tomorrow / 前一天開放導覽列告知)
+  const ADVANCE_NOTICE_WINDOW_MS = 36 * 60 * 60 * 1000;
+  for (const target of teacherMeetings) {
+    const windowState = getMeetingCheckinWindowState(target, nowMs);
+    if (windowState.status === 'not-started') {
+      let startMs = target.checkinStartAtMs;
+      if (startMs === null) {
+        const parsed = new Date(target.meetingDate.replace(/-/g, '/')).getTime();
+        if (Number.isFinite(parsed) && parsed > nowMs) {
+          startMs = parsed;
+        }
+      }
+
+      if (
+        startMs !== null &&
+        startMs > nowMs &&
+        startMs - nowMs <= ADVANCE_NOTICE_WINDOW_MS
+      ) {
+        const targetDate = new Date(startMs);
+        const nowDate = new Date(nowMs);
+        const isTomorrow =
+          targetDate.getDate() !== nowDate.getDate() &&
+          targetDate.getTime() > nowDate.getTime();
+
+        const timeStr = formatScheduleDateTime(startMs);
+
+        return {
+          meeting: target,
+          status: 'upcoming',
+          badgeLabel: isTomorrow ? '明日會議簽到預告' : '即將開放簽到預告',
+          detailText: `將於 ${timeStr} 開放線上手寫簽到（目前尚未開放簽名）`,
+          isUpcomingNotStarted: true,
+          scheduledStartMs: startMs,
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
 function truncateChars(value: string, maxLength: number): string {
   const trimmed = value.trim();
   if (trimmed.length <= maxLength) return trimmed;
