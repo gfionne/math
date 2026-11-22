@@ -13,6 +13,7 @@ import {
   Lock,
   Maximize2,
   MonitorPlay,
+  QrCode,
   ShieldCheck,
   X,
 } from 'lucide-react';
@@ -38,6 +39,8 @@ interface ArticleReaderModalProps {
   onSelectPost: (post: JournalPost) => void;
   onEditPost: (post: JournalPost) => void;
   onOpenFullEmbed?: (url: string, title: string, initialTab?: 'map' | 'gallery') => void;
+  onOpenShareQr?: () => void;
+  disableEscapeClose?: boolean;
 }
 
 function sanitizeHtml(html: string): string {
@@ -174,6 +177,8 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   onSelectPost,
   onEditPost,
   onOpenFullEmbed,
+  onOpenShareQr,
+  disableEscapeClose = false,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showInlineEmbed, setShowInlineEmbed] = useState(false);
@@ -194,7 +199,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   }, [post, isLocked]);
 
   React.useEffect(() => {
-    if (!post) return;
+    if (!post || disableEscapeClose) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -202,7 +207,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [post, onClose]);
+  }, [post, disableEscapeClose, onClose]);
 
   React.useEffect(() => {
     if (!post || !showInlineEmbed || !onOpenFullEmbed || !post.embedUrl) return;
@@ -271,7 +276,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               <span>返回期刊目錄</span>
             </button>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 shrink-0">
               <button
                 type="button"
                 onClick={handleCopyPermalink}
@@ -289,6 +294,18 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   </>
                 )}
               </button>
+
+              {onOpenShareQr && (
+                <button
+                  type="button"
+                  onClick={onOpenShareQr}
+                  title="產生此文章的 QR Code（可投影放大或釘選於畫面角落）"
+                  className="px-2.5 sm:px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/5 border border-[#1E3A8A]/25 rounded-lg hover:bg-[#1E3A8A]/10 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <QrCode className="w-3.5 h-3.5 shrink-0" />
+                  <span>QR Code</span>
+                </button>
+              )}
 
               {canEdit && (
                 <button

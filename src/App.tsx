@@ -466,9 +466,12 @@ function MainKnowledgeBaseApp() {
       return {homeUrl: '', currentUrl: '', hasDistinctCurrent: false};
     }
     const homeUrl = `${window.location.origin}${window.location.pathname}`;
-    const currentUrl = window.location.href;
+    const currentUrl = activePost
+      ? `${window.location.origin}${window.location.pathname}${window.location.search}#post=${encodeURIComponent(activePost.slug)}`
+      : window.location.href;
     const hasDistinctCurrent =
-      currentUrl !== homeUrl && currentUrl !== `${homeUrl}#top`;
+      Boolean(activePost) ||
+      (currentUrl !== homeUrl && currentUrl !== `${homeUrl}#top`);
     return {homeUrl, currentUrl, hasDistinctCurrent};
   }, [activePost, interactiveStage.isOpen, siteQrMode]);
 
@@ -476,6 +479,17 @@ function MainKnowledgeBaseApp() {
     siteQrTargetMode === 'current' && siteShareUrls.hasDistinctCurrent
       ? siteShareUrls.currentUrl
       : siteShareUrls.homeUrl;
+
+  useEffect(() => {
+    if (siteQrMode !== 'modal') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSiteQrMode('closed');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [siteQrMode]);
 
   useEffect(() => {
     if (siteQrMode === 'closed' || !activeSiteShareUrl) return;
@@ -513,11 +527,14 @@ function MainKnowledgeBaseApp() {
     if (!siteQrDataUrl) return;
     const link = document.createElement('a');
     link.href = siteQrDataUrl;
-    link.download = 'pesmath-qrcode.png';
+    link.download =
+      siteQrTargetMode === 'current' && activePost
+        ? `${activePost.slug}-qrcode.png`
+        : 'pesmath-qrcode.png';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  }, [siteQrDataUrl]);
+  }, [siteQrDataUrl, siteQrTargetMode, activePost]);
 
   const applyRemoteSettingsIfEnabled = useCallback(
     (remote: Partial<SiteSettings> | null, fallbackSpreadsheetTitle?: string) => {
@@ -3122,6 +3139,11 @@ function MainKnowledgeBaseApp() {
             initialTab: tab,
           });
         }}
+        onOpenShareQr={() => {
+          setSiteQrTargetMode('current');
+          setSiteQrMode('modal');
+        }}
+        disableEscapeClose={siteQrMode === 'modal'}
       />
 
       {/* Full-Viewport Interactive HTML Stage Modal */}
@@ -3373,7 +3395,7 @@ function MainKnowledgeBaseApp() {
           aria-modal="true"
           aria-labelledby="site-qr-modal-title"
           onClick={() => setSiteQrMode('closed')}
-          className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-[70] bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -3382,7 +3404,11 @@ function MainKnowledgeBaseApp() {
             <div className="flex items-center justify-between pb-2.5 border-b border-stone-100">
               <div className="flex items-center gap-2 text-xs font-bold text-[#1E3A8A]">
                 <QrCode className="w-4 h-4 shrink-0" />
-                <span id="site-qr-modal-title">現場簡報 · 掃碼進入本網頁</span>
+                <span id="site-qr-modal-title">
+                  {siteQrTargetMode === 'current' && activePost
+                    ? '現場簡報 · 掃碼直達本文章'
+                    : '現場簡報 · 掃碼進入本網頁'}
+                </span>
               </div>
               <button
                 type="button"
@@ -3395,11 +3421,15 @@ function MainKnowledgeBaseApp() {
             </div>
 
             <div className="space-y-1">
-              <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug">
-                {siteSettings.siteTitle}
+              <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug line-clamp-2">
+                {siteQrTargetMode === 'current' && activePost
+                  ? activePost.title
+                  : siteSettings.siteTitle}
               </h3>
               <p className="text-xs text-stone-500">
-                請聽眾開啟手機相機或 LINE 掃描條碼，即可立即瀏覽本知識庫網頁
+                {siteQrTargetMode === 'current' && activePost
+                  ? '請聽眾開啟手機相機或 LINE 掃描條碼，即可直接開啟本篇文章'
+                  : '請聽眾開啟手機相機或 LINE 掃描條碼，即可立即瀏覽本知識庫網頁'}
               </p>
             </div>
 
@@ -3425,7 +3455,7 @@ function MainKnowledgeBaseApp() {
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
                 >
-                  目前畫面直達
+                  {activePost ? '目前文章直達' : '目前畫面直達'}
                 </button>
               </div>
             )}
@@ -3493,12 +3523,16 @@ function MainKnowledgeBaseApp() {
       {siteQrMode === 'pinned' && (
         <aside
           aria-label="固定顯示網頁 QR Code"
-          className="fixed bottom-4 right-4 z-40 w-44 sm:w-48 bg-white/95 backdrop-blur-md border border-[#1E3A8A]/30 rounded-2xl shadow-2xl p-3 space-y-2 print:hidden"
+          className="fixed bottom-4 right-4 z-[60] w-44 sm:w-48 bg-white/95 backdrop-blur-md border border-[#1E3A8A]/30 rounded-2xl shadow-2xl p-3 space-y-2 print:hidden"
         >
           <div className="flex items-center justify-between gap-1">
             <span className="text-[11px] font-bold text-[#1E3A8A] inline-flex items-center gap-1 truncate">
               <QrCode className="w-3 h-3 shrink-0" />
-              <span>掃碼進入本網頁</span>
+              <span>
+                {siteQrTargetMode === 'current' && activePost
+                  ? '掃碼直達本文章'
+                  : '掃碼進入本網頁'}
+              </span>
             </span>
             <div className="flex items-center gap-0.5 shrink-0">
               <button
@@ -3540,7 +3574,9 @@ function MainKnowledgeBaseApp() {
           </button>
 
           <p className="text-[10px] text-stone-500 text-center truncate px-1">
-            {siteSettings.siteTitle}
+            {siteQrTargetMode === 'current' && activePost
+              ? activePost.title
+              : siteSettings.siteTitle}
           </p>
         </aside>
       )}
