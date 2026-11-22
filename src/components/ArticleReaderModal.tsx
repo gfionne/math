@@ -358,6 +358,36 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
             </div>
           </div>
 
+          {/* Meeting Check-In Action Banner at Top of Domain Meeting Articles */}
+          {onOpenMeetingCheckin && post.category.includes('領域會議') && (
+            <section
+              aria-label="領域共備會議線上簽到"
+              className="px-4 sm:px-12 py-3.5 sm:py-4 bg-[#F7F4EE] border-b border-[#1E3A8A]/20 min-w-0 shrink-0"
+            >
+              <div className="bg-white border border-[#1E3A8A]/25 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="space-y-1 min-w-0">
+                  <div className="text-xs sm:text-sm font-bold text-[#1E3A8A] inline-flex items-center gap-1.5">
+                    <CalendarCheck className="w-4 h-4 shrink-0" />
+                    <span>領域共備會議線上簽到</span>
+                  </div>
+                  <p className="text-xs text-stone-600 leading-relaxed">
+                    {isSchoolAuthorized
+                      ? '您已完成社群身份驗證，請點擊右側按鍵開啟「會議簽到專區」完成本場次出席簽到或請假登記。'
+                      : `歡迎使用 @${SCHOOL_DOMAIN} 學校帳號登入，即可於線上完成本場會議簽到。`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenMeetingCheckin(post.slug)}
+                  className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                >
+                  <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
+                  <span>前往會議簽到</span>
+                </button>
+              </div>
+            </section>
+          )}
+
           {/* Article Header */}
           <header className="px-4 sm:px-12 pt-6 sm:pt-12 pb-6 sm:pb-8 bg-white border-b border-stone-200 min-w-0">
             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-stone-500 mb-4">
@@ -491,33 +521,6 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   className="journal-prose max-w-2xl w-full min-w-0 mx-auto"
                   dangerouslySetInnerHTML={{__html: renderedHtml}}
                 />
-
-                {/* Meeting Check-In Action Card for Domain Meeting Articles */}
-                {onOpenMeetingCheckin && post.category.includes('領域會議') && (
-                  <section className="max-w-2xl mx-auto mt-8 pt-6 border-t border-stone-200 min-w-0">
-                    <div className="bg-[#F7F4EE] border border-[#1E3A8A]/25 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                      <div className="space-y-1 min-w-0">
-                        <div className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1.5">
-                          <CalendarCheck className="w-4 h-4 shrink-0" />
-                          <span>領域共備會議線上簽到</span>
-                        </div>
-                        <p className="text-xs text-stone-600 leading-relaxed">
-                          {isSchoolAuthorized
-                            ? '您已完成社群身份驗證，可直接開啟「會議簽到專區」完成本場次出席簽到。'
-                            : `歡迎使用 @${SCHOOL_DOMAIN} 學校帳號登入，即可於線上完成本場會議簽到。`}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onOpenMeetingCheckin(post.slug)}
-                        className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-                      >
-                        <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
-                        <span>前往會議簽到</span>
-                      </button>
-                    </div>
-                  </section>
-                )}
 
                 {/* Embedded Google Drive / Meet / Forms / Interactive HTML Attachment */}
                 {post.embedUrl && embedMeta && (
