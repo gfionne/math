@@ -1048,6 +1048,7 @@ function MainKnowledgeBaseApp() {
     setIsTeacherAdmin(false);
     setHasAccessToken(false);
     setGalleryAuthError(null);
+    setDeckModalPost(null);
     if (dataSourceMode === 'sheets-api') {
       setDataSourceMode(publicSheetId ? 'sheets-public' : 'seed');
     }
@@ -3157,12 +3158,14 @@ function MainKnowledgeBaseApp() {
           setSiteQrTargetMode('current');
           setSiteQrMode('modal');
         }}
-        onGenerateDeck={(targetPost) => setDeckModalPost(targetPost)}
-        disableEscapeClose={siteQrMode === 'modal' || Boolean(deckModalPost)}
+        onGenerateDeck={
+          isTeacherAdmin ? (targetPost) => setDeckModalPost(targetPost) : undefined
+        }
+        disableEscapeClose={siteQrMode === 'modal' || Boolean(isTeacherAdmin && deckModalPost)}
       />
 
       <ArticleDeckModal
-        post={deckModalPost}
+        post={isTeacherAdmin ? deckModalPost : null}
         siteTitle={siteSettings.siteTitle}
         onClose={() => setDeckModalPost(null)}
       />

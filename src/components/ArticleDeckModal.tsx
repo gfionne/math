@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
+import {auth} from '../services/googleAuth';
 import {
   formatCategoryDisplay,
   normalizeDriveImageUrl,
@@ -113,9 +114,17 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
       setIsEditingSlide(false);
 
       try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) {
+          throw new Error('此功能僅限已登入之管理者使用，請先登入管理者帳號。');
+        }
+
         const response = await fetch('/api/ai/generate-slides', {
           method: 'POST',
-          headers: {'Content-Type': 'application/json'},
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${idToken}`,
+          },
           signal: controller.signal,
           body: JSON.stringify({
             title: targetPost.title,

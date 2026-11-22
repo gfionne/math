@@ -66,6 +66,123 @@ function getStyleDirective(style: AudienceStyle): string {
   }
 }
 
+interface FirebaseAppletConfig {
+  projectId: string;
+  apiKey: string;
+  firestoreDatabaseId: string;
+}
+
+const OWNER_ADMIN_EMAIL = 'g.fionne@gmail.com';
+
+function loadFirebaseConfig(): FirebaseAppletConfig | null {
+  try {
+    const cfgPath = path.resolve(__dirname, 'firebase-applet-config.json');
+    if (!fs.existsSync(cfgPath)) return null;
+    const raw = JSON.parse(
+      fs.readFileSync(cfgPath, 'utf-8'),
+    ) as Partial<FirebaseAppletConfig>;
+    if (!raw.apiKey || !raw.projectId || !raw.firestoreDatabaseId) return null;
+    return {
+      apiKey: raw.apiKey,
+      projectId: raw.projectId,
+      firestoreDatabaseId: raw.firestoreDatabaseId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function verifyAdminRequest(
+  req: Request,
+): Promise<
+  | {ok: true; email: string; uid: string}
+  | {ok: false; status: number; error: string}
+> {
+  const authHeader = String(req.headers.authorization || '').trim();
+  const match = authHeader.match(/^Bearer\s+(.+)$/i);
+  const idToken = match?.[1]?.trim();
+  if (!idToken) {
+    return {
+      ok: false,
+      status: 401,
+      error: '此功能僅限已登入之管理者使用，請先登入管理者帳號。',
+    };
+  }
+
+  const fbConfig = loadFirebaseConfig();
+  if (!fbConfig) {
+    return {
+      ok: false,
+      status: 500,
+      error: '伺服器尚未完成 Firebase 設定，無法驗證管理者身分。',
+    };
+  }
+
+  try {
+    const lookupRes = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(fbConfig.apiKey)}`,
+      {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({idToken}),
+      },
+    );
+
+    if (!lookupRes.ok) {
+      return {
+        ok: false,
+        status: 401,
+        error: '登入憑證已過期或無效，請重新登入管理者帳號。',
+      };
+    }
+
+    const lookupData = (await lookupRes.json()) as {
+      users?: Array<{
+        localId?: string;
+        email?: string;
+        emailVerified?: boolean;
+      }>;
+    };
+    const fbUser = lookupData.users?.[0];
+    const uid = String(fbUser?.localId || '').trim();
+    const email = String(fbUser?.email || '').trim().toLowerCase();
+    const emailVerified = Boolean(fbUser?.emailVerified);
+
+    if (!uid || !email || !emailVerified) {
+      return {
+        ok: false,
+        status: 403,
+        error: '帳號尚未完成電子郵件驗證，無權使用管理者 AI 簡報生成功能。',
+      };
+    }
+
+    if (email === OWNER_ADMIN_EMAIL) {
+      return {ok: true, email, uid};
+    }
+
+    const adminDocUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(fbConfig.projectId)}/databases/${encodeURIComponent(fbConfig.firestoreDatabaseId)}/documents/admins/${encodeURIComponent(uid)}`;
+    const adminDocRes = await fetch(adminDocUrl, {
+      headers: {Authorization: `Bearer ${idToken}`},
+    });
+
+    if (adminDocRes.ok) {
+      return {ok: true, email, uid};
+    }
+
+    return {
+      ok: false,
+      status: 403,
+      error: '目前登入的帳號不具管理者權限，僅限網站管理者使用 AI 生成簡報功能。',
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 502,
+      error: '驗證管理者身分時連線失敗，請稍後再試。',
+    };
+  }
+}
+
 async function startServer() {
   const app = express();
   const port = Number(process.env.PORT) || 3000;
@@ -74,6 +191,12 @@ async function startServer() {
   app.use(express.json({limit: '1mb'}));
 
   app.post('/api/ai/generate-slides', async (req: Request, res: Response) => {
+    const authCheck = await verifyAdminRequest(req);
+    if (!authCheck.ok) {
+      res.status(authCheck.status).json({error: authCheck.error});
+      return;
+    }
+
     const apiKey = process.env.GEMINI_API_KEY?.trim();
     if (!apiKey) {
       res.status(500).json({
