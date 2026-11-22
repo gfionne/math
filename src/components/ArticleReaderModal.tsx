@@ -20,6 +20,7 @@ import {JournalPost} from '../types/journal';
 import {inferEmbedProvider} from '../services/sheetsDb';
 import {SCHOOL_DOMAIN} from '../services/googleAuth';
 import {
+  extractGoogleDriveFileId,
   formatCategoryDisplay,
   normalizeDriveImageUrl,
   normalizeMarkdownDriveImages,
@@ -125,15 +126,33 @@ function toEmbeddableUrl(url: string): string | null {
     ) {
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     }
-    if (parsed.hostname.includes('drive.google.com') && parsed.pathname.includes('/file/d/')) {
-      return trimmed.replace(/\/view.*$/, '/preview');
-    }
-    if (parsed.hostname.includes('docs.google.com') && parsed.pathname.includes('/forms/')) {
-      if (!trimmed.includes('embedded=true')) {
-        return trimmed.includes('?') ? `${trimmed}&embedded=true` : `${trimmed}?embedded=true`;
+
+    if (parsed.hostname.includes('drive.google.com')) {
+      const folderMatch = parsed.pathname.match(/\/folders\/([a-zA-Z0-9_-]+)/i);
+      if (folderMatch && folderMatch[1]) {
+        return `https://drive.google.com/embeddedfolderview?id=${folderMatch[1]}#list`;
       }
-      return trimmed;
+      const fileId = extractGoogleDriveFileId(trimmed);
+      if (fileId) {
+        return `https://drive.google.com/file/d/${fileId}/preview`;
+      }
     }
+
+    if (parsed.hostname.includes('docs.google.com')) {
+      if (parsed.pathname.includes('/forms/')) {
+        if (!trimmed.includes('embedded=true')) {
+          return trimmed.includes('?') ? `${trimmed}&embedded=true` : `${trimmed}?embedded=true`;
+        }
+        return trimmed;
+      }
+      const docMatch = parsed.pathname.match(
+        /\/(document|spreadsheets|presentation)\/(?:u\/\d+\/)?d\/([a-zA-Z0-9_-]+)/i,
+      );
+      if (docMatch && docMatch[1] && docMatch[2]) {
+        return `https://docs.google.com/${docMatch[1]}/d/${docMatch[2]}/preview`;
+      }
+    }
+
     if (parsed.pathname.endsWith('/preview')) {
       return trimmed;
     }
@@ -462,8 +481,8 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                         ? '站內互動學習舞台與教學資源'
                         : '相關雲端附件與教學資源'}
                     </h2>
-                    <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-4 sm:p-5 space-y-4 min-w-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl p-3.5 sm:p-5 space-y-4 min-w-0 max-w-full overflow-hidden">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
                         <div className="flex items-start gap-3 min-w-0">
                           <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
                             {embedMeta.provider === '站內互動網頁' ? (
@@ -473,7 +492,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                             )}
                           </div>
                           <div className="min-w-0">
-                            <div className="text-xs font-mono-tabular text-stone-500">
+                            <div className="text-xs font-mono-tabular text-stone-500 truncate">
                               {embedMeta.provider}
                               {embedMeta.domain ? ` · ${embedMeta.domain}` : ''}
                             </div>
@@ -533,17 +552,24 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                       </div>
 
                       {showInlineEmbed && inlineEmbedUrl && (
-                        <div className="pt-3 border-t border-stone-200">
-                          <iframe
-                            src={inlineEmbedUrl}
-                            title={post.embedLabel || post.title}
-                            className={`w-full ${
-                              embedMeta.provider === '站內互動網頁'
-                                ? 'h-[560px]'
-                                : 'h-[460px]'
-                            } rounded-lg border border-stone-200 bg-white`}
-                            loading="lazy"
-                          />
+                        <div className="pt-3 border-t border-stone-200 min-w-0 max-w-full space-y-2">
+                          <div className="w-full max-w-full min-w-0 overflow-x-auto rounded-lg border border-stone-200 bg-white">
+                            <iframe
+                              src={inlineEmbedUrl}
+                              title={post.embedLabel || post.title}
+                              className={`block w-full max-w-full min-w-0 ${
+                                embedMeta.provider === '站內互動網頁'
+                                  ? 'h-[560px]'
+                                  : 'h-[420px] sm:h-[460px]'
+                              } bg-white`}
+                              loading="lazy"
+                            />
+                          </div>
+                          {embedMeta.provider !== '站內互動網頁' && (
+                            <p className="text-[11px] text-stone-500 leading-relaxed">
+                              若手機預覽畫面顯示裁切、「檔案不存在」或需要登入權限，請點擊上方「開啟原始連結」直接於 Google 雲端硬碟開啟檢視。
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>

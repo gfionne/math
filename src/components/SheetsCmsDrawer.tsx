@@ -993,10 +993,10 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
               {/* Article Form */}
               <form
                 onSubmit={handleSubmitForm}
-                className="bg-white border border-stone-200 rounded-xl p-6 space-y-4"
+                className="bg-white border border-stone-200 rounded-xl p-4 sm:p-6 space-y-4 min-w-0 max-w-full overflow-hidden"
               >
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-3">
-                  <h3 className="font-editorial text-base font-semibold text-stone-900">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 pb-3 min-w-0">
+                  <h3 className="font-editorial text-base font-semibold text-stone-900 min-w-0 break-words">
                     {isNewPost ? '發布新期刊文章' : `編輯文章：${formState.title}`}
                   </h3>
                   <div className="flex items-center gap-3">
@@ -1034,8 +1034,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">
+                  <div className="sm:col-span-2 min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       文章標題 *
                     </label>
@@ -1047,11 +1047,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         setFormState({...formState, title: e.target.value})
                       }
                       placeholder="例如：1130320 領域共備會議紀錄與教案分享"
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       Slug 代碼（留空自動產生）
                     </label>
@@ -1062,11 +1062,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         setFormState({...formState, slug: e.target.value})
                       }
                       placeholder="1130320-meeting"
-                      className="w-full px-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0 max-w-full overflow-hidden">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       發布日期
                     </label>
@@ -1076,11 +1076,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       onChange={(e) =>
                         setFormState({...formState, publishedAt: e.target.value})
                       }
-                      className="w-full px-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full block px-3.5 py-2 text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       學年度
                     </label>
@@ -1091,7 +1091,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       onChange={(e) =>
                         setFormState({...formState, academicYear: e.target.value})
                       }
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                     <datalist id="academic-year-list">
                       {ACADEMIC_YEAR_OPTIONS.map((yr) => (
@@ -1100,7 +1100,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     </datalist>
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-span-2 min-w-0">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
                       <label className="block text-xs font-medium text-stone-700">
                         期刊分類（可複選多個分類，或以逗號「,」分隔自訂）
@@ -1137,11 +1137,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         setFormState({...formState, category: e.target.value})
                       }
                       placeholder="例如：STEAM, 教學資源（多個分類請用逗號分隔）"
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       撰稿者 / 教師社群
                     </label>
@@ -1151,11 +1151,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       onChange={(e) =>
                         setFormState({...formState, author: e.target.value})
                       }
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       發布狀態
                     </label>
@@ -1167,7 +1167,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                           status: e.target.value as PostStatus,
                         })
                       }
-                      className="w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     >
                       <option value="Published">Published（公開發布）</option>
                       <option value="Restricted">
@@ -1177,7 +1177,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     </select>
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div className="sm:col-span-2 min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       文章摘要
                     </label>
@@ -1188,12 +1188,12 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         setFormState({...formState, summary: e.target.value})
                       }
                       placeholder="1–2 句簡短說明本篇教學內容或會議重點"
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
                   {/* Article Cover Image (Google Drive upload + URL) */}
-                  <div className="sm:col-span-2 p-4 bg-[#F7F4EE] border border-stone-200 rounded-xl space-y-3">
+                  <div className="sm:col-span-2 min-w-0 max-w-full p-4 bg-[#F7F4EE] border border-stone-200 rounded-xl space-y-3 overflow-hidden">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                       <div>
                         <span className="text-xs font-semibold text-stone-900 flex items-center gap-1.5">
@@ -1368,7 +1368,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                   </div>
 
                   {/* RichFormat Visual Article Editor */}
-                  <div className="sm:col-span-2 space-y-1.5">
+                  <div className="sm:col-span-2 min-w-0 max-w-full space-y-1.5 overflow-hidden">
                     <label className="block text-xs font-medium text-stone-700 flex items-center justify-between">
                       <span className="flex flex-wrap items-center gap-1.5">
                         <span className="font-semibold text-stone-900">文章內文 (RichFormat 富文本視覺化編輯器)</span>
@@ -1387,7 +1387,7 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                       <label className="block text-xs font-medium text-stone-700">
                         嵌入資源連結（Drive / Forms / 站內 HTML）
@@ -1415,11 +1415,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         setFormState({...formState, embedUrl: e.target.value})
                       }
                       placeholder="https://drive.google.com/... 或 ./ximen-scratch.html"
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <label className="block text-xs font-medium text-stone-700 mb-1">
                       嵌入資源說明文字
                     </label>
@@ -1430,11 +1430,11 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         setFormState({...formState, embedLabel: e.target.value})
                       }
                       placeholder="例如：113 學年度期中會議紀錄 PDF"
-                      className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                     />
                   </div>
 
-                  <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-2">
+                  <div className="sm:col-span-2 min-w-0 flex flex-wrap items-center justify-between gap-3 pt-2">
                     <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
                       <input
                         type="checkbox"

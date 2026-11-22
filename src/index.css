@@ -20,6 +20,30 @@
   summary {
     cursor: pointer;
   }
+
+  input[type="date"],
+  input[type="datetime-local"],
+  input[type="time"] {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 2.375rem;
+    box-sizing: border-box;
+    overflow: hidden;
+    -webkit-appearance: none;
+    appearance: none;
+    background-color: #ffffff;
+    text-align: left;
+  }
+
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value {
+    text-align: left;
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 .font-editorial {

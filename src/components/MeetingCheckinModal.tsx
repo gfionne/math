@@ -23,6 +23,7 @@ import {
   Plus,
   Printer,
   QrCode,
+  Search,
   ShieldCheck,
   Trash2,
   UserCheck,
@@ -276,6 +277,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   const [newAgenda, setNewAgenda] = useState('');
   const [newMeetUrl, setNewMeetUrl] = useState('');
   const [newLinkedSlug, setNewLinkedSlug] = useState('');
+  const [linkedPostSearch, setLinkedPostSearch] = useState('');
   const [newIsOpen, setNewIsOpen] = useState(true);
   const [newCheckinStartLocal, setNewCheckinStartLocal] = useState('');
   const [newCheckinEndLocal, setNewCheckinEndLocal] = useState('');
@@ -762,9 +764,23 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     nowMs,
   ]);
 
-  const meetingPostsForLinking = useMemo(() => {
-    return posts.slice(0, 60);
+  const sortedAllPostsForLinking = useMemo(() => {
+    return [...posts].sort((a, b) =>
+      (b.publishedAt || '').localeCompare(a.publishedAt || ''),
+    );
   }, [posts]);
+
+  const meetingPostsForLinking = useMemo(() => {
+    const q = linkedPostSearch.trim().toLowerCase();
+    if (!q) return sortedAllPostsForLinking;
+    return sortedAllPostsForLinking.filter(
+      (p) =>
+        p.slug === newLinkedSlug ||
+        p.title.toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q) ||
+        (p.academicYear || '').toLowerCase().includes(q),
+    );
+  }, [sortedAllPostsForLinking, linkedPostSearch, newLinkedSlug]);
 
   if (!isOpen) return null;
 
@@ -1673,8 +1689,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="space-y-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
+          <div className="space-y-1 min-w-0 max-w-full overflow-hidden">
             <label className="block text-[11px] font-medium text-stone-700">
               開放簽名開始時間（留白＝立即開放）
             </label>
@@ -1682,10 +1698,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               type="datetime-local"
               value={editStartLocal}
               onChange={(e) => setEditStartLocal(e.target.value)}
-              className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+              className="w-full min-w-0 max-w-full block h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
             />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 min-w-0 max-w-full overflow-hidden">
             <label className="block text-[11px] font-medium text-stone-700">
               簽名截止時間（留白＝手動關閉前皆可簽）
             </label>
@@ -1693,7 +1709,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               type="datetime-local"
               value={editEndLocal}
               onChange={(e) => setEditEndLocal(e.target.value)}
-              className="w-full h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+              className="w-full min-w-0 max-w-full block h-9 px-3 text-xs font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
             />
           </div>
         </div>
@@ -2443,10 +2459,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 {activeTab === 'admin' && (
                   <form
                     onSubmit={handleCreateSession}
-                    className="bg-white border border-stone-200 rounded-xl p-5 sm:p-6 space-y-4"
+                    className="bg-white border border-stone-200 rounded-xl p-4 sm:p-6 space-y-4 min-w-0 max-w-full overflow-hidden"
                   >
-                    <div className="border-b border-stone-100 pb-3 flex flex-wrap items-center justify-between gap-2">
-                      <div>
+                    <div className="border-b border-stone-100 pb-3 flex flex-wrap items-center justify-between gap-2 min-w-0">
+                      <div className="min-w-0">
                         <h3 className="font-editorial text-base font-bold text-stone-950">
                           建立學校日／家長免登入簽到場次
                         </h3>
@@ -2469,8 +2485,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="sm:col-span-2 space-y-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">
+                      <div className="sm:col-span-2 min-w-0 space-y-1">
                         <label className="block text-xs font-medium text-stone-700">
                           活動 / 學校日名稱 *
                         </label>
@@ -2561,7 +2577,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         />
                       </div>
 
-                      <div className="sm:col-span-2 bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                      <div className="sm:col-span-2 min-w-0 max-w-full bg-[#FBF9F5] border border-stone-200 rounded-xl p-3.5 sm:p-4 space-y-3 overflow-hidden">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-900">
                             <Clock className="w-3.5 h-3.5" />
@@ -2600,8 +2616,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="space-y-1">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
+                          <div className="space-y-1 min-w-0 max-w-full overflow-hidden">
                             <label className="block text-xs font-medium text-stone-700">
                               開放簽名開始時間
                             </label>
@@ -2611,10 +2627,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               onChange={(e) =>
                                 setNewCheckinStartLocal(e.target.value)
                               }
-                              className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                              className="w-full min-w-0 max-w-full block h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
                             />
                           </div>
-                          <div className="space-y-1">
+                          <div className="space-y-1 min-w-0 max-w-full overflow-hidden">
                             <label className="block text-xs font-medium text-stone-700">
                               簽名截止時間
                             </label>
@@ -2624,7 +2640,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               onChange={(e) =>
                                 setNewCheckinEndLocal(e.target.value)
                               }
-                              className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                              className="w-full min-w-0 max-w-full block h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-700"
                             />
                           </div>
                         </div>
@@ -3716,9 +3732,9 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               {activeTab === 'admin' && isTeacherAdmin && (
                 <form
                   onSubmit={handleCreateSession}
-                  className="bg-white border border-stone-200 rounded-xl p-5 sm:p-6 space-y-4"
+                  className="bg-white border border-stone-200 rounded-xl p-4 sm:p-6 space-y-4 min-w-0 max-w-full overflow-hidden"
                 >
-                  <div className="border-b border-stone-100 pb-3">
+                  <div className="border-b border-stone-100 pb-3 min-w-0">
                     <h3 className="font-editorial text-base font-bold text-stone-950">
                       建立新的教師社群會議場次
                     </h3>
@@ -3727,8 +3743,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="sm:col-span-2 space-y-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 min-w-0">
+                    <div className="sm:col-span-2 min-w-0 space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
                         會議名稱 *
                       </label>
@@ -3805,25 +3821,55 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       />
                     </div>
 
-                    <div className="sm:col-span-2 space-y-1">
-                      <label className="block text-xs font-medium text-stone-700">
-                        關聯知識庫會議文章（選填）
-                      </label>
+                    <div className="sm:col-span-2 min-w-0 space-y-1.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <label className="block text-xs font-medium text-stone-700">
+                          關聯知識庫文章／會議資料（選填，可選取全部 {posts.length} 篇文章）
+                        </label>
+                        <span className="text-[11px] font-mono-tabular text-stone-500">
+                          {linkedPostSearch.trim()
+                            ? `符合 ${meetingPostsForLinking.length} / ${posts.length} 篇`
+                            : `共 ${posts.length} 篇可關聯`}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-stone-500 leading-relaxed">
+                        選擇後，教師於簽到時可直接點擊「檢視關聯文章」開啟對應的議程、教案或公開授課紀錄；若無對應文章可維持「不關聯特定文章」。
+                      </p>
+                      <div className="relative flex items-center">
+                        <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={linkedPostSearch}
+                          onChange={(e) => setLinkedPostSearch(e.target.value)}
+                          placeholder="輸入關鍵字篩選文章（標題、分類或學年度）..."
+                          className="w-full min-w-0 max-w-full pl-8 pr-8 py-1.5 text-xs bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                        />
+                        {linkedPostSearch && (
+                          <button
+                            type="button"
+                            onClick={() => setLinkedPostSearch('')}
+                            className="absolute right-2 text-stone-400 hover:text-stone-700 p-0.5"
+                            aria-label="清除搜尋"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                       <select
                         value={newLinkedSlug}
                         onChange={(e) => setNewLinkedSlug(e.target.value)}
-                        className="w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                        className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       >
                         <option value="">（不關聯特定文章）</option>
                         {meetingPostsForLinking.map((p) => (
                           <option key={p.slug} value={p.slug}>
-                            [{p.academicYear}] {p.title}
+                            [{p.academicYear} · {p.category || '未分類'}] {p.title}
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    <div className="sm:col-span-2 space-y-1">
+                    <div className="sm:col-span-2 min-w-0 space-y-1">
                       <label className="block text-xs font-medium text-stone-700">
                         議程摘要與校內備註（僅限校內登入教師閱讀）
                       </label>
@@ -3833,11 +3879,11 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         value={newAgenda}
                         onChange={(e) => setNewAgenda(e.target.value)}
                         placeholder="輸入本次會議討論議題、共備教材準備事項或校內注意事項..."
-                        className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                        className="w-full min-w-0 max-w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                       />
                     </div>
 
-                    <div className="sm:col-span-2 bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                    <div className="sm:col-span-2 min-w-0 max-w-full bg-[#FBF9F5] border border-stone-200 rounded-xl p-3.5 sm:p-4 space-y-3 overflow-hidden">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1E3A8A]">
                           <Clock className="w-3.5 h-3.5" />
@@ -3876,8 +3922,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
+                        <div className="space-y-1 min-w-0 max-w-full overflow-hidden">
                           <label className="block text-xs font-medium text-stone-700">
                             開放簽名開始時間
                           </label>
@@ -3887,10 +3933,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                             onChange={(e) =>
                               setNewCheckinStartLocal(e.target.value)
                             }
-                            className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                            className="w-full min-w-0 max-w-full block h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                           />
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-1 min-w-0 max-w-full overflow-hidden">
                           <label className="block text-xs font-medium text-stone-700">
                             簽名截止時間
                           </label>
@@ -3900,7 +3946,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                             onChange={(e) =>
                               setNewCheckinEndLocal(e.target.value)
                             }
-                            className="w-full h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                            className="w-full min-w-0 max-w-full block h-9 px-3 text-xs sm:text-sm font-mono-tabular bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                           />
                         </div>
                       </div>
