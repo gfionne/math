@@ -59,86 +59,92 @@ const drawSingleNoticeCard = (
   ctx.lineWidth = 2;
   ctx.strokeRect(cardX, cardY, cardW, cardH);
 
-  // Header background (Black)
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(cardX, cardY, cardW, 75);
-
+  // Toner-saving clean header (White background with thick bottom black border)
   ctx.fillStyle = '#FFFFFF';
-  ctx.font = '700 15px "Noto Sans TC", sans-serif';
+  ctx.fillRect(cardX, cardY, cardW, 68);
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cardX, cardY + 68);
+  ctx.lineTo(cardX + cardW, cardY + 68);
+  ctx.stroke();
+
+  ctx.fillStyle = '#000000';
+  ctx.font = '700 13px "Noto Sans TC", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('臺北市西門國小 · 數學領域～AI領航 徜徉酷數', cardX + cardW / 2, cardY + 26);
-  ctx.font = '700 16px "Noto Sans TC", sans-serif';
-  ctx.fillText(meeting.audience === 'parent' ? '學校日家長 · 開會暨簽到通知單' : '開會暨簽到通知單', cardX + cardW / 2, cardY + 52);
+  ctx.fillText('臺北市西門國小 · 數學領域～AI領航 徜徉酷數', cardX + cardW / 2, cardY + 22);
+  ctx.font = '700 15px "Noto Sans TC", sans-serif';
+  ctx.fillText(meeting.audience === 'parent' ? '學校日家長 · 開會暨簽到通知單' : '開會暨簽到通知單', cardX + cardW / 2, cardY + 46);
 
   // Title & Metadata
-  let ty = cardY + 92;
+  let ty = cardY + 82;
   ctx.fillStyle = '#000000';
-  ctx.font = '700 18px "Noto Sans TC", sans-serif';
+  ctx.font = '700 16px "Noto Sans TC", sans-serif';
   ctx.textAlign = 'center';
 
   const titleClean = meeting.title;
-  ctx.fillText(titleClean.length > 24 ? `${titleClean.slice(0, 24)}…` : titleClean, cardX + cardW / 2, ty);
-  ty += 28;
+  ctx.fillText(titleClean.length > 26 ? `${titleClean.slice(0, 26)}…` : titleClean, cardX + cardW / 2, ty);
+  ty += 24;
 
-  ctx.fillStyle = '#262626';
-  ctx.font = '600 12px "Noto Sans TC", sans-serif';
+  ctx.fillStyle = '#171717';
+  ctx.font = '600 11px "Noto Sans TC", sans-serif';
   ctx.fillText(`學年度：${meeting.academicYear} | 開會：${meeting.meetingDate}`, cardX + cardW / 2, ty);
-  ty += 18;
+  ty += 16;
   ctx.fillText(`簽到開放：${timeWindowText}`, cardX + cardW / 2, ty);
-  ty += 18;
+  ty += 16;
   ctx.fillText(`地點：${meeting.location || '西門國小會議室'}`, cardX + cardW / 2, ty);
-  ty += 22;
+  ty += 20;
 
   if (linkedPost) {
     ctx.fillStyle = '#000000';
-    ctx.font = '700 12px "Noto Sans TC", sans-serif';
-    ctx.fillText(`相關文章：${linkedPost.title.length > 26 ? `${linkedPost.title.slice(0, 26)}…` : linkedPost.title}`, cardX + cardW / 2, ty);
-    ty += 22;
+    ctx.font = '700 11px "Noto Sans TC", sans-serif';
+    ctx.fillText(`相關文章：${linkedPost.title.length > 30 ? `${linkedPost.title.slice(0, 30)}…` : linkedPost.title}`, cardX + cardW / 2, ty);
+    ty += 20;
   }
 
   // QR Codes
   const hasTwoQr = Boolean(linkedPost && q2Img);
-  const qrSize = hasTwoQr ? 100 : 130;
+  const qrSize = hasTwoQr ? 92 : 110;
 
   if (hasTwoQr && q1Img && q2Img) {
-    const boxW = 110;
+    const boxW = 104;
     const startX = cardX + (cardW - (boxW * 2 + 16)) / 2;
 
     // Checkin QR Box
     ctx.fillStyle = '#FAFAFA';
-    ctx.fillRect(startX, ty, boxW, qrSize + 26);
+    ctx.fillRect(startX, ty, boxW, qrSize + 22);
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 1;
-    ctx.strokeRect(startX, ty, boxW, qrSize + 26);
-    ctx.drawImage(q1Img, startX + (boxW - qrSize) / 2, ty + 4, qrSize, qrSize);
+    ctx.strokeRect(startX, ty, boxW, qrSize + 22);
+    ctx.drawImage(q1Img, startX + (boxW - qrSize) / 2, ty + 3, qrSize, qrSize);
     ctx.fillStyle = '#000000';
     ctx.font = '700 10px "Noto Sans TC", sans-serif';
-    ctx.fillText('【1】手機簽到', startX + boxW / 2, ty + qrSize + 16);
+    ctx.fillText('【1】手機簽到', startX + boxW / 2, ty + qrSize + 14);
 
     // Article QR Box
     const startX2 = startX + boxW + 16;
     ctx.fillStyle = '#FAFAFA';
-    ctx.fillRect(startX2, ty, boxW, qrSize + 26);
-    ctx.strokeRect(startX2, ty, boxW, qrSize + 26);
-    ctx.drawImage(q2Img, startX2 + (boxW - qrSize) / 2, ty + 4, qrSize, qrSize);
-    ctx.fillText('【2】相關文章', startX2 + boxW / 2, ty + qrSize + 16);
+    ctx.fillRect(startX2, ty, boxW, qrSize + 22);
+    ctx.strokeRect(startX2, ty, boxW, qrSize + 22);
+    ctx.drawImage(q2Img, startX2 + (boxW - qrSize) / 2, ty + 3, qrSize, qrSize);
+    ctx.fillText('【2】相關文章', startX2 + boxW / 2, ty + qrSize + 14);
 
-    ty += qrSize + 36;
+    ty += qrSize + 30;
   } else if (q1Img) {
     ctx.drawImage(q1Img, cardX + (cardW - qrSize) / 2, ty, qrSize, qrSize);
-    ty += qrSize + 10;
+    ty += qrSize + 8;
   }
 
+  // Footer text and contact
   ctx.fillStyle = '#000000';
-  ctx.font = '700 11px "Noto Sans TC", sans-serif';
+  ctx.font = '700 10px "Noto Sans TC", sans-serif';
   ctx.fillText(`請使用手機掃描 QR Code 或登入 @${SCHOOL_DOMAIN}`, cardX + cardW / 2, ty);
-  ty += 16;
-  ctx.font = '500 10px "Noto Sans TC", sans-serif';
-  ctx.fillText('完成線上親筆簽名、請假登記與期刊閱讀', cardX + cardW / 2, ty);
-  ty += 16;
+  ty += 14;
+  ctx.font = '500 9px "Noto Sans TC", sans-serif';
+  ctx.fillText('完成線上親筆簽名、請假登記與期刊文章閱讀', cardX + cardW / 2, ty);
+  ty += 15;
 
-  // Footer contact
   ctx.font = '700 10px "Noto Sans TC", sans-serif';
   ctx.fillText('領召：黃佩詩   403教室 (分機：5207)', cardX + cardW / 2, ty);
 
@@ -334,46 +340,44 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
   };
 
   const renderCardContent = () => (
-    <div className="space-y-2.5">
-      <div className="bg-black text-white -mx-4 sm:-mx-5 -mt-4 sm:-mt-5 p-3 sm:p-3.5 text-center rounded-t-lg space-y-1">
-        <div className="text-[11px] sm:text-xs font-bold tracking-widest uppercase text-stone-200">
+    <div className="space-y-2">
+      <div className="border-b-2 border-black pb-1.5 text-center space-y-0.5">
+        <div className="text-[10px] sm:text-[11px] font-bold tracking-widest uppercase text-black">
           臺北市西門國民小學 · 數學領域～AI領航 徜徉酷數
         </div>
-        <div className="font-editorial text-base sm:text-lg font-extrabold tracking-wide">
+        <div className="font-editorial text-sm sm:text-base font-extrabold tracking-wide text-black">
           開會暨簽到通知單
         </div>
       </div>
 
-      <div className="space-y-1.5 pt-1 text-center">
-        <h2 className="font-editorial text-base sm:text-lg font-extrabold text-black leading-snug">
+      <div className="space-y-1 text-center">
+        <h2 className="font-editorial text-sm sm:text-base font-extrabold text-black leading-snug">
           {meeting.title}
         </h2>
-        <div className="text-[11px] sm:text-xs text-stone-900 space-y-0.5 text-left bg-stone-50 border border-stone-300 rounded-lg p-2.5">
+        <div className="text-[10px] sm:text-[11px] text-stone-900 space-y-0.5 text-left bg-stone-50 border border-stone-300 rounded-md p-2">
           <div><strong>學年度：</strong>{meeting.academicYear}</div>
           <div><strong>開會時間：</strong>{meeting.meetingDate}</div>
           <div><strong>簽到開放：</strong><span className="font-bold underline">{timeWindowText}</span></div>
           <div><strong>地點：</strong>{meeting.location || '西門國小會議室'}</div>
           {linkedPost && (
-            <div className="pt-1 border-t border-stone-300 flex items-center justify-between gap-1">
-              <div className="truncate text-[11px]">
-                <strong>相關文章：</strong>
-                <span className="font-bold underline cursor-pointer" onClick={() => {
-                  if (onOpenLinkedPost && meeting.linkedPostSlug) {
-                    onClose();
-                    onOpenLinkedPost(meeting.linkedPostSlug);
-                  }
-                }}>
-                  {linkedPost.title}
-                </span>
-              </div>
+            <div className="pt-0.5 border-t border-stone-300 truncate text-[10px] sm:text-[11px]">
+              <strong>相關文章：</strong>
+              <span className="font-bold underline cursor-pointer" onClick={() => {
+                if (onOpenLinkedPost && meeting.linkedPostSlug) {
+                  onClose();
+                  onOpenLinkedPost(meeting.linkedPostSlug);
+                }
+              }}>
+                {linkedPost.title}
+              </span>
             </div>
           )}
         </div>
       </div>
 
-      <div className={`grid gap-2 ${linkedPost && articleQrDataUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        <div className="bg-white border border-black rounded-xl p-1.5 text-center shadow-2xs">
-          <div className="w-28 h-28 sm:w-32 sm:h-32 mx-auto flex items-center justify-center">
+      <div className={`grid gap-1.5 ${linkedPost && articleQrDataUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div className="bg-white border border-black rounded-lg p-1 text-center">
+          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto flex items-center justify-center">
             {qrDataUrl ? (
               <img
                 src={qrDataUrl}
@@ -384,14 +388,14 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
               <span className="text-[10px] text-stone-400">產生中...</span>
             )}
           </div>
-          <div className="text-[10px] sm:text-[11px] font-bold text-black mt-1">
+          <div className="text-[10px] font-bold text-black mt-0.5">
             【1】手機線上簽到
           </div>
         </div>
 
         {linkedPost && (
-          <div className="bg-white border border-black rounded-xl p-1.5 text-center shadow-2xs">
-            <div className="w-28 h-28 sm:w-32 sm:h-32 mx-auto flex items-center justify-center">
+          <div className="bg-white border border-black rounded-lg p-1 text-center">
+            <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto flex items-center justify-center">
               {articleQrDataUrl ? (
                 <img
                   src={articleQrDataUrl}
@@ -402,7 +406,7 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
                 <span className="text-[10px] text-stone-400">產生中...</span>
               )}
             </div>
-            <div className="text-[10px] sm:text-[11px] font-bold text-black mt-1">
+            <div className="text-[10px] font-bold text-black mt-0.5">
               【2】相關文章閱讀
             </div>
           </div>
@@ -412,14 +416,14 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
   );
 
   const renderCardFooter = () => (
-    <div className="text-center space-y-1 pt-2 border-t border-black">
-      <div className="text-[11px] sm:text-xs font-bold text-black">
+    <div className="text-center space-y-0.5 pt-1.5 border-t border-black">
+      <div className="text-[10px] sm:text-[11px] font-bold text-black">
         請使用手機掃描 QR Code 或登入 @{SCHOOL_DOMAIN}
       </div>
-      <p className="text-[10px] sm:text-[11px] text-stone-700 leading-tight">
+      <p className="text-[9px] sm:text-[10px] text-stone-700 leading-tight">
         完成線上親筆簽名、請假登記與期刊文章閱讀。
       </p>
-      <div className="pt-1 text-[11px] sm:text-xs font-extrabold text-black tracking-wide">
+      <div className="text-[10px] sm:text-[11px] font-extrabold text-black tracking-wide">
         領召：黃佩詩 &nbsp; 403教室 (分機：5207)
       </div>
     </div>
@@ -484,14 +488,14 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
         </div>
       )}
 
-      {/* Screen Preview: single card or 2x2 grid preview */}
+      {/* Screen Preview: compact single card */}
       <div className="no-print max-h-[75vh] overflow-y-auto p-2">
         <div className="text-center text-xs text-stone-300 mb-2">
           （下方為預覽畫面；點擊上方「下載 4合1 PDF」或「列印 4合1 A4」將自動在單張 A4 紙排版 4 個重複版面）
         </div>
         <div
           id="printable-quarter-notice-card"
-          className="w-[105mm] min-h-[148.5mm] bg-white border-2 border-black rounded-xl shadow-2xl p-4 sm:p-5 flex flex-col justify-between text-black font-sans mx-auto"
+          className="w-[105mm] h-[148.5mm] bg-white border-2 border-black rounded-lg shadow-2xl p-4 flex flex-col justify-between text-black font-sans mx-auto overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {renderCardContent()}
@@ -502,19 +506,19 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       {/* Hidden print container with 4 identical cards in 2x2 grid layout for window.print() */}
       <div className="print-only-grid hidden">
         <div className="notice-grid-print">
-          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff', height: '148.5mm', overflow: 'hidden'}}>
             {renderCardContent()}
             {renderCardFooter()}
           </div>
-          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff', height: '148.5mm', overflow: 'hidden'}}>
             {renderCardContent()}
             {renderCardFooter()}
           </div>
-          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff', height: '148.5mm', overflow: 'hidden'}}>
             {renderCardContent()}
             {renderCardFooter()}
           </div>
-          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff', height: '148.5mm', overflow: 'hidden'}}>
             {renderCardContent()}
             {renderCardFooter()}
           </div>
