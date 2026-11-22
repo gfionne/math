@@ -4926,10 +4926,30 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                   {previewRoster.meeting.location || '西門國小'}
                 </div>
                 <div>
-                  <strong className="text-stone-900">總簽到人數：</strong>
+                  <strong className="text-stone-900">簽到統計：</strong>
                   {previewRoster.meeting.audience === 'parent'
                     ? `${previewRoster.parentCheckins.length} 位家長`
-                    : `${previewRoster.teacherCheckins.length} 位教師`}
+                    : (() => {
+                        const leaveCounts: Record<string, number> = {};
+                        let leaveTotal = 0;
+                        for (const rec of previewRoster.teacherCheckins) {
+                          const st = normalizeTeacherAttendanceStatus(
+                            rec.attendanceStatus,
+                          );
+                          if (isTeacherOnLeaveStatus(st)) {
+                            leaveTotal += 1;
+                            leaveCounts[st] = (leaveCounts[st] ?? 0) + 1;
+                          }
+                        }
+                        const presentTotal =
+                          previewRoster.teacherCheckins.length - leaveTotal;
+                        const breakdown = Object.entries(leaveCounts)
+                          .map(([k, v]) => `${k} ${v}`)
+                          .join('、');
+                        return leaveTotal > 0
+                          ? `${previewRoster.teacherCheckins.length} 位教師（出席 ${presentTotal}・請假 ${leaveTotal}${breakdown ? `：${breakdown}` : ''}）`
+                          : `${previewRoster.teacherCheckins.length} 位教師（全數出席）`;
+                      })()}
                 </div>
               </div>
 
@@ -5029,7 +5049,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           rec.leaveNote.trim(),
                         ].filter(Boolean);
                         return (
-                          <tr key={rec.id}>
+                          <tr
+                            key={rec.id}
+                            className={isLeave ? 'bg-amber-50/70' : undefined}
+                          >
                             <td className="border border-stone-300 py-2 px-2.5 text-center font-mono-tabular text-stone-600">
                               {idx + 1}
                             </td>
@@ -5069,6 +5092,33 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                   </table>
                 )}
               </div>
+
+              {previewRoster.meeting.audience !== 'parent' && (
+                <div className="pt-2 avoid-break">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-[#F5F2EB] text-stone-900">
+                        <th className="w-1/3 border border-stone-300 py-2 px-3 text-center font-bold">
+                          教學組長
+                        </th>
+                        <th className="w-1/3 border border-stone-300 py-2 px-3 text-center font-bold">
+                          教務主任
+                        </th>
+                        <th className="w-1/3 border border-stone-300 py-2 px-3 text-center font-bold">
+                          校長
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="h-20 border border-stone-300 bg-white" />
+                        <td className="h-20 border border-stone-300 bg-white" />
+                        <td className="h-20 border border-stone-300 bg-white" />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>,
           document.body,

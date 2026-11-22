@@ -245,12 +245,29 @@ export async function generateMeetingAttendancePdfBlob(
   );
   const leaveCount = rows.filter((r) => r.isLeave).length;
   const presentCount = rows.length - leaveCount;
+  const leaveBreakdownMap: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.isLeave) {
+      leaveBreakdownMap[r.attendanceStatus] =
+        (leaveBreakdownMap[r.attendanceStatus] ?? 0) + 1;
+    }
+  }
+  const leaveBreakdownText = Object.entries(leaveBreakdownMap)
+    .map(([k, v]) => `${k} ${v}`)
+    .join('、');
   const summaryLabel = isParent
     ? `總簽到人數：${rows.length} 位家長`
     : leaveCount > 0
-      ? `總紀錄人數：${rows.length} 位教師（出席 ${presentCount}・請假 ${leaveCount}）`
+      ? `總計：${rows.length} 位（出席 ${presentCount}・請假 ${leaveCount}${leaveBreakdownText ? `：${leaveBreakdownText}` : ''}）`
       : `總簽到人數：${rows.length} 位教師`;
-  ctx.fillText(summaryLabel, MARGIN_X + halfW + 12, y + 64);
+  const summaryLines = wrapTextLines(ctx, summaryLabel, halfW - 24, 2);
+  if (summaryLines.length === 1) {
+    ctx.fillText(summaryLines[0], MARGIN_X + halfW + 12, y + 64);
+  } else {
+    ctx.font = `500 17px ${FONT_FAMILY}`;
+    ctx.fillText(summaryLines[0], MARGIN_X + halfW + 12, y + 54);
+    ctx.fillText(summaryLines[1], MARGIN_X + halfW + 12, y + 76);
+  }
   y += metaH + 22;
 
   y = drawTableHeader(ctx, y, isParent);
@@ -286,7 +303,7 @@ export async function generateMeetingAttendancePdfBlob(
     });
 
     // Row Box
-    ctx.fillStyle = '#FFFFFF';
+    ctx.fillStyle = rec.isLeave ? '#FFFBEB' : '#FFFFFF';
     ctx.fillRect(MARGIN_X, y, CONTENT_W, rowH);
     ctx.strokeStyle = '#D6D3D1';
     ctx.lineWidth = 1.2;
@@ -395,6 +412,64 @@ export async function generateMeetingAttendancePdfBlob(
     });
 
     y += rowH;
+  }
+
+  // Official 3-column approval stamp block (教學組長、教務主任、校長) for teacher attendance sheets
+  if (!isParent) {
+    const stampHeaderH = 40;
+    const stampBoxH = 104;
+    const stampTotalH = stampHeaderH + stampBoxH;
+    const gapBeforeStamp = 30;
+
+    if (y + gapBeforeStamp + stampTotalH > CONTENT_BOTTOM) {
+      pages.push(canvas);
+      const nextPage = createA4PageCanvas();
+      canvas = nextPage.canvas;
+      ctx = nextPage.ctx;
+      y = MARGIN_TOP;
+
+      ctx.fillStyle = '#57534E';
+      ctx.font = `600 18px ${FONT_FAMILY}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`簽到表核章欄｜${meeting.title}`, MARGIN_X, y);
+      y += 38;
+    } else {
+      y += gapBeforeStamp;
+    }
+
+    const stampRoles = ['教學組長', '教務主任', '校長'] as const;
+    const colW = CONTENT_W / stampRoles.length;
+
+    ctx.fillStyle = '#F5F2EB';
+    ctx.fillRect(MARGIN_X, y, CONTENT_W, stampHeaderH);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(MARGIN_X, y + stampHeaderH, CONTENT_W, stampBoxH);
+    ctx.strokeStyle = '#A8A29E';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(MARGIN_X, y, CONTENT_W, stampTotalH);
+
+    ctx.beginPath();
+    ctx.moveTo(MARGIN_X, y + stampHeaderH);
+    ctx.lineTo(MARGIN_X + CONTENT_W, y + stampHeaderH);
+    ctx.stroke();
+
+    ctx.font = `700 20px ${FONT_FAMILY}`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'center';
+
+    stampRoles.forEach((role, idx) => {
+      const colX = MARGIN_X + idx * colW;
+      if (idx > 0) {
+        ctx.beginPath();
+        ctx.moveTo(colX, y);
+        ctx.lineTo(colX, y + stampTotalH);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#1C1917';
+      ctx.fillText(role, colX + colW / 2, y + stampHeaderH / 2);
+    });
+    ctx.textAlign = 'left';
   }
 
   pages.push(canvas);

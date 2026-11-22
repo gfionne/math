@@ -1431,11 +1431,24 @@ export function buildMeetingCheckinsCsv(
     '親自手寫簽名狀態',
     '簽到 / 登記時間',
   ];
+  const leaveCounts: Record<string, number> = {
+    公假: 0,
+    事假: 0,
+    病假: 0,
+    其他請假: 0,
+  };
+  let presentCount = 0;
+
   const rows = teacherCheckins.map((item, idx) => {
     const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
       hour12: false,
     });
     const status = normalizeTeacherAttendanceStatus(item.attendanceStatus);
+    if (isTeacherOnLeaveStatus(status)) {
+      leaveCounts[status] = (leaveCounts[status] ?? 0) + 1;
+    } else {
+      presentCount += 1;
+    }
     const sigState = isValidSignatureDataUrl(item.signatureDataUrl)
       ? '已親自手寫簽名'
       : isTeacherOnLeaveStatus(status)
@@ -1457,7 +1470,58 @@ export function buildMeetingCheckinsCsv(
       .join(',');
   });
 
-  return '\uFEFF' + [headers.map(escapeSafeCsvCell).join(','), ...rows].join('\n');
+  const leaveTotal = teacherCheckins.length - presentCount;
+  const leaveBreakdown = Object.entries(leaveCounts)
+    .filter(([, cnt]) => cnt > 0)
+    .map(([label, cnt]) => `${label} ${cnt} 人`)
+    .join('、');
+  const summaryRow = [
+    '統計',
+    meeting.title,
+    meeting.meetingDate,
+    `總計 ${teacherCheckins.length} 人`,
+    '',
+    `出席 ${presentCount} 人 / 請假 ${leaveTotal} 人`,
+    leaveBreakdown || '無請假人員',
+    '',
+    '',
+    '',
+  ]
+    .map(escapeSafeCsvCell)
+    .join(',');
+
+  const approvalHeaderRow = [
+    '核章欄',
+    '教學組長（簽章）',
+    '',
+    '教務主任（簽章）',
+    '',
+    '校長（簽章）',
+    '',
+    '',
+    '',
+    '',
+  ]
+    .map(escapeSafeCsvCell)
+    .join(',');
+
+  const approvalBlankRow = new Array(10)
+    .fill('')
+    .map(escapeSafeCsvCell)
+    .join(',');
+
+  return (
+    '\uFEFF' +
+    [
+      headers.map(escapeSafeCsvCell).join(','),
+      ...rows,
+      '',
+      summaryRow,
+      '',
+      approvalHeaderRow,
+      approvalBlankRow,
+    ].join('\n')
+  );
 }
 
 function escapeHtml(raw: string): string {
@@ -1476,14 +1540,27 @@ export function buildPrintableMeetingSheetHtml(
 ): string {
   const isParent = meeting.audience === 'parent';
   const count = isParent ? parentCheckins.length : teacherCheckins.length;
-  const teacherLeaveCount = isParent
-    ? 0
-    : teacherCheckins.filter((item) =>
-        isTeacherOnLeaveStatus(
-          normalizeTeacherAttendanceStatus(item.attendanceStatus),
-        ),
-      ).length;
+  const teacherLeaveBreakdown: Record<string, number> = {
+    公假: 0,
+    事假: 0,
+    病假: 0,
+    其他請假: 0,
+  };
+  let teacherLeaveCount = 0;
+  if (!isParent) {
+    for (const item of teacherCheckins) {
+      const status = normalizeTeacherAttendanceStatus(item.attendanceStatus);
+      if (isTeacherOnLeaveStatus(status)) {
+        teacherLeaveCount += 1;
+        teacherLeaveBreakdown[status] = (teacherLeaveBreakdown[status] ?? 0) + 1;
+      }
+    }
+  }
   const teacherPresentCount = teacherCheckins.length - teacherLeaveCount;
+  const leaveDetailStr = Object.entries(teacherLeaveBreakdown)
+    .filter(([, cnt]) => cnt > 0)
+    .map(([label, cnt]) => `${label} ${cnt}`)
+    .join('、');
 
   const rowsHtml = isParent
     ? parentCheckins
@@ -1531,7 +1608,7 @@ export function buildPrintableMeetingSheetHtml(
               ? `<span class="leave-badge">請假：${escapeHtml(status)}</span>`
               : '<span class="muted">（尚未附手寫簽名）</span>';
           return `
-        <tr>
+        <tr class="${isLeave ? 'leave-row' : ''}">
           <td class="num">${idx + 1}</td>
           <td class="name">${escapeHtml(item.userName)}</td>
           <td class="email">${escapeHtml(item.userEmail || '（管理員代登）')}</td>
@@ -1548,11 +1625,33 @@ export function buildPrintableMeetingSheetHtml(
   const countSummary = isParent
     ? `${count} 位家長`
     : teacherLeaveCount > 0
-      ? `${count} 位教師（出席 ${teacherPresentCount}・請假 ${teacherLeaveCount}）`
-      : `${count} 位教師`;
+      ? `${count} 位教師（出席 ${teacherPresentCount}・請假 ${teacherLeaveCount}${leaveDetailStr ? `：${leaveDetailStr}` : ''}）`
+      : `${count} 位教師（全數出席）`;
   const colHeaders = isParent
     ? ['學生班級 / 姓名', '家長姓名', '關係 / 備註']
     : ['教師姓名', '校內帳號信箱', '出席狀態 / 職務與請假備註'];
+
+  const approvalBlockHtml = !isParent
+    ? `
+    <div class="approval-wrap">
+      <table class="approval-table">
+        <thead>
+          <tr>
+            <th>教學組長</th>
+            <th>教務主任</th>
+            <th>校長</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="seal-box"></td>
+            <td class="seal-box"></td>
+            <td class="seal-box"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1630,6 +1729,7 @@ export function buildPrintableMeetingSheetHtml(
       font-weight: 700;
       color: #292524;
     }
+    tr.leave-row { background: #fffbeb; }
     td.num { width: 42px; text-align: center; font-variant-numeric: tabular-nums; }
     td.name { width: 140px; font-weight: 600; }
     td.email { width: 190px; font-size: 11px; color: #57534e; word-break: break-all; }
@@ -1652,6 +1752,22 @@ export function buildPrintableMeetingSheetHtml(
       color: #92400e;
       background: #fef3c7;
       border: 1px solid #fcd34d;
+    }
+    .approval-wrap {
+      margin-top: 22px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .approval-table th {
+      width: 33.33%;
+      text-align: center;
+      background: #f5f2eb;
+      font-size: 13px;
+      padding: 8px 12px;
+    }
+    .approval-table td.seal-box {
+      height: 76px;
+      background: #ffffff;
     }
     @media print {
       body { background: #ffffff; padding: 0; }
@@ -1689,6 +1805,7 @@ export function buildPrintableMeetingSheetHtml(
         ${rowsHtml}
       </tbody>
     </table>
+    ${approvalBlockHtml}
   </div>
 </body>
 </html>`;

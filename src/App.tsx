@@ -51,6 +51,7 @@ import {
   XimenScratchTab,
 } from './components/InteractiveEmbedModal';
 import {MeetingCheckinModal} from './components/MeetingCheckinModal';
+import {MeetingMinutesModal} from './components/MeetingMinutesModal';
 import {SchoolAccessModal} from './components/SchoolAccessModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {StandaloneParentCheckinPage} from './components/StandaloneParentCheckinPage';
@@ -246,6 +247,9 @@ function MainKnowledgeBaseApp() {
     title: string;
   } | null>(null);
   const [deckModalPost, setDeckModalPost] = useState<JournalPost | null>(null);
+  const [minutesModalPost, setMinutesModalPost] = useState<JournalPost | null>(
+    null,
+  );
   const handledQueryStageRef = useRef(false);
 
   const isSchoolAuthorized = useMemo(
@@ -1049,6 +1053,7 @@ function MainKnowledgeBaseApp() {
     setHasAccessToken(false);
     setGalleryAuthError(null);
     setDeckModalPost(null);
+    setMinutesModalPost(null);
     if (dataSourceMode === 'sheets-api') {
       setDataSourceMode(publicSheetId ? 'sheets-public' : 'seed');
     }
@@ -3161,13 +3166,25 @@ function MainKnowledgeBaseApp() {
         onGenerateDeck={
           isTeacherAdmin ? (targetPost) => setDeckModalPost(targetPost) : undefined
         }
-        disableEscapeClose={siteQrMode === 'modal' || Boolean(isTeacherAdmin && deckModalPost)}
+        onExportMeetingMinutes={
+          isTeacherAdmin ? (targetPost) => setMinutesModalPost(targetPost) : undefined
+        }
+        disableEscapeClose={
+          siteQrMode === 'modal' ||
+          Boolean(isTeacherAdmin && deckModalPost) ||
+          Boolean(isTeacherAdmin && minutesModalPost)
+        }
       />
 
       <ArticleDeckModal
         post={isTeacherAdmin ? deckModalPost : null}
         siteTitle={siteSettings.siteTitle}
         onClose={() => setDeckModalPost(null)}
+      />
+
+      <MeetingMinutesModal
+        post={isTeacherAdmin ? minutesModalPost : null}
+        onClose={() => setMinutesModalPost(null)}
       />
 
       {/* Full-Viewport Interactive HTML Stage Modal */}

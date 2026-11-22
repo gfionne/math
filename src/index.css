@@ -376,8 +376,43 @@
     margin: 0 !important;
   }
 
-  body.printing-attendance-sheet .no-print {
+  body.printing-attendance-sheet .no-print,
+  body.printing-meeting-minutes .no-print {
     display: none !important;
+  }
+
+  body.printing-meeting-minutes {
+    background-color: #ffffff !important;
+  }
+
+  body.printing-meeting-minutes > #root {
+    display: none !important;
+  }
+
+  body.printing-meeting-minutes #printable-meeting-minutes-portal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  body.printing-meeting-minutes #printable-meeting-minutes-card {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
 

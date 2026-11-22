@@ -42,6 +42,7 @@ interface ArticleReaderModalProps {
   onOpenFullEmbed?: (url: string, title: string, initialTab?: 'map' | 'gallery') => void;
   onOpenShareQr?: () => void;
   onGenerateDeck?: (post: JournalPost) => void;
+  onExportMeetingMinutes?: (post: JournalPost) => void;
   disableEscapeClose?: boolean;
 }
 
@@ -181,6 +182,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   onOpenFullEmbed,
   onOpenShareQr,
   onGenerateDeck,
+  onExportMeetingMinutes,
   disableEscapeClose = false,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -307,6 +309,18 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                 >
                   <Presentation className="w-3.5 h-3.5 shrink-0 text-[#FDE68A]" />
                   <span>AI 簡報</span>
+                </button>
+              )}
+
+              {onExportMeetingMinutes && !isLocked && (
+                <button
+                  type="button"
+                  onClick={() => onExportMeetingMinutes(post)}
+                  title="將此篇期刊匯出為正式會議記錄格式（含核章欄與連動簽到表）"
+                  className="px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-[#1E3A8A]/30 rounded-lg hover:bg-[#EBE6DF] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                >
+                  <FileText className="w-3.5 h-3.5 shrink-0" />
+                  <span>輸出會議記錄</span>
                 </button>
               )}
 
