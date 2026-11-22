@@ -188,6 +188,7 @@ service cloud.firestore {
         'linkedPostSlug',
         'audience',
         'isOpen',
+        'allowLeaveReport',
         'checkinStartAt',
         'checkinEndAt',
         'createdByName',
@@ -205,6 +206,7 @@ service cloud.firestore {
       data.linkedPostSlug is string && data.linkedPostSlug.size() <= 160 &&
       (!('audience' in data) || (data.audience is string && data.audience in ['teacher', 'parent'])) &&
       data.isOpen is bool &&
+      (!('allowLeaveReport' in data) || data.allowLeaveReport is bool) &&
       (!('checkinStartAt' in data) || data.checkinStartAt == null || data.checkinStartAt is timestamp) &&
       (!('checkinEndAt' in data) || data.checkinEndAt == null || data.checkinEndAt is timestamp) &&
       (
@@ -222,6 +224,10 @@ service cloud.firestore {
       return meetingData.isOpen == true &&
         (!('checkinStartAt' in meetingData) || meetingData.checkinStartAt == null || request.time >= meetingData.checkinStartAt) &&
         (!('checkinEndAt' in meetingData) || meetingData.checkinEndAt == null || request.time <= meetingData.checkinEndAt);
+    }
+
+    function isAttendancePresent(data) {
+      return !('attendanceStatus' in data) || data.attendanceStatus == '出席';
     }
 
     function isValidMeetingCheckin(data) {
@@ -242,6 +248,8 @@ service cloud.firestore {
         'userUid',
         'userName',
         'userEmail',
+        'attendanceStatus',
+        'leaveNote',
         'roleOrNote',
         'signatureDataUrl',
         'checkedInAt',
@@ -251,12 +259,29 @@ service cloud.firestore {
       data.meetingTitle is string && data.meetingTitle.size() >= 1 && data.meetingTitle.size() <= 160 &&
       data.userUid is string && isValidId(data.userUid) &&
       data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 100 &&
-      data.userEmail is string && data.userEmail.size() >= 5 && data.userEmail.size() <= 200 &&
+      data.userEmail is string && data.userEmail.size() <= 200 &&
+      (!isAttendancePresent(data) || data.userEmail.size() >= 5) &&
+      (!('attendanceStatus' in data) || (data.attendanceStatus is string && data.attendanceStatus in ['出席', '公假', '事假', '病假', '其他請假'])) &&
+      (!('leaveNote' in data) || (data.leaveNote is string && data.leaveNote.size() <= 200)) &&
       data.roleOrNote is string && data.roleOrNote.size() <= 120 &&
       data.signatureDataUrl is string &&
-      data.signatureDataUrl.size() >= 22 &&
       data.signatureDataUrl.size() <= 200000 &&
-      data.signatureDataUrl.matches('^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$') &&
+      (
+        (
+          isAttendancePresent(data) &&
+          data.signatureDataUrl.size() >= 22 &&
+          data.signatureDataUrl.matches('^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$')
+        ) || (
+          !isAttendancePresent(data) &&
+          (
+            data.signatureDataUrl == '' ||
+            (
+              data.signatureDataUrl.size() >= 22 &&
+              data.signatureDataUrl.matches('^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$')
+            )
+          )
+        )
+      ) &&
       data.checkedInAt is timestamp &&
       data.updatedAt is timestamp;
     }
@@ -385,6 +410,7 @@ service cloud.firestore {
           'linkedPostSlug',
           'audience',
           'isOpen',
+          'allowLeaveReport',
           'checkinStartAt',
           'checkinEndAt',
           'updatedAt'
@@ -429,6 +455,7 @@ service cloud.firestore {
           'linkedPostSlug',
           'audience',
           'isOpen',
+          'allowLeaveReport',
           'checkinStartAt',
           'checkinEndAt',
           'updatedAt'
@@ -452,20 +479,33 @@ service cloud.firestore {
         resource.data.userUid == request.auth.uid
       );
 
-      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; Master Gate ensures teacher meeting exists, is open, and is within scheduled signature window
+      // Deterministic ID ({meetingId}_{uid}) prevents duplicates; teachers may submit attendance (signed) or leave (unsigned when allowed); admins may also record leave for absent teachers
       allow create: if isValidId(checkinId) &&
         isValidMeetingCheckin(incoming()) &&
-        (isAdmin() || isSchoolMember()) &&
-        checkinId == incoming().meetingId + '_' + request.auth.uid &&
-        incoming().userUid == request.auth.uid &&
-        request.auth.token.email is string &&
-        incoming().userEmail.lower() == request.auth.token.email.lower() &&
+        checkinId == incoming().meetingId + '_' + incoming().userUid &&
         incoming().checkedInAt == request.time &&
         incoming().updatedAt == request.time &&
         exists(/databases/$(database)/documents/meetings/$(incoming().meetingId)) &&
         (!('audience' in get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data) ||
           get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.audience != 'parent') &&
-        isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data);
+        (
+          (
+            (isAdmin() || isSchoolMember()) &&
+            incoming().userUid == request.auth.uid &&
+            request.auth.token.email is string &&
+            incoming().userEmail.lower() == request.auth.token.email.lower() &&
+            isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data) &&
+            (
+              isAttendancePresent(incoming()) ||
+              !('allowLeaveReport' in get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data) ||
+              get(/databases/$(database)/documents/meetings/$(incoming().meetingId)).data.allowLeaveReport == true
+            )
+          ) || (
+            isAdmin() &&
+            !isAttendancePresent(incoming()) &&
+            incoming().signatureDataUrl == ''
+          )
+        );
 
       allow update: if isValidId(checkinId) &&
         isValidMeetingCheckin(incoming()) &&
@@ -475,17 +515,34 @@ service cloud.firestore {
         incoming().checkedInAt == existing().checkedInAt &&
         incoming().updatedAt == request.time &&
         (
-          isAdmin() || (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'attendanceStatus',
+              'leaveNote',
+              'roleOrNote',
+              'userName',
+              'signatureDataUrl',
+              'updatedAt'
+            ])
+          ) || (
             isSchoolMember() &&
             existing().userUid == request.auth.uid &&
             incoming().diff(existing()).affectedKeys().hasOnly([
+              'attendanceStatus',
+              'leaveNote',
               'roleOrNote',
               'userName',
               'signatureDataUrl',
               'updatedAt'
             ]) &&
             exists(/databases/$(database)/documents/meetings/$(existing().meetingId)) &&
-            isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data)
+            isMeetingWithinWindow(get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data) &&
+            (
+              isAttendancePresent(incoming()) ||
+              !('allowLeaveReport' in get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data) ||
+              get(/databases/$(database)/documents/meetings/$(existing().meetingId)).data.allowLeaveReport == true
+            )
           )
         );
 

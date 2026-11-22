@@ -42,11 +42,14 @@ import {
   deleteParentCheckinForAdmin,
   getMeetingCheckinCountdown,
   getMeetingCheckinWindowState,
+  isTeacherOnLeaveStatus,
   isValidSignatureDataUrl,
   MeetingCheckin,
   MeetingSession,
   migrateLegacyParentMeetingsForAdmin,
+  normalizeTeacherAttendanceStatus,
   ParentCheckin,
+  submitAdminTeacherLeaveRecord,
   submitMeetingCheckin,
   submitParentCheckin,
   subscribeAllCheckinsForAdmin,
@@ -54,6 +57,9 @@ import {
   subscribeMeetings,
   subscribeMyCheckins,
   subscribeParentMeetings,
+  TEACHER_ATTENDANCE_STATUS_OPTIONS,
+  TEACHER_LEAVE_STATUS_OPTIONS,
+  TeacherAttendanceStatus,
   updateMeetingSession,
   updateMyCheckinNote,
 } from '../services/meetingCheckinDb';
@@ -68,6 +74,28 @@ import {ACADEMIC_YEAR_OPTIONS} from '../data/seedPosts';
 const TEACHER_NOTE_STORAGE_KEY = 'pesmath_teacher_checkin_note_v1';
 const PARENT_RECEIPTS_STORAGE_KEY = 'pesmath_parent_checkin_receipts_v1';
 const PARENT_RELATION_PRESETS = ['爸爸', '媽媽', '阿公 / 阿嬤', '監護人'] as const;
+const LEAVE_NOTE_PRESETS = [
+  '研習 / 公派出席',
+  '校外帶隊 / 比賽',
+  '家中有事',
+  '身體不適',
+  '課務已調代',
+] as const;
+
+function getAttendanceBadgeClasses(status: TeacherAttendanceStatus): string {
+  switch (status) {
+    case '公假':
+      return 'bg-[#1E3A8A]/10 text-[#1E3A8A] border-[#1E3A8A]/25';
+    case '事假':
+      return 'bg-amber-50 text-amber-900 border-amber-200';
+    case '病假':
+      return 'bg-rose-50 text-rose-900 border-rose-200';
+    case '其他請假':
+      return 'bg-stone-100 text-stone-700 border-stone-300';
+    default:
+      return 'bg-emerald-50 text-emerald-800 border-emerald-200';
+  }
+}
 
 interface ParentDeviceReceipt {
   id: string;
@@ -222,10 +250,20 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   const [activeSigningMeetingId, setActiveSigningMeetingId] = useState<
     string | null
   >(null);
+  const [attendanceStatusByMeeting, setAttendanceStatusByMeeting] = useState<
+    Record<string, TeacherAttendanceStatus>
+  >({});
+  const [leaveNoteByMeeting, setLeaveNoteByMeeting] = useState<
+    Record<string, string>
+  >({});
   const [signatureDraftByMeeting, setSignatureDraftByMeeting] = useState<
     Record<string, string | null>
   >({});
   const [editingCheckinId, setEditingCheckinId] = useState<string | null>(null);
+  const [editingStatusDraft, setEditingStatusDraft] =
+    useState<TeacherAttendanceStatus>('出席');
+  const [editingLeaveNoteDraft, setEditingLeaveNoteDraft] =
+    useState<string>('');
   const [editingNoteDraft, setEditingNoteDraft] = useState<string>('');
   const [editingSignatureDraft, setEditingSignatureDraft] = useState<
     string | null
@@ -279,6 +317,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   const [newLinkedSlug, setNewLinkedSlug] = useState('');
   const [linkedPostSearch, setLinkedPostSearch] = useState('');
   const [newIsOpen, setNewIsOpen] = useState(true);
+  const [newAllowLeaveReport, setNewAllowLeaveReport] = useState(true);
   const [newCheckinStartLocal, setNewCheckinStartLocal] = useState('');
   const [newCheckinEndLocal, setNewCheckinEndLocal] = useState('');
   const [isCreatingSession, setIsCreatingSession] = useState(false);
@@ -286,10 +325,22 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   // Live clock ticker for automatic window opening/closing
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
-  // Admin Roster Inspection, QR Sharing, Schedule Edit & Delete Confirmation
+  // Admin Roster Inspection, Leave Registration, QR Sharing, Schedule Edit & Delete Confirmation
   const [expandedRosterMeetingId, setExpandedRosterMeetingId] = useState<
     string | null
   >(null);
+  const [adminLeaveFormMeetingId, setAdminLeaveFormMeetingId] = useState<
+    string | null
+  >(null);
+  const [adminLeaveName, setAdminLeaveName] = useState('');
+  const [adminLeaveEmail, setAdminLeaveEmail] = useState('');
+  const [adminLeaveStatus, setAdminLeaveStatus] =
+    useState<Exclude<TeacherAttendanceStatus, '出席'>>('公假');
+  const [adminLeaveRoleNote, setAdminLeaveRoleNote] = useState('');
+  const [adminLeaveNote, setAdminLeaveNote] = useState('');
+  const [isSubmittingAdminLeave, setIsSubmittingAdminLeave] = useState(false);
+  const [confirmDeleteTeacherCheckinId, setConfirmDeleteTeacherCheckinId] =
+    useState<string | null>(null);
   const [expandedQrMeetingId, setExpandedQrMeetingId] = useState<string | null>(
     null,
   );
@@ -304,6 +355,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   >(null);
   const [editStartLocal, setEditStartLocal] = useState('');
   const [editEndLocal, setEditEndLocal] = useState('');
+  const [editAllowLeaveReport, setEditAllowLeaveReport] = useState(true);
   const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [confirmDeleteMeetingId, setConfirmDeleteMeetingId] = useState<
     string | null
@@ -809,8 +861,15 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   };
 
   const handleCheckin = async (meeting: MeetingSession) => {
-    const sigUrl = signatureDraftByMeeting[meeting.id] || '';
-    if (!isValidSignatureDataUrl(sigUrl)) {
+    const selectedStatus: TeacherAttendanceStatus =
+      meeting.allowLeaveReport === false
+        ? '出席'
+        : attendanceStatusByMeeting[meeting.id] || '出席';
+    const isLeave = isTeacherOnLeaveStatus(selectedStatus);
+    const sigUrl = isLeave ? '' : signatureDraftByMeeting[meeting.id] || '';
+    const leaveNote = (leaveNoteByMeeting[meeting.id] || '').trim();
+
+    if (!isLeave && !isValidSignatureDataUrl(sigUrl)) {
       setActiveSigningMeetingId(meeting.id);
       setDbError('請先在「親自手寫簽名區」書寫您的簽名後，再送出會議簽到。');
       return;
@@ -824,6 +883,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       await submitMeetingCheckin({
         meetingId: meeting.id,
         meetingTitle: meeting.title,
+        attendanceStatus: selectedStatus,
+        leaveNote,
         roleOrNote: teacherNoteInput.trim(),
         signatureDataUrl: sigUrl,
         customDisplayName: customNameInput.trim() || undefined,
@@ -833,11 +894,67 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         delete next[meeting.id];
         return next;
       });
-      setStatusBanner(`已完成「${meeting.title}」手寫簽名與出席簽到！`);
+      setLeaveNoteByMeeting((prev) => {
+        const next = {...prev};
+        delete next[meeting.id];
+        return next;
+      });
+      setActiveSigningMeetingId(null);
+      setStatusBanner(
+        isLeave
+          ? `已完成「${meeting.title}」請假登記（${selectedStatus}）！`
+          : `已完成「${meeting.title}」手寫簽名與出席簽到！`,
+      );
     } catch (err: any) {
       setDbError(err?.message || '簽到失敗，請再試一次。');
     } finally {
       setSubmittingMeetingId(null);
+    }
+  };
+
+  const handleAdminAddLeaveRecord = async (meeting: MeetingSession) => {
+    if (!isTeacherAdmin) return;
+    if (!adminLeaveName.trim()) {
+      setDbError('請輸入請假教師姓名。');
+      return;
+    }
+    setDbError(null);
+    setStatusBanner(null);
+    setIsSubmittingAdminLeave(true);
+    try {
+      await submitAdminTeacherLeaveRecord({
+        meetingId: meeting.id,
+        meetingTitle: meeting.title,
+        teacherName: adminLeaveName.trim(),
+        teacherEmail: adminLeaveEmail.trim(),
+        attendanceStatus: adminLeaveStatus,
+        roleOrNote: adminLeaveRoleNote.trim(),
+        leaveNote: adminLeaveNote.trim(),
+      });
+      setStatusBanner(
+        `已為「${adminLeaveName.trim()}」登記 ${adminLeaveStatus} 紀錄。`,
+      );
+      setAdminLeaveName('');
+      setAdminLeaveEmail('');
+      setAdminLeaveRoleNote('');
+      setAdminLeaveNote('');
+      setAdminLeaveFormMeetingId(null);
+    } catch (err: any) {
+      setDbError(err?.message || '代為登記請假失敗，請稍後再試。');
+    } finally {
+      setIsSubmittingAdminLeave(false);
+    }
+  };
+
+  const handleDeleteTeacherCheckin = async (rec: MeetingCheckin) => {
+    if (!isTeacherAdmin) return;
+    setDbError(null);
+    try {
+      await cancelMeetingCheckin(rec.id);
+      setConfirmDeleteTeacherCheckinId(null);
+      setStatusBanner(`已移除「${rec.userName}」的簽到 / 請假紀錄。`);
+    } catch (err: any) {
+      setDbError(err?.message || '移除教師簽到紀錄失敗。');
     }
   };
 
@@ -907,13 +1024,17 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
   };
 
   const handleUpdateNote = async (checkin: MeetingCheckin) => {
-    const needsSignature = !isValidSignatureDataUrl(checkin.signatureDataUrl);
-    const shouldIncludeSig = showEditSignaturePad || needsSignature;
-    const nextSig = shouldIncludeSig
-      ? editingSignatureDraft || undefined
-      : undefined;
+    const isLeave = isTeacherOnLeaveStatus(editingStatusDraft);
+    const hasExistingSig = isValidSignatureDataUrl(checkin.signatureDataUrl);
+    const needsSignature = !isLeave && !hasExistingSig;
+    const shouldIncludeSig = !isLeave && (showEditSignaturePad || needsSignature);
+    const nextSig = isLeave
+      ? ''
+      : shouldIncludeSig
+        ? editingSignatureDraft || undefined
+        : undefined;
 
-    if (shouldIncludeSig && !isValidSignatureDataUrl(nextSig)) {
+    if (!isLeave && shouldIncludeSig && !isValidSignatureDataUrl(nextSig)) {
       setDbError('請先在下方畫布完成親自手寫簽名後再儲存。');
       return;
     }
@@ -922,6 +1043,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     try {
       await updateMyCheckinNote({
         checkinId: checkin.id,
+        attendanceStatus: editingStatusDraft,
+        leaveNote: editingLeaveNoteDraft.trim(),
         roleOrNote: editingNoteDraft.trim(),
         signatureDataUrl: nextSig,
       });
@@ -930,12 +1053,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       setEditingSignatureDraft(null);
       setShowEditSignaturePad(false);
       setStatusBanner(
-        nextSig
-          ? '已更新您的簽到備註與親自手寫簽名。'
-          : '已更新您的簽到職務 / 備註。',
+        isLeave
+          ? `已更新為請假登記（${editingStatusDraft}）與備註。`
+          : nextSig
+            ? '已更新您的出席狀態、備註與親自手寫簽名。'
+            : '已更新您的簽到職務 / 備註。',
       );
     } catch (err: any) {
-      setDbError(err?.message || '更新備註與簽名失敗。');
+      setDbError(err?.message || '更新簽到狀態、備註或簽名失敗。');
     }
   };
 
@@ -989,6 +1114,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         linkedPostSlug: audience === 'teacher' ? newLinkedSlug : '',
         audience,
         isOpen: newIsOpen,
+        allowLeaveReport: audience === 'teacher' ? newAllowLeaveReport : false,
         checkinStartAtMs: startMs,
         checkinEndAtMs: endMs,
       });
@@ -1033,6 +1159,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         meeting.id,
         {
           isOpen: true,
+          allowLeaveReport:
+            meeting.audience === 'parent' ? false : editAllowLeaveReport,
           checkinStartAtMs: startMs,
           checkinEndAtMs: endMs,
         },
@@ -1041,8 +1169,14 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
       setEditingScheduleMeetingId(null);
       setStatusBanner(
         startMs !== null || endMs !== null
-          ? `已更新「${meeting.title}」的開放簽名時段。`
-          : `已將「${meeting.title}」設為不限時段開放簽名。`,
+          ? `已更新「${meeting.title}」的開放簽名時段與請假設定。`
+          : `已更新「${meeting.title}」設定（不限時段開放簽名${
+              meeting.audience !== 'parent'
+                ? editAllowLeaveReport
+                  ? '，開放請假登記'
+                  : '，關閉請假登記'
+                : ''
+            }）。`,
       );
     } catch (err: any) {
       setDbError(err?.message || '更新開放簽名時間失敗。');
@@ -1600,6 +1734,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                   toDateTimeLocalValue(meeting.checkinStartAtMs),
                 );
                 setEditEndLocal(toDateTimeLocalValue(meeting.checkinEndAtMs));
+                setEditAllowLeaveReport(meeting.allowLeaveReport !== false);
               }
             }}
             className={`px-3 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center gap-1.5 ${
@@ -1609,7 +1744,11 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
             }`}
           >
             <Clock className="w-3.5 h-3.5 text-[#1E3A8A]" />
-            <span>設定開放簽名時間</span>
+            <span>
+              {meeting.audience === 'parent'
+                ? '設定開放簽名時間'
+                : '簽名時間與請假設定'}
+            </span>
           </button>
 
           <button
@@ -1660,7 +1799,12 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5" />
-            <span>調整「{meeting.title}」開放簽名時段</span>
+            <span>
+              調整「{meeting.title}」
+              {meeting.audience === 'parent'
+                ? '開放簽名時段'
+                : '開放簽名時段與請假欄位設定'}
+            </span>
           </span>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
             <button
@@ -1714,6 +1858,20 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
           </div>
         </div>
 
+        {meeting.audience !== 'parent' && (
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={editAllowLeaveReport}
+              onChange={(e) => setEditAllowLeaveReport(e.target.checked)}
+              className="rounded border-stone-300 text-[#1E3A8A]"
+            />
+            <span>
+              開放教師請假欄位（公假、事假、病假、其他請假與備註，請假免手寫簽名）
+            </span>
+          </label>
+        )}
+
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
@@ -1728,7 +1886,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
             onClick={() => handleSaveMeetingSchedule(meeting)}
             className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-60"
           >
-            {isSavingSchedule ? '儲存中...' : '儲存簽名時間設定'}
+            {isSavingSchedule ? '儲存中...' : '儲存設定'}
           </button>
         </div>
       </div>
@@ -2938,41 +3096,46 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
               {/* Tab 1: Teacher Meeting Sessions */}
               {activeTab === 'sessions' && (
                 <div className="space-y-4">
-                  <div className="bg-white border border-stone-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="checkin-teacher-name"
-                        className="block text-xs font-medium text-stone-700"
-                      >
-                        教師簽到顯示姓名（可調整）
-                      </label>
-                      <input
-                        id="checkin-teacher-name"
-                        type="text"
-                        maxLength={100}
-                        value={customNameInput}
-                        onChange={(e) => setCustomNameInput(e.target.value)}
-                        placeholder={user?.displayName || '請輸入老師姓名'}
-                        className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
-                      />
+                  <div className="bg-white border border-stone-200 rounded-xl p-4 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="checkin-teacher-name"
+                          className="block text-xs font-medium text-stone-700"
+                        >
+                          教師簽到顯示姓名（可調整）
+                        </label>
+                        <input
+                          id="checkin-teacher-name"
+                          type="text"
+                          maxLength={100}
+                          value={customNameInput}
+                          onChange={(e) => setCustomNameInput(e.target.value)}
+                          placeholder={user?.displayName || '請輸入老師姓名'}
+                          className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label
+                          htmlFor="checkin-teacher-note"
+                          className="block text-xs font-medium text-stone-700"
+                        >
+                          職務 / 年段備註（選填，簽到或請假時自動帶入）
+                        </label>
+                        <input
+                          id="checkin-teacher-note"
+                          type="text"
+                          maxLength={120}
+                          value={teacherNoteInput}
+                          onChange={(e) => setTeacherNoteInput(e.target.value)}
+                          placeholder="例如：四年級導師、數學領域教師"
+                          className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <label
-                        htmlFor="checkin-teacher-note"
-                        className="block text-xs font-medium text-stone-700"
-                      >
-                        職務 / 年段備註（選填，簽到時自動帶入）
-                      </label>
-                      <input
-                        id="checkin-teacher-note"
-                        type="text"
-                        maxLength={120}
-                        value={teacherNoteInput}
-                        onChange={(e) => setTeacherNoteInput(e.target.value)}
-                        placeholder="例如：四年級導師、數學領域教師"
-                        className="w-full h-9 px-3 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] focus:bg-white"
-                      />
-                    </div>
+                    <p className="text-[11px] text-stone-500">
+                      若當天因公、因事或因病無法出席，可於下方開放場次點擊「請假登記（公假 / 事假 / 病假）」直接填報假別與備註（免手寫簽名）。
+                    </p>
                   </div>
 
                   {isLoadingMeetings ? (
@@ -3156,209 +3319,514 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                               </p>
                             )}
 
-                            {/* Teacher Check-in Action & Handwritten Signature */}
+                            {/* Teacher Check-in Action, Leave Status & Handwritten Signature */}
                             <div className="pt-3 border-t border-stone-100 space-y-3">
                               {myRecord ? (
-                                <div className="space-y-3">
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5">
-                                    <div className="space-y-1.5 min-w-0">
-                                      <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-emerald-900 font-semibold">
-                                        <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                                        <span>您已完成此場次簽到</span>
-                                        <span className="font-mono-tabular text-xs font-normal text-stone-600">
-                                          ({formatDateTime(myRecord.checkedInAtMs)})
-                                        </span>
-                                      </div>
+                                (() => {
+                                  const myStatus =
+                                    normalizeTeacherAttendanceStatus(
+                                      myRecord.attendanceStatus,
+                                    );
+                                  const myIsLeave =
+                                    isTeacherOnLeaveStatus(myStatus);
+                                  const editIsLeave =
+                                    isTeacherOnLeaveStatus(editingStatusDraft);
+                                  const canUseLeave =
+                                    meeting.allowLeaveReport !== false;
 
-                                      <div className="flex flex-wrap items-center gap-2 text-xs text-stone-700">
-                                        <span>
-                                          簽到姓名：{myRecord.userName}
-                                          {myRecord.roleOrNote
-                                            ? ` · 備註：${myRecord.roleOrNote}`
-                                            : ''}
-                                        </span>
-                                      </div>
-
-                                      {!isEditingThis && isCurrentlySignable && (
-                                        <div className="flex flex-wrap items-center gap-3 text-xs pt-0.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setEditingCheckinId(myRecord.id);
-                                              setEditingNoteDraft(
-                                                myRecord.roleOrNote,
-                                              );
-                                              setEditingSignatureDraft(null);
-                                              setShowEditSignaturePad(
-                                                !isValidSignatureDataUrl(
-                                                  myRecord.signatureDataUrl,
-                                                ),
-                                              );
-                                            }}
-                                            className="text-[#1E3A8A] hover:underline font-semibold"
-                                          >
-                                            修改備註 / 重簽名
-                                          </button>
-                                          {confirmCancelId === myRecord.id ? (
-                                            <span className="inline-flex items-center gap-1.5">
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  handleCancelCheckin(myRecord)
-                                                }
-                                                className="text-red-700 font-semibold hover:underline"
-                                              >
-                                                確認取消簽到
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  setConfirmCancelId(null)
-                                                }
-                                                className="text-stone-500 hover:underline"
-                                              >
-                                                保留
-                                              </button>
-                                            </span>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                setConfirmCancelId(myRecord.id)
+                                  return (
+                                    <div className="space-y-3">
+                                      <div
+                                        className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl p-3.5 border ${
+                                          myIsLeave
+                                            ? 'bg-amber-50/50 border-amber-200/80'
+                                            : 'bg-emerald-50/60 border-emerald-200/80'
+                                        }`}
+                                      >
+                                        <div className="space-y-1.5 min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm font-semibold text-stone-900">
+                                            <CheckCircle2
+                                              className={`w-4 h-4 shrink-0 ${
+                                                myIsLeave
+                                                  ? 'text-amber-700'
+                                                  : 'text-emerald-700'
+                                              }`}
+                                            />
+                                            <span
+                                              className={
+                                                myIsLeave
+                                                  ? 'text-amber-950'
+                                                  : 'text-emerald-900'
                                               }
-                                              className="text-stone-500 hover:text-red-700 hover:underline"
                                             >
-                                              取消簽到
-                                            </button>
-                                          )}
+                                              {myIsLeave
+                                                ? `您已登記此場次請假（${myStatus}）`
+                                                : '您已完成此場次出席簽到'}
+                                            </span>
+                                            <span
+                                              className={`px-2 py-0.5 text-[11px] font-semibold rounded-md border ${getAttendanceBadgeClasses(myStatus)}`}
+                                            >
+                                              {myStatus}
+                                            </span>
+                                            <span className="font-mono-tabular text-xs font-normal text-stone-600">
+                                              (
+                                              {formatDateTime(
+                                                myRecord.checkedInAtMs,
+                                              )}
+                                              )
+                                            </span>
+                                          </div>
+
+                                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stone-700">
+                                            <span>
+                                              姓名：{myRecord.userName}
+                                              {myRecord.roleOrNote
+                                                ? ` · 職務：${myRecord.roleOrNote}`
+                                                : ''}
+                                            </span>
+                                            {myRecord.leaveNote && (
+                                              <span className="text-stone-800 font-medium">
+                                                {myIsLeave
+                                                  ? '請假備註：'
+                                                  : '出席備註：'}
+                                                {myRecord.leaveNote}
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          {!isEditingThis &&
+                                            isCurrentlySignable && (
+                                              <div className="flex flex-wrap items-center gap-3 text-xs pt-0.5">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setEditingCheckinId(
+                                                      myRecord.id,
+                                                    );
+                                                    setEditingStatusDraft(
+                                                      myStatus,
+                                                    );
+                                                    setEditingLeaveNoteDraft(
+                                                      myRecord.leaveNote || '',
+                                                    );
+                                                    setEditingNoteDraft(
+                                                      myRecord.roleOrNote,
+                                                    );
+                                                    setEditingSignatureDraft(
+                                                      null,
+                                                    );
+                                                    setShowEditSignaturePad(
+                                                      !myIsLeave &&
+                                                        !isValidSignatureDataUrl(
+                                                          myRecord.signatureDataUrl,
+                                                        ),
+                                                    );
+                                                  }}
+                                                  className="text-[#1E3A8A] hover:underline font-semibold"
+                                                >
+                                                  修改出席 / 請假狀態與備註
+                                                </button>
+                                                {confirmCancelId ===
+                                                myRecord.id ? (
+                                                  <span className="inline-flex items-center gap-1.5">
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        handleCancelCheckin(
+                                                          myRecord,
+                                                        )
+                                                      }
+                                                      className="text-red-700 font-semibold hover:underline"
+                                                    >
+                                                      確認取消紀錄
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() =>
+                                                        setConfirmCancelId(null)
+                                                      }
+                                                      className="text-stone-500 hover:underline"
+                                                    >
+                                                      保留
+                                                    </button>
+                                                  </span>
+                                                ) : (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setConfirmCancelId(
+                                                        myRecord.id,
+                                                      )
+                                                    }
+                                                    className="text-stone-500 hover:text-red-700 hover:underline"
+                                                  >
+                                                    取消紀錄
+                                                  </button>
+                                                )}
+                                              </div>
+                                            )}
                                         </div>
-                                      )}
-                                    </div>
 
-                                    {isValidSignatureDataUrl(
-                                      myRecord.signatureDataUrl,
-                                    ) ? (
-                                      <div className="shrink-0 bg-white border border-stone-200 rounded-lg px-3 py-1.5 flex flex-col items-center gap-1">
-                                        <span className="text-[10px] font-medium text-stone-500">
-                                          本人親筆簽名存證
-                                        </span>
-                                        <img
-                                          src={myRecord.signatureDataUrl}
-                                          alt={`${myRecord.userName}親筆簽名`}
-                                          className="h-12 w-32 object-contain"
-                                        />
-                                      </div>
-                                    ) : (
-                                      <div className="shrink-0 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                                        尚未附親筆簽名（點「修改備註 / 重簽名」可補簽）
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {isEditingThis && (
-                                    <div className="bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <input
-                                          type="text"
-                                          maxLength={120}
-                                          value={editingNoteDraft}
-                                          onChange={(e) =>
-                                            setEditingNoteDraft(e.target.value)
-                                          }
-                                          placeholder="職務或年段備註"
-                                          className="flex-1 min-w-[200px] h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                                        />
                                         {isValidSignatureDataUrl(
                                           myRecord.signatureDataUrl,
-                                        ) && (
-                                          <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 cursor-pointer px-2 py-1">
-                                            <input
-                                              type="checkbox"
-                                              checked={showEditSignaturePad}
-                                              onChange={(e) => {
-                                                setShowEditSignaturePad(
-                                                  e.target.checked,
-                                                );
-                                                if (!e.target.checked) {
-                                                  setEditingSignatureDraft(null);
-                                                }
-                                              }}
-                                              className="rounded border-stone-300 text-[#1E3A8A]"
+                                        ) ? (
+                                          <div className="shrink-0 bg-white border border-stone-200 rounded-lg px-3 py-1.5 flex flex-col items-center gap-1">
+                                            <span className="text-[10px] font-medium text-stone-500">
+                                              本人親筆簽名存證
+                                            </span>
+                                            <img
+                                              src={myRecord.signatureDataUrl}
+                                              alt={`${myRecord.userName}親筆簽名`}
+                                              className="h-12 w-32 object-contain"
                                             />
-                                            <span>重新手寫簽名</span>
-                                          </label>
+                                          </div>
+                                        ) : myIsLeave ? (
+                                          <div className="shrink-0 text-[11px] font-semibold text-amber-900 bg-white border border-amber-200 rounded-lg px-3 py-2 text-center">
+                                            請假免簽名（{myStatus}）
+                                          </div>
+                                        ) : (
+                                          <div className="shrink-0 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                                            尚未附親筆簽名（點「修改」可補簽）
+                                          </div>
                                         )}
                                       </div>
 
-                                      {(showEditSignaturePad ||
-                                        !isValidSignatureDataUrl(
-                                          myRecord.signatureDataUrl,
-                                        )) && (
-                                        <SignaturePad
-                                          signerLabel={
-                                            customNameInput.trim() ||
-                                            myRecord.userName
-                                          }
-                                          onChange={setEditingSignatureDraft}
-                                        />
-                                      )}
+                                      {isEditingThis && (
+                                        <div className="bg-[#FBF9F5] border border-stone-200 rounded-xl p-4 space-y-3">
+                                          {canUseLeave && (
+                                            <div className="space-y-1.5">
+                                              <label className="block text-xs font-semibold text-stone-700">
+                                                簽到 / 請假狀態
+                                              </label>
+                                              <div className="flex flex-wrap gap-1.5">
+                                                {TEACHER_ATTENDANCE_STATUS_OPTIONS.map(
+                                                  (opt) => {
+                                                    const selected =
+                                                      editingStatusDraft ===
+                                                      opt;
+                                                    return (
+                                                      <button
+                                                        key={opt}
+                                                        type="button"
+                                                        onClick={() => {
+                                                          setEditingStatusDraft(
+                                                            opt,
+                                                          );
+                                                          if (
+                                                            isTeacherOnLeaveStatus(
+                                                              opt,
+                                                            )
+                                                          ) {
+                                                            setShowEditSignaturePad(
+                                                              false,
+                                                            );
+                                                          } else if (
+                                                            !isValidSignatureDataUrl(
+                                                              myRecord.signatureDataUrl,
+                                                            )
+                                                          ) {
+                                                            setShowEditSignaturePad(
+                                                              true,
+                                                            );
+                                                          }
+                                                        }}
+                                                        className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                                                          selected
+                                                            ? opt === '出席'
+                                                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                                              : 'bg-amber-700 text-white border-amber-700'
+                                                            : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+                                                        }`}
+                                                      >
+                                                        {opt}
+                                                      </button>
+                                                    );
+                                                  },
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
 
-                                      <div className="flex flex-wrap items-center justify-end gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setEditingCheckinId(null);
-                                            setEditingSignatureDraft(null);
-                                            setShowEditSignaturePad(false);
-                                          }}
-                                          className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
-                                        >
-                                          取消
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            handleUpdateNote(myRecord)
-                                          }
-                                          className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
-                                        >
-                                          儲存變更
-                                        </button>
-                                      </div>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                            <div className="space-y-1">
+                                              <label className="block text-[11px] font-medium text-stone-600">
+                                                職務 / 年段備註（選填）
+                                              </label>
+                                              <input
+                                                type="text"
+                                                maxLength={120}
+                                                value={editingNoteDraft}
+                                                onChange={(e) =>
+                                                  setEditingNoteDraft(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                placeholder="例如：四年級導師"
+                                                className="w-full h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                              />
+                                            </div>
+                                            <div className="space-y-1">
+                                              <label className="block text-[11px] font-medium text-stone-600">
+                                                {editIsLeave
+                                                  ? '請假備註 / 事由（選填，例如代課教師、公假事由）'
+                                                  : '出席補充備註（選填）'}
+                                              </label>
+                                              <input
+                                                type="text"
+                                                maxLength={200}
+                                                value={editingLeaveNoteDraft}
+                                                onChange={(e) =>
+                                                  setEditingLeaveNoteDraft(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                placeholder={
+                                                  editIsLeave
+                                                    ? '例如：參加全市數學研習（課務已調代）'
+                                                    : '選填備註'
+                                                }
+                                                className="w-full h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                              />
+                                            </div>
+                                          </div>
+
+                                          {!editIsLeave &&
+                                            isValidSignatureDataUrl(
+                                              myRecord.signatureDataUrl,
+                                            ) && (
+                                              <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-700 cursor-pointer px-1 py-0.5">
+                                                <input
+                                                  type="checkbox"
+                                                  checked={showEditSignaturePad}
+                                                  onChange={(e) => {
+                                                    setShowEditSignaturePad(
+                                                      e.target.checked,
+                                                    );
+                                                    if (!e.target.checked) {
+                                                      setEditingSignatureDraft(
+                                                        null,
+                                                      );
+                                                    }
+                                                  }}
+                                                  className="rounded border-stone-300 text-[#1E3A8A]"
+                                                />
+                                                <span>重新手寫簽名</span>
+                                              </label>
+                                            )}
+
+                                          {!editIsLeave &&
+                                            (showEditSignaturePad ||
+                                              !isValidSignatureDataUrl(
+                                                myRecord.signatureDataUrl,
+                                              )) && (
+                                              <SignaturePad
+                                                signerLabel={
+                                                  customNameInput.trim() ||
+                                                  myRecord.userName
+                                                }
+                                                onChange={
+                                                  setEditingSignatureDraft
+                                                }
+                                              />
+                                            )}
+
+                                          <div className="flex flex-wrap items-center justify-end gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setEditingCheckinId(null);
+                                                setEditingSignatureDraft(null);
+                                                setShowEditSignaturePad(false);
+                                              }}
+                                              className="px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-100"
+                                            >
+                                              取消
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleUpdateNote(myRecord)
+                                              }
+                                              className="px-4 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
+                                            >
+                                              儲存變更
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
+                                  );
+                                })()
                               ) : isCurrentlySignable ? (
                                 (() => {
                                   const isPadExpanded =
                                     activeSigningMeetingId === meeting.id;
+                                  const canUseLeave =
+                                    meeting.allowLeaveReport !== false;
+                                  const selectedStatus: TeacherAttendanceStatus =
+                                    canUseLeave
+                                      ? attendanceStatusByMeeting[meeting.id] ||
+                                        '出席'
+                                      : '出席';
+                                  const isLeaveSelected =
+                                    isTeacherOnLeaveStatus(selectedStatus);
                                   const currentSigDraft =
                                     signatureDraftByMeeting[meeting.id] || null;
                                   const isSigReady =
                                     isValidSignatureDataUrl(currentSigDraft);
+                                  const currentLeaveNote =
+                                    leaveNoteByMeeting[meeting.id] || '';
 
                                   return isPadExpanded ? (
                                     <div className="bg-[#FBF9F5] border border-[#1E3A8A]/25 rounded-xl p-4 space-y-3.5">
-                                      <SignaturePad
-                                        signerLabel={
-                                          customNameInput.trim() ||
-                                          user?.displayName ||
-                                          user?.email?.split('@')[0]
-                                        }
-                                        disabled={
-                                          submittingMeetingId === meeting.id
-                                        }
-                                        onChange={(dataUrl) =>
-                                          setSignatureDraftByMeeting((prev) => ({
-                                            ...prev,
-                                            [meeting.id]: dataUrl,
-                                          }))
-                                        }
-                                      />
+                                      {canUseLeave && (
+                                        <div className="space-y-2 pb-2 border-b border-stone-200/80">
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold text-stone-800">
+                                              選擇簽到或請假別
+                                            </span>
+                                            <span className="text-[11px] text-stone-500">
+                                              出席需親筆簽名；請假可直接填寫假別與備註送出
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {TEACHER_ATTENDANCE_STATUS_OPTIONS.map(
+                                              (opt) => {
+                                                const active =
+                                                  selectedStatus === opt;
+                                                return (
+                                                  <button
+                                                    key={opt}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setAttendanceStatusByMeeting(
+                                                        (prev) => ({
+                                                          ...prev,
+                                                          [meeting.id]: opt,
+                                                        }),
+                                                      )
+                                                    }
+                                                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                                                      active
+                                                        ? opt === '出席'
+                                                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                                          : 'bg-amber-700 text-white border-amber-700'
+                                                        : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-50'
+                                                    }`}
+                                                  >
+                                                    {opt === '出席'
+                                                      ? '出席（手寫簽名）'
+                                                      : opt}
+                                                  </button>
+                                                );
+                                              },
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {isLeaveSelected ? (
+                                        <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5 space-y-2.5">
+                                          <div className="text-xs font-semibold text-amber-950">
+                                            已選擇「{selectedStatus}」請假登記（免手寫簽名）
+                                          </div>
+                                          <div className="space-y-1.5">
+                                            <label className="block text-xs font-medium text-stone-700">
+                                              請假備註 / 事由（選填，最多 200 字）
+                                            </label>
+                                            <input
+                                              type="text"
+                                              maxLength={200}
+                                              value={currentLeaveNote}
+                                              onChange={(e) =>
+                                                setLeaveNoteByMeeting(
+                                                  (prev) => ({
+                                                    ...prev,
+                                                    [meeting.id]:
+                                                      e.target.value,
+                                                  }),
+                                                )
+                                              }
+                                              placeholder="例如：參加全市數學領域研習（課務由○○老師代課）、身體不適等..."
+                                              className="w-full h-9 px-3 text-xs sm:text-sm bg-white border border-amber-300/80 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
+                                            />
+                                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                              <span className="text-[11px] text-stone-500">
+                                                快速帶入：
+                                              </span>
+                                              {LEAVE_NOTE_PRESETS.map(
+                                                (preset) => (
+                                                  <button
+                                                    key={preset}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setLeaveNoteByMeeting(
+                                                        (prev) => ({
+                                                          ...prev,
+                                                          [meeting.id]: preset,
+                                                        }),
+                                                      )
+                                                    }
+                                                    className="px-2 py-0.5 text-[11px] bg-white border border-stone-300 rounded-md text-stone-700 hover:border-amber-600 hover:text-amber-900"
+                                                  >
+                                                    {preset}
+                                                  </button>
+                                                ),
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <SignaturePad
+                                            signerLabel={
+                                              customNameInput.trim() ||
+                                              user?.displayName ||
+                                              user?.email?.split('@')[0]
+                                            }
+                                            disabled={
+                                              submittingMeetingId === meeting.id
+                                            }
+                                            onChange={(dataUrl) =>
+                                              setSignatureDraftByMeeting(
+                                                (prev) => ({
+                                                  ...prev,
+                                                  [meeting.id]: dataUrl,
+                                                }),
+                                              )
+                                            }
+                                          />
+                                          <div className="space-y-1">
+                                            <label className="block text-[11px] font-medium text-stone-600">
+                                              出席補充備註（選填）
+                                            </label>
+                                            <input
+                                              type="text"
+                                              maxLength={200}
+                                              value={currentLeaveNote}
+                                              onChange={(e) =>
+                                                setLeaveNoteByMeeting(
+                                                  (prev) => ({
+                                                    ...prev,
+                                                    [meeting.id]:
+                                                      e.target.value,
+                                                  }),
+                                                )
+                                              }
+                                              placeholder="選填（例如：遲到先離席、攜帶公開授課教案等）"
+                                              className="w-full h-9 px-3 text-xs bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                                            />
+                                          </div>
+                                        </>
+                                      )}
 
                                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
                                         <span className="text-xs text-stone-600">
-                                          {isSigReady ? (
+                                          {isLeaveSelected ? (
+                                            <span className="text-amber-900 font-semibold">
+                                              將以「{selectedStatus}」送出請假登記（免手寫簽名）。
+                                            </span>
+                                          ) : isSigReady ? (
                                             <span className="text-emerald-800 font-semibold">
                                               ✓ 已擷取您的親筆簽名，點擊右側按鈕即可送出簽到。
                                             </span>
@@ -3381,38 +3849,78 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                             type="button"
                                             disabled={
                                               submittingMeetingId ===
-                                                meeting.id || !isSigReady
+                                                meeting.id ||
+                                              (!isLeaveSelected && !isSigReady)
                                             }
                                             onClick={() =>
                                               handleCheckin(meeting)
                                             }
-                                            className="min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                                            className={`min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white disabled:opacity-50 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                                              isLeaveSelected
+                                                ? 'bg-amber-700 hover:bg-amber-800'
+                                                : 'bg-[#1E3A8A] hover:bg-[#172554]'
+                                            }`}
                                           >
                                             <ClipboardCheck className="w-4 h-4" />
                                             <span>
                                               {submittingMeetingId === meeting.id
-                                                ? '簽名上傳簽到中...'
-                                                : '確認手寫簽名並完成簽到'}
+                                                ? '資料送出中...'
+                                                : isLeaveSelected
+                                                  ? `送出${selectedStatus}請假登記`
+                                                  : '確認手寫簽名並完成簽到'}
                                             </span>
                                           </button>
                                         </div>
                                       </div>
                                     </div>
                                   ) : (
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                                       <span className="text-xs text-stone-600">
-                                        {windowState.detailText}（帳號：{user?.email}）
+                                        {windowState.detailText}（帳號：
+                                        {user?.email}）
                                       </span>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          setActiveSigningMeetingId(meeting.id)
-                                        }
-                                        className="w-full sm:w-auto min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                                      >
-                                        <PenTool className="w-4 h-4" />
-                                        <span>展開手寫簽名板進行簽到</span>
-                                      </button>
+                                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setAttendanceStatusByMeeting(
+                                              (prev) => ({
+                                                ...prev,
+                                                [meeting.id]: '出席',
+                                              }),
+                                            );
+                                            setActiveSigningMeetingId(
+                                              meeting.id,
+                                            );
+                                          }}
+                                          className="w-full sm:w-auto min-h-[40px] px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                                        >
+                                          <PenTool className="w-4 h-4" />
+                                          <span>展開手寫簽名板進行簽到</span>
+                                        </button>
+                                        {canUseLeave && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setAttendanceStatusByMeeting(
+                                                (prev) => ({
+                                                  ...prev,
+                                                  [meeting.id]: '公假',
+                                                }),
+                                              );
+                                              setActiveSigningMeetingId(
+                                                meeting.id,
+                                              );
+                                            }}
+                                            className="w-full sm:w-auto min-h-[40px] px-3.5 py-2 text-xs sm:text-sm font-semibold text-amber-900 bg-amber-50 border border-amber-300 hover:bg-amber-100 rounded-lg inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                                          >
+                                            <FileText className="w-4 h-4" />
+                                            <span>
+                                              請假登記（公假 / 事假 / 病假）
+                                            </span>
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                   );
                                 })()
@@ -3431,247 +3939,523 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                             </div>
 
                             {/* Admin Controls for Teacher Session */}
-                            {isTeacherAdmin && (() => {
-                              const isTeacherQrExpanded =
-                                expandedQrMeetingId === meeting.id;
-                              return (
-                              <div className="pt-3 border-t border-stone-200/80 space-y-3">
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedRosterMeetingId(
-                                          isRosterExpanded ? null : meeting.id,
-                                        )
-                                      }
-                                      className="px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5"
-                                    >
-                                      <Users className="w-3.5 h-3.5 text-[#1E3A8A]" />
-                                      <span>
-                                        {isRosterExpanded
-                                          ? '收合教師名單'
-                                          : '檢視簽到名單'}{' '}
-                                        ({adminTeacherRoster.length} 人)
-                                      </span>
-                                    </button>
+                            {isTeacherAdmin &&
+                              (() => {
+                                const isTeacherQrExpanded =
+                                  expandedQrMeetingId === meeting.id;
+                                const leaveCount = adminTeacherRoster.filter(
+                                  (r) =>
+                                    isTeacherOnLeaveStatus(
+                                      normalizeTeacherAttendanceStatus(
+                                        r.attendanceStatus,
+                                      ),
+                                    ),
+                                ).length;
+                                const presentCount =
+                                  adminTeacherRoster.length - leaveCount;
 
-                                    <button
-                                      type="button"
-                                      disabled={adminTeacherRoster.length === 0}
-                                      onClick={() =>
-                                        handleOpenPrintablePreview(
-                                          meeting,
-                                          adminTeacherRoster,
-                                          [],
-                                        )
-                                      }
-                                      className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-40 inline-flex items-center gap-1.5"
-                                    >
-                                      <Printer className="w-3.5 h-3.5" />
-                                      <span>預覽與印出簽名 PDF</span>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      disabled={adminTeacherRoster.length === 0}
-                                      onClick={() =>
-                                        handleExportCsv(
-                                          meeting,
-                                          adminTeacherRoster,
-                                          [],
-                                        )
-                                      }
-                                      className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-40 inline-flex items-center gap-1.5"
-                                    >
-                                      <Download className="w-3.5 h-3.5" />
-                                      <span>匯出 CSV</span>
-                                    </button>
-
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        setExpandedQrMeetingId(
-                                          isTeacherQrExpanded
-                                            ? null
-                                            : meeting.id,
-                                        )
-                                      }
-                                      className={`px-3 py-1.5 text-xs font-semibold border rounded-lg inline-flex items-center gap-1.5 ${
-                                        isTeacherQrExpanded
-                                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                                          : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/25 hover:bg-[#1E3A8A]/15'
-                                      }`}
-                                    >
-                                      <QrCode className="w-3.5 h-3.5" />
-                                      <span>會議掃碼 QR / 網址</span>
-                                    </button>
-                                  </div>
-
-                                  {renderAdminScheduleAndDeleteControls(meeting)}
-                                </div>
-
-                                {isTeacherQrExpanded && (
-                                  <div className="bg-[#1E3A8A]/[0.03] border border-[#1E3A8A]/20 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
-                                    <div className="w-36 h-36 bg-white border border-stone-200 rounded-xl p-2 flex items-center justify-center shrink-0">
-                                      {qrDataUrlByMeeting[
-                                        `teacher:${meeting.id}`
-                                      ] ? (
-                                        <img
-                                          src={
-                                            qrDataUrlByMeeting[
-                                              `teacher:${meeting.id}`
-                                            ]
-                                          }
-                                          alt={`${meeting.title} 教師會議簽到 QR Code`}
-                                          className="w-full h-full object-contain"
-                                        />
-                                      ) : (
-                                        <span className="text-[11px] text-stone-400">
-                                          產生 QR Code 中...
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex-1 min-w-0 space-y-2.5 text-xs">
-                                      <div className="font-bold text-[#1E3A8A] text-sm">
-                                        教師社群會議現場掃碼 · 專屬簽到連結
-                                      </div>
-                                      <p className="text-stone-700 leading-relaxed">
-                                        教師掃描此 QR Code 後，系統將導引使用 @{SCHOOL_DOMAIN} 帳號登入並直接展開本場次手寫簽名板（校外人士與家長無法檢視此會議）。
-                                      </p>
-                                      <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
-                                        {buildDirectCheckinUrl(
-                                          'teacher',
-                                          meeting.id,
-                                        )}
-                                      </div>
+                                return (
+                                  <div className="pt-3 border-t border-stone-200/80 space-y-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
                                       <div className="flex flex-wrap items-center gap-2">
                                         <button
                                           type="button"
                                           onClick={() =>
-                                            handleCopyDirectLink(
-                                              'teacher',
-                                              meeting.id,
+                                            setExpandedRosterMeetingId(
+                                              isRosterExpanded
+                                                ? null
+                                                : meeting.id,
                                             )
                                           }
-                                          className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5"
+                                          className="px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5"
                                         >
-                                          {copiedLinkMeetingId === meeting.id ? (
-                                            <Check className="w-3.5 h-3.5" />
-                                          ) : (
-                                            <Copy className="w-3.5 h-3.5" />
-                                          )}
+                                          <Users className="w-3.5 h-3.5 text-[#1E3A8A]" />
                                           <span>
-                                            {copiedLinkMeetingId === meeting.id
-                                              ? '已複製直達連結'
-                                              : '複製教師簽到網址'}
+                                            {isRosterExpanded
+                                              ? '收合教師名單'
+                                              : '檢視簽到名單'}{' '}
+                                            ({adminTeacherRoster.length} 人
+                                            {leaveCount > 0
+                                              ? `｜出席 ${presentCount}・請假 ${leaveCount}`
+                                              : ''}
+                                            )
                                           </span>
                                         </button>
-                                        {qrDataUrlByMeeting[
-                                          `teacher:${meeting.id}`
-                                        ] && (
+
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            adminTeacherRoster.length === 0
+                                          }
+                                          onClick={() =>
+                                            handleOpenPrintablePreview(
+                                              meeting,
+                                              adminTeacherRoster,
+                                              [],
+                                            )
+                                          }
+                                          className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-40 inline-flex items-center gap-1.5"
+                                        >
+                                          <Printer className="w-3.5 h-3.5" />
+                                          <span>預覽與印出簽名 PDF</span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          disabled={
+                                            adminTeacherRoster.length === 0
+                                          }
+                                          onClick={() =>
+                                            handleExportCsv(
+                                              meeting,
+                                              adminTeacherRoster,
+                                              [],
+                                            )
+                                          }
+                                          className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-40 inline-flex items-center gap-1.5"
+                                        >
+                                          <Download className="w-3.5 h-3.5" />
+                                          <span>匯出 CSV</span>
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setExpandedQrMeetingId(
+                                              isTeacherQrExpanded
+                                                ? null
+                                                : meeting.id,
+                                            )
+                                          }
+                                          className={`px-3 py-1.5 text-xs font-semibold border rounded-lg inline-flex items-center gap-1.5 ${
+                                            isTeacherQrExpanded
+                                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                              : 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/25 hover:bg-[#1E3A8A]/15'
+                                          }`}
+                                        >
+                                          <QrCode className="w-3.5 h-3.5" />
+                                          <span>會議掃碼 QR / 網址</span>
+                                        </button>
+                                      </div>
+
+                                      {renderAdminScheduleAndDeleteControls(
+                                        meeting,
+                                      )}
+                                    </div>
+
+                                    {isTeacherQrExpanded && (
+                                      <div className="bg-[#1E3A8A]/[0.03] border border-[#1E3A8A]/20 rounded-xl p-4 flex flex-col sm:flex-row items-center gap-4">
+                                        <div className="w-36 h-36 bg-white border border-stone-200 rounded-xl p-2 flex items-center justify-center shrink-0">
+                                          {qrDataUrlByMeeting[
+                                            `teacher:${meeting.id}`
+                                          ] ? (
+                                            <img
+                                              src={
+                                                qrDataUrlByMeeting[
+                                                  `teacher:${meeting.id}`
+                                                ]
+                                              }
+                                              alt={`${meeting.title} 教師會議簽到 QR Code`}
+                                              className="w-full h-full object-contain"
+                                            />
+                                          ) : (
+                                            <span className="text-[11px] text-stone-400">
+                                              產生 QR Code 中...
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex-1 min-w-0 space-y-2.5 text-xs">
+                                          <div className="font-bold text-[#1E3A8A] text-sm">
+                                            教師社群會議現場掃碼 · 專屬簽到連結
+                                          </div>
+                                          <p className="text-stone-700 leading-relaxed">
+                                            教師掃描此 QR Code 後，系統將導引使用 @
+                                            {SCHOOL_DOMAIN}{' '}
+                                            帳號登入並直接展開本場次手寫簽名板（校外人士與家長無法檢視此會議）。
+                                          </p>
+                                          <div className="font-mono-tabular text-[11px] bg-white border border-stone-200 rounded-lg px-2.5 py-1.5 text-stone-600 break-all">
+                                            {buildDirectCheckinUrl(
+                                              'teacher',
+                                              meeting.id,
+                                            )}
+                                          </div>
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                handleCopyDirectLink(
+                                                  'teacher',
+                                                  meeting.id,
+                                                )
+                                              }
+                                              className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5"
+                                            >
+                                              {copiedLinkMeetingId ===
+                                              meeting.id ? (
+                                                <Check className="w-3.5 h-3.5" />
+                                              ) : (
+                                                <Copy className="w-3.5 h-3.5" />
+                                              )}
+                                              <span>
+                                                {copiedLinkMeetingId ===
+                                                meeting.id
+                                                  ? '已複製直達連結'
+                                                  : '複製教師簽到網址'}
+                                              </span>
+                                            </button>
+                                            {qrDataUrlByMeeting[
+                                              `teacher:${meeting.id}`
+                                            ] && (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  handleDownloadQrPng(meeting)
+                                                }
+                                                className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5"
+                                              >
+                                                <Download className="w-3.5 h-3.5" />
+                                                <span>下載 QR Code 圖檔</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {renderAdminScheduleEditor(meeting)}
+
+                                    {isRosterExpanded && (
+                                      <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl overflow-hidden">
+                                        <div className="px-3.5 py-2.5 bg-white/80 border-b border-stone-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                          <div className="flex flex-wrap items-center gap-2 font-medium text-stone-700">
+                                            <span>
+                                              出席：{presentCount} 人
+                                            </span>
+                                            <span className="text-stone-300">
+                                              ·
+                                            </span>
+                                            <span className="text-amber-900">
+                                              請假：{leaveCount} 人
+                                            </span>
+                                            {meeting.allowLeaveReport ===
+                                              false && (
+                                              <span className="px-2 py-0.5 text-[11px] bg-stone-100 text-stone-600 border border-stone-200 rounded-md">
+                                                目前未開放教師自行請假
+                                              </span>
+                                            )}
+                                          </div>
                                           <button
                                             type="button"
-                                            onClick={() =>
-                                              handleDownloadQrPng(meeting)
-                                            }
-                                            className="px-3 py-1.5 text-xs font-medium text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center gap-1.5"
+                                            onClick={() => {
+                                              if (
+                                                adminLeaveFormMeetingId ===
+                                                meeting.id
+                                              ) {
+                                                setAdminLeaveFormMeetingId(
+                                                  null,
+                                                );
+                                              } else {
+                                                setAdminLeaveFormMeetingId(
+                                                  meeting.id,
+                                                );
+                                                setAdminLeaveStatus('公假');
+                                                setAdminLeaveName('');
+                                                setAdminLeaveEmail('');
+                                                setAdminLeaveRoleNote('');
+                                                setAdminLeaveNote('');
+                                              }
+                                            }}
+                                            className="px-2.5 py-1 text-xs font-semibold text-amber-950 bg-amber-50 border border-amber-300 rounded-lg hover:bg-amber-100 inline-flex items-center gap-1"
                                           >
-                                            <Download className="w-3.5 h-3.5" />
-                                            <span>下載 QR Code 圖檔</span>
+                                            <Plus className="w-3.5 h-3.5" />
+                                            <span>
+                                              {adminLeaveFormMeetingId ===
+                                              meeting.id
+                                                ? '收合請假登記'
+                                                : '代為登記教師請假'}
+                                            </span>
                                           </button>
+                                        </div>
+
+                                        {adminLeaveFormMeetingId ===
+                                          meeting.id && (
+                                          <div className="p-3.5 bg-amber-50/50 border-b border-amber-200 space-y-2.5 text-xs">
+                                            <div className="font-semibold text-amber-950">
+                                              管理員代為登記請假（適用於教師當天未登入系統自行登記之情形）
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                              <input
+                                                type="text"
+                                                maxLength={100}
+                                                value={adminLeaveName}
+                                                onChange={(e) =>
+                                                  setAdminLeaveName(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                placeholder="教師姓名 *"
+                                                className="h-8 px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
+                                              />
+                                              <select
+                                                value={adminLeaveStatus}
+                                                onChange={(e) =>
+                                                  setAdminLeaveStatus(
+                                                    e.target
+                                                      .value as Exclude<
+                                                      TeacherAttendanceStatus,
+                                                      '出席'
+                                                    >,
+                                                  )
+                                                }
+                                                className="h-8 px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600 font-semibold text-amber-950"
+                                              >
+                                                {TEACHER_LEAVE_STATUS_OPTIONS.map(
+                                                  (opt) => (
+                                                    <option
+                                                      key={opt}
+                                                      value={opt}
+                                                    >
+                                                      {opt}
+                                                    </option>
+                                                  ),
+                                                )}
+                                              </select>
+                                              <input
+                                                type="text"
+                                                maxLength={120}
+                                                value={adminLeaveRoleNote}
+                                                onChange={(e) =>
+                                                  setAdminLeaveRoleNote(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                placeholder="職務 / 年段（選填）"
+                                                className="h-8 px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
+                                              />
+                                              <input
+                                                type="email"
+                                                maxLength={200}
+                                                value={adminLeaveEmail}
+                                                onChange={(e) =>
+                                                  setAdminLeaveEmail(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                placeholder="校內信箱（選填）"
+                                                className="h-8 px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
+                                              />
+                                              <input
+                                                type="text"
+                                                maxLength={200}
+                                                value={adminLeaveNote}
+                                                onChange={(e) =>
+                                                  setAdminLeaveNote(
+                                                    e.target.value,
+                                                  )
+                                                }
+                                                placeholder="請假備註 / 事由（選填，例如：公派研習、代課教師）"
+                                                className="sm:col-span-2 h-8 px-2.5 bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-600"
+                                              />
+                                            </div>
+                                            <div className="flex justify-end gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setAdminLeaveFormMeetingId(
+                                                    null,
+                                                  )
+                                                }
+                                                className="px-3 py-1 text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
+                                              >
+                                                取消
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={
+                                                  isSubmittingAdminLeave ||
+                                                  !adminLeaveName.trim()
+                                                }
+                                                onClick={() =>
+                                                  handleAdminAddLeaveRecord(
+                                                    meeting,
+                                                  )
+                                                }
+                                                className="px-3.5 py-1 font-semibold text-white bg-amber-700 hover:bg-amber-800 disabled:opacity-50 rounded-lg"
+                                              >
+                                                {isSubmittingAdminLeave
+                                                  ? '登記中...'
+                                                  : '確認登記請假'}
+                                              </button>
+                                            </div>
+                                          </div>
                                         )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
 
-                                {renderAdminScheduleEditor(meeting)}
-
-                                {isRosterExpanded && (
-                                  <div className="bg-[#F7F4EE] border border-stone-200 rounded-xl overflow-hidden">
-                                    {adminTeacherRoster.length === 0 ? (
-                                      <div className="p-4 text-xs text-stone-500 text-center">
-                                        目前尚無教師簽到此場次。
-                                      </div>
-                                    ) : (
-                                      <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse text-xs">
-                                          <thead>
-                                            <tr className="border-b border-stone-200 text-stone-600 bg-white/60">
-                                              <th className="py-2.5 px-3 font-semibold">#</th>
-                                              <th className="py-2.5 px-3 font-semibold">
-                                                教師姓名
-                                              </th>
-                                              <th className="py-2.5 px-3 font-semibold">
-                                                信箱
-                                              </th>
-                                              <th className="py-2.5 px-3 font-semibold">
-                                                職務備註
-                                              </th>
-                                              <th className="py-2.5 px-3 font-semibold">
-                                                親自手寫簽名
-                                              </th>
-                                              <th className="py-2.5 px-3 font-semibold">
-                                                簽到時間
-                                              </th>
-                                            </tr>
-                                          </thead>
-                                          <tbody className="divide-y divide-stone-200/70">
-                                            {adminTeacherRoster.map(
-                                              (rec, idx) => (
-                                                <tr
-                                                  key={rec.id}
-                                                  className="bg-white/50"
-                                                >
-                                                  <td className="py-2 px-3 font-mono-tabular text-stone-500">
-                                                    {idx + 1}
-                                                  </td>
-                                                  <td className="py-2 px-3 font-medium text-stone-900">
-                                                    {rec.userName}
-                                                  </td>
-                                                  <td className="py-2 px-3 font-mono-tabular text-stone-600">
-                                                    {rec.userEmail}
-                                                  </td>
-                                                  <td className="py-2 px-3 text-stone-700">
-                                                    {rec.roleOrNote || '—'}
-                                                  </td>
-                                                  <td className="py-2 px-3">
-                                                    {isValidSignatureDataUrl(
-                                                      rec.signatureDataUrl,
-                                                    ) ? (
-                                                      <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
-                                                        <img
-                                                          src={
-                                                            rec.signatureDataUrl
-                                                          }
-                                                          alt={`${rec.userName}親筆簽名`}
-                                                          className="h-9 w-24 object-contain"
-                                                        />
-                                                      </div>
-                                                    ) : (
-                                                      <span className="text-[11px] text-stone-400">
-                                                        未附簽名
-                                                      </span>
-                                                    )}
-                                                  </td>
-                                                  <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
-                                                    {formatDateTime(
-                                                      rec.checkedInAtMs,
-                                                    )}
-                                                  </td>
+                                        {adminTeacherRoster.length === 0 ? (
+                                          <div className="p-4 text-xs text-stone-500 text-center">
+                                            目前尚無教師簽到或請假紀錄。
+                                          </div>
+                                        ) : (
+                                          <div className="overflow-x-auto">
+                                            <table className="w-full text-left border-collapse text-xs">
+                                              <thead>
+                                                <tr className="border-b border-stone-200 text-stone-600 bg-white/60">
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    #
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    教師姓名
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    信箱
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    狀態
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    職務與請假備註
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    簽名 / 請假別
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold">
+                                                    簽到 / 登記時間
+                                                  </th>
+                                                  <th className="py-2.5 px-3 font-semibold text-right">
+                                                    管理
+                                                  </th>
                                                 </tr>
-                                              ),
-                                            )}
-                                          </tbody>
-                                        </table>
+                                              </thead>
+                                              <tbody className="divide-y divide-stone-200/70">
+                                                {adminTeacherRoster.map(
+                                                  (rec, idx) => {
+                                                    const recStatus =
+                                                      normalizeTeacherAttendanceStatus(
+                                                        rec.attendanceStatus,
+                                                      );
+                                                    const recIsLeave =
+                                                      isTeacherOnLeaveStatus(
+                                                        recStatus,
+                                                      );
+                                                    const noteSummary = [
+                                                      rec.roleOrNote,
+                                                      rec.leaveNote,
+                                                    ]
+                                                      .filter((v) =>
+                                                        Boolean(v && v.trim()),
+                                                      )
+                                                      .join('｜');
+
+                                                    return (
+                                                      <tr
+                                                        key={rec.id}
+                                                        className="bg-white/50"
+                                                      >
+                                                        <td className="py-2 px-3 font-mono-tabular text-stone-500">
+                                                          {idx + 1}
+                                                        </td>
+                                                        <td className="py-2 px-3 font-medium text-stone-900">
+                                                          {rec.userName}
+                                                        </td>
+                                                        <td className="py-2 px-3 font-mono-tabular text-stone-600">
+                                                          {rec.userEmail || (
+                                                            <span className="text-stone-400">
+                                                              （管理員代登）
+                                                            </span>
+                                                          )}
+                                                        </td>
+                                                        <td className="py-2 px-3 whitespace-nowrap">
+                                                          <span
+                                                            className={`inline-block px-2 py-0.5 text-[11px] font-semibold rounded-md border ${getAttendanceBadgeClasses(recStatus)}`}
+                                                          >
+                                                            {recStatus}
+                                                          </span>
+                                                        </td>
+                                                        <td className="py-2 px-3 text-stone-700">
+                                                          {noteSummary || '—'}
+                                                        </td>
+                                                        <td className="py-2 px-3">
+                                                          {isValidSignatureDataUrl(
+                                                            rec.signatureDataUrl,
+                                                          ) ? (
+                                                            <div className="inline-flex bg-white border border-stone-200 rounded px-2 py-1">
+                                                              <img
+                                                                src={
+                                                                  rec.signatureDataUrl
+                                                                }
+                                                                alt={`${rec.userName}親筆簽名`}
+                                                                className="h-9 w-24 object-contain"
+                                                              />
+                                                            </div>
+                                                          ) : recIsLeave ? (
+                                                            <span className="text-[11px] font-medium text-amber-800">
+                                                              請假免簽名
+                                                            </span>
+                                                          ) : (
+                                                            <span className="text-[11px] text-stone-400">
+                                                              未附簽名
+                                                            </span>
+                                                          )}
+                                                        </td>
+                                                        <td className="py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
+                                                          {formatDateTime(
+                                                            rec.checkedInAtMs,
+                                                          )}
+                                                        </td>
+                                                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                                                          {confirmDeleteTeacherCheckinId ===
+                                                          rec.id ? (
+                                                            <span className="inline-flex items-center gap-1.5">
+                                                              <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                  handleDeleteTeacherCheckin(
+                                                                    rec,
+                                                                  )
+                                                                }
+                                                                className="text-red-700 font-semibold hover:underline"
+                                                              >
+                                                                確認移除
+                                                              </button>
+                                                              <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                  setConfirmDeleteTeacherCheckinId(
+                                                                    null,
+                                                                  )
+                                                                }
+                                                                className="text-stone-500 hover:underline"
+                                                              >
+                                                                取消
+                                                              </button>
+                                                            </span>
+                                                          ) : (
+                                                            <button
+                                                              type="button"
+                                                              onClick={() =>
+                                                                setConfirmDeleteTeacherCheckinId(
+                                                                  rec.id,
+                                                                )
+                                                              }
+                                                              className="text-stone-400 hover:text-red-700"
+                                                              aria-label={`移除 ${rec.userName} 紀錄`}
+                                                            >
+                                                              <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                          )}
+                                                        </td>
+                                                      </tr>
+                                                    );
+                                                  },
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
-                                )}
-                              </div>
-                              );
-                            })()}
+                                );
+                              })()}
                           </article>
                         );
                       })}
@@ -3685,44 +4469,71 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                 <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
                   {activeMyCheckins.length === 0 ? (
                     <div className="p-8 text-center text-sm text-stone-500">
-                      您目前尚無任何教師會議簽到紀錄。
+                      您目前尚無任何教師會議簽到或請假紀錄。
                     </div>
                   ) : (
                     <div className="divide-y divide-stone-100">
-                      {activeMyCheckins.map((item) => (
-                        <div
-                          key={item.id}
-                          className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                        >
-                          <div className="min-w-0 space-y-1">
-                            <div className="text-sm font-semibold text-stone-950 truncate">
-                              {item.meetingTitle}
+                      {activeMyCheckins.map((item) => {
+                        const itemStatus = normalizeTeacherAttendanceStatus(
+                          item.attendanceStatus,
+                        );
+                        const itemIsLeave = isTeacherOnLeaveStatus(itemStatus);
+                        return (
+                          <div
+                            key={item.id}
+                            className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-semibold text-stone-950 truncate">
+                                  {item.meetingTitle}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 text-[11px] font-semibold rounded-md border shrink-0 ${getAttendanceBadgeClasses(itemStatus)}`}
+                                >
+                                  {itemStatus}
+                                </span>
+                              </div>
+                              <div className="text-xs text-stone-600">
+                                姓名：{item.userName}
+                                {item.roleOrNote
+                                  ? ` · 職務：${item.roleOrNote}`
+                                  : ''}
+                                {item.leaveNote
+                                  ? ` · 備註：${item.leaveNote}`
+                                  : ''}
+                              </div>
+                              <div
+                                className={`text-xs font-mono-tabular font-medium ${
+                                  itemIsLeave
+                                    ? 'text-amber-800'
+                                    : 'text-emerald-800'
+                                }`}
+                              >
+                                {itemIsLeave ? `已登記 ${itemStatus}` : '已簽到'}{' '}
+                                · {formatDateTime(item.checkedInAtMs)}
+                              </div>
                             </div>
-                            <div className="text-xs text-stone-600">
-                              姓名：{item.userName}
-                              {item.roleOrNote
-                                ? ` · 備註：${item.roleOrNote}`
-                                : ''}
-                            </div>
-                            <div className="text-xs font-mono-tabular text-emerald-800 font-medium">
-                              已簽到 · {formatDateTime(item.checkedInAtMs)}
-                            </div>
+                            {isValidSignatureDataUrl(item.signatureDataUrl) ? (
+                              <div className="shrink-0 bg-[#FBF9F5] border border-stone-200 rounded-lg px-2.5 py-1.5 self-start sm:self-center">
+                                <img
+                                  src={item.signatureDataUrl}
+                                  alt={`${item.userName}親筆簽名`}
+                                  className="h-10 w-28 object-contain"
+                                />
+                              </div>
+                            ) : itemIsLeave ? (
+                              <span className="text-[11px] font-medium text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-1 shrink-0 self-start sm:self-center">
+                                請假免簽名（{itemStatus}）
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-stone-400 shrink-0">
+                                早期無簽名檔紀錄
+                              </span>
+                            )}
                           </div>
-                          {isValidSignatureDataUrl(item.signatureDataUrl) ? (
-                            <div className="shrink-0 bg-[#FBF9F5] border border-stone-200 rounded-lg px-2.5 py-1.5 self-start sm:self-center">
-                              <img
-                                src={item.signatureDataUrl}
-                                alt={`${item.userName}親筆簽名`}
-                                className="h-10 w-28 object-contain"
-                              />
-                            </div>
-                          ) : (
-                            <span className="text-[11px] text-stone-400 shrink-0">
-                              早期無簽名檔紀錄
-                            </span>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -3953,15 +4764,30 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                     </div>
 
                     <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 pt-1">
-                      <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={newIsOpen}
-                          onChange={(e) => setNewIsOpen(e.target.checked)}
-                          className="rounded border-stone-300 text-[#1E3A8A]"
-                        />
-                        <span>啟用此場次教師簽到功能</span>
-                      </label>
+                      <div className="flex flex-col gap-2">
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newIsOpen}
+                            onChange={(e) => setNewIsOpen(e.target.checked)}
+                            className="rounded border-stone-300 text-[#1E3A8A]"
+                          />
+                          <span>啟用此場次教師簽到功能</span>
+                        </label>
+                        <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newAllowLeaveReport}
+                            onChange={(e) =>
+                              setNewAllowLeaveReport(e.target.checked)
+                            }
+                            className="rounded border-stone-300 text-[#1E3A8A]"
+                          />
+                          <span>
+                            開放教師請假欄位（公假 / 事假 / 病假 / 其他請假與備註）
+                          </span>
+                        </label>
+                      </div>
 
                       <button
                         type="submit"
@@ -4181,10 +5007,10 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                           校內帳號信箱
                         </th>
                         <th className="border border-stone-300 py-2.5 px-3">
-                          職務 / 年段備註
+                          狀態 / 職務與請假備註
                         </th>
                         <th className="border border-stone-300 py-2.5 px-3 text-center w-40">
-                          親自手寫簽名
+                          簽名 / 請假別
                         </th>
                         <th className="border border-stone-300 py-2.5 px-3">
                           簽到時間
@@ -4192,38 +5018,53 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRoster.teacherCheckins.map((rec, idx) => (
-                        <tr key={rec.id}>
-                          <td className="border border-stone-300 py-2 px-2.5 text-center font-mono-tabular text-stone-600">
-                            {idx + 1}
-                          </td>
-                          <td className="border border-stone-300 py-2 px-3 font-semibold text-stone-950">
-                            {rec.userName}
-                          </td>
-                          <td className="border border-stone-300 py-2 px-3 font-mono-tabular text-stone-600 break-all">
-                            {rec.userEmail}
-                          </td>
-                          <td className="border border-stone-300 py-2 px-3 text-stone-700">
-                            {rec.roleOrNote || '—'}
-                          </td>
-                          <td className="border border-stone-300 py-1.5 px-2 text-center bg-white">
-                            {isValidSignatureDataUrl(rec.signatureDataUrl) ? (
-                              <img
-                                src={rec.signatureDataUrl}
-                                alt={`${rec.userName}親筆簽名`}
-                                className="h-12 w-32 object-contain mx-auto"
-                              />
-                            ) : (
-                              <span className="text-[11px] text-stone-400">
-                                （未附簽名）
-                              </span>
-                            )}
-                          </td>
-                          <td className="border border-stone-300 py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
-                            {formatDateTime(rec.checkedInAtMs)}
-                          </td>
-                        </tr>
-                      ))}
+                      {previewRoster.teacherCheckins.map((rec, idx) => {
+                        const status = normalizeTeacherAttendanceStatus(
+                          rec.attendanceStatus,
+                        );
+                        const isLeave = isTeacherOnLeaveStatus(status);
+                        const noteParts = [
+                          status,
+                          rec.roleOrNote.trim(),
+                          rec.leaveNote.trim(),
+                        ].filter(Boolean);
+                        return (
+                          <tr key={rec.id}>
+                            <td className="border border-stone-300 py-2 px-2.5 text-center font-mono-tabular text-stone-600">
+                              {idx + 1}
+                            </td>
+                            <td className="border border-stone-300 py-2 px-3 font-semibold text-stone-950">
+                              {rec.userName}
+                            </td>
+                            <td className="border border-stone-300 py-2 px-3 font-mono-tabular text-stone-600 break-all">
+                              {rec.userEmail || '（管理員代登）'}
+                            </td>
+                            <td className="border border-stone-300 py-2 px-3 text-stone-700">
+                              {noteParts.join('｜') || '—'}
+                            </td>
+                            <td className="border border-stone-300 py-1.5 px-2 text-center bg-white">
+                              {isValidSignatureDataUrl(rec.signatureDataUrl) ? (
+                                <img
+                                  src={rec.signatureDataUrl}
+                                  alt={`${rec.userName}親筆簽名`}
+                                  className="h-12 w-32 object-contain mx-auto"
+                                />
+                              ) : isLeave ? (
+                                <span className="inline-block px-2 py-0.5 text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-md">
+                                  請假：{status}
+                                </span>
+                              ) : (
+                                <span className="text-[11px] text-stone-400">
+                                  （未附簽名）
+                                </span>
+                              )}
+                            </td>
+                            <td className="border border-stone-300 py-2 px-3 font-mono-tabular text-stone-600 whitespace-nowrap">
+                              {formatDateTime(rec.checkedInAtMs)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}

@@ -31,6 +31,47 @@ const PARENT_CHECKINS_COLLECTION = 'parentCheckins';
 
 export type MeetingAudience = 'teacher' | 'parent';
 
+export type TeacherAttendanceStatus =
+  | '出席'
+  | '公假'
+  | '事假'
+  | '病假'
+  | '其他請假';
+
+export const TEACHER_ATTENDANCE_STATUS_OPTIONS: readonly TeacherAttendanceStatus[] = [
+  '出席',
+  '公假',
+  '事假',
+  '病假',
+  '其他請假',
+];
+
+export const TEACHER_LEAVE_STATUS_OPTIONS: readonly Exclude<
+  TeacherAttendanceStatus,
+  '出席'
+>[] = ['公假', '事假', '病假', '其他請假'];
+
+export function normalizeTeacherAttendanceStatus(
+  raw: unknown,
+): TeacherAttendanceStatus {
+  if (
+    raw === '出席' ||
+    raw === '公假' ||
+    raw === '事假' ||
+    raw === '病假' ||
+    raw === '其他請假'
+  ) {
+    return raw;
+  }
+  return '出席';
+}
+
+export function isTeacherOnLeaveStatus(
+  status: TeacherAttendanceStatus,
+): boolean {
+  return status !== '出席';
+}
+
 export interface MeetingSession {
   id: string;
   title: string;
@@ -42,6 +83,7 @@ export interface MeetingSession {
   linkedPostSlug: string;
   audience: MeetingAudience;
   isOpen: boolean;
+  allowLeaveReport: boolean;
   checkinStartAtMs: number | null;
   checkinEndAtMs: number | null;
   createdByName: string;
@@ -57,6 +99,8 @@ export interface MeetingCheckin {
   userUid: string;
   userName: string;
   userEmail: string;
+  attendanceStatus: TeacherAttendanceStatus;
+  leaveNote: string;
   roleOrNote: string;
   signatureDataUrl: string;
   checkedInAtMs: number;
@@ -97,6 +141,7 @@ export interface CreateMeetingSessionInput {
   linkedPostSlug: string;
   audience?: MeetingAudience;
   isOpen: boolean;
+  allowLeaveReport?: boolean;
   checkinStartAtMs?: number | null;
   checkinEndAtMs?: number | null;
 }
@@ -372,6 +417,7 @@ function mapDocToMeetingSession(
     linkedPostSlug: String(d.linkedPostSlug ?? ''),
     audience: rawAudience,
     isOpen: Boolean(d.isOpen),
+    allowLeaveReport: d.allowLeaveReport === false ? false : true,
     checkinStartAtMs: toOptionalTimestampMs(d.checkinStartAt),
     checkinEndAtMs: toOptionalTimestampMs(d.checkinEndAt),
     createdByName: String(d.createdByName ?? '領域召集教師'),
@@ -553,6 +599,8 @@ export function subscribeMyCheckins(
           userUid: String(d.userUid ?? ''),
           userName: String(d.userName ?? ''),
           userEmail: String(d.userEmail ?? ''),
+          attendanceStatus: normalizeTeacherAttendanceStatus(d.attendanceStatus),
+          leaveNote: String(d.leaveNote ?? ''),
           roleOrNote: String(d.roleOrNote ?? ''),
           signatureDataUrl: isValidSignatureDataUrl(d.signatureDataUrl)
             ? d.signatureDataUrl
@@ -599,6 +647,8 @@ export function subscribeAllCheckinsForAdmin(
           userUid: String(d.userUid ?? ''),
           userName: String(d.userName ?? ''),
           userEmail: String(d.userEmail ?? ''),
+          attendanceStatus: normalizeTeacherAttendanceStatus(d.attendanceStatus),
+          leaveNote: String(d.leaveNote ?? ''),
           roleOrNote: String(d.roleOrNote ?? ''),
           signatureDataUrl: isValidSignatureDataUrl(d.signatureDataUrl)
             ? d.signatureDataUrl
@@ -731,6 +781,10 @@ export async function createMeetingSession(
     linkedPostSlug: safeSlug,
     audience: safeAudience,
     isOpen: Boolean(input.isOpen),
+    allowLeaveReport:
+      safeAudience === 'teacher'
+        ? input.allowLeaveReport !== false
+        : false,
     checkinStartAt: startMs !== null ? Timestamp.fromMillis(startMs) : null,
     checkinEndAt: endMs !== null ? Timestamp.fromMillis(endMs) : null,
     createdByName: safeCreatorName,
@@ -819,6 +873,9 @@ export async function updateMeetingSession(
   }
   if (updates.isOpen !== undefined) {
     sanitized.isOpen = Boolean(updates.isOpen);
+  }
+  if (updates.allowLeaveReport !== undefined) {
+    sanitized.allowLeaveReport = Boolean(updates.allowLeaveReport);
   }
 
   if (
@@ -1040,6 +1097,8 @@ export async function cleanupOrphanedCheckinsForAdmin(
 export async function submitMeetingCheckin(params: {
   meetingId: string;
   meetingTitle: string;
+  attendanceStatus?: TeacherAttendanceStatus;
+  leaveNote?: string;
   roleOrNote: string;
   signatureDataUrl: string;
   customDisplayName?: string;
@@ -1049,7 +1108,13 @@ export async function submitMeetingCheckin(params: {
     throw new Error('請先登入 @hmes.tp.edu.tw 校內帳號後再進行會議簽到。');
   }
 
-  if (!isValidSignatureDataUrl(params.signatureDataUrl)) {
+  const safeStatus = normalizeTeacherAttendanceStatus(params.attendanceStatus);
+  const isLeave = isTeacherOnLeaveStatus(safeStatus);
+  const safeSig = isValidSignatureDataUrl(params.signatureDataUrl)
+    ? params.signatureDataUrl
+    : '';
+
+  if (!isLeave && !safeSig) {
     throw new Error('請先於簽名框內完成親自手寫簽名後再送出簽到。');
   }
 
@@ -1066,6 +1131,7 @@ export async function submitMeetingCheckin(params: {
     ) || fallbackName;
   const safeEmail = truncateChars(currentUser.email, 200);
   const safeNote = truncateChars(params.roleOrNote || '', 120);
+  const safeLeaveNote = truncateChars(params.leaveNote || '', 200);
 
   const payload = {
     meetingId: safeMeetingId,
@@ -1073,8 +1139,10 @@ export async function submitMeetingCheckin(params: {
     userUid: currentUser.uid.slice(0, 128),
     userName: safeName,
     userEmail: safeEmail,
+    attendanceStatus: safeStatus,
+    leaveNote: safeLeaveNote,
     roleOrNote: safeNote,
-    signatureDataUrl: params.signatureDataUrl,
+    signatureDataUrl: safeSig,
     checkedInAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   };
@@ -1088,7 +1156,74 @@ export async function submitMeetingCheckin(params: {
     } catch (wrapped) {
       throw formatFriendlyMeetingError(
         wrapped,
-        '會議簽到失敗，請確認此場次目前仍為「開放簽名中」且已完成親筆簽名。',
+        isLeave
+          ? '送出請假登記失敗，請確認此場次目前仍為「開放中」且已開啟請假登記功能。'
+          : '會議簽到失敗，請確認此場次目前仍為「開放簽名中」且已完成親筆簽名。',
+      );
+    }
+  }
+}
+
+export async function submitAdminTeacherLeaveRecord(params: {
+  meetingId: string;
+  meetingTitle: string;
+  teacherName: string;
+  teacherEmail?: string;
+  attendanceStatus: Exclude<TeacherAttendanceStatus, '出席'>;
+  roleOrNote?: string;
+  leaveNote?: string;
+}): Promise<string> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('請先登入管理教師帳號。');
+  }
+
+  const safeMeetingId = params.meetingId.trim().slice(0, 90);
+  const safeName = truncateChars(params.teacherName, 100);
+  if (!safeMeetingId || !safeName) {
+    throw new Error('請填寫請假教師姓名。');
+  }
+
+  const safeStatus = normalizeTeacherAttendanceStatus(params.attendanceStatus);
+  if (!isTeacherOnLeaveStatus(safeStatus)) {
+    throw new Error('管理員代登僅限「公假、事假、病假或其他請假」。');
+  }
+
+  const rand = Math.random().toString(36).slice(2, 8);
+  const syntheticUid = `leave_${Date.now()}_${rand}`;
+  const checkinId = `${safeMeetingId}_${syntheticUid}`;
+  const docPath = `${CHECKINS_COLLECTION}/${checkinId}`;
+
+  const safeTitle =
+    truncateChars(params.meetingTitle || '社群會議', 160) || '社群會議';
+  const safeEmail = truncateChars(params.teacherEmail || '', 200);
+  const safeNote = truncateChars(params.roleOrNote || '', 120);
+  const safeLeaveNote = truncateChars(params.leaveNote || '', 200);
+
+  const payload = {
+    meetingId: safeMeetingId,
+    meetingTitle: safeTitle,
+    userUid: syntheticUid,
+    userName: safeName,
+    userEmail: safeEmail,
+    attendanceStatus: safeStatus,
+    leaveNote: safeLeaveNote,
+    roleOrNote: safeNote,
+    signatureDataUrl: '',
+    checkedInAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  try {
+    await setDoc(doc(db, CHECKINS_COLLECTION, checkinId), payload);
+    return checkinId;
+  } catch (error) {
+    try {
+      handleFirestoreError(error, OperationType.CREATE, docPath);
+    } catch (wrapped) {
+      throw formatFriendlyMeetingError(
+        wrapped,
+        '管理員代登教師請假紀錄失敗，請確認已登入授權管理帳號。',
       );
     }
   }
@@ -1172,6 +1307,8 @@ export async function deleteParentCheckinForAdmin(
 
 export async function updateMyCheckinNote(params: {
   checkinId: string;
+  attendanceStatus?: TeacherAttendanceStatus;
+  leaveNote?: string;
   roleOrNote: string;
   userName?: string;
   signatureDataUrl?: string;
@@ -1185,14 +1322,29 @@ export async function updateMyCheckinNote(params: {
     roleOrNote: truncateChars(params.roleOrNote || '', 120),
     updatedAt: serverTimestamp(),
   };
+  if (params.attendanceStatus !== undefined) {
+    updates.attendanceStatus = normalizeTeacherAttendanceStatus(
+      params.attendanceStatus,
+    );
+  }
+  if (params.leaveNote !== undefined) {
+    updates.leaveNote = truncateChars(params.leaveNote || '', 200);
+  }
   if (params.userName !== undefined && params.userName.trim()) {
     updates.userName = truncateChars(params.userName, 100);
   }
   if (params.signatureDataUrl !== undefined) {
-    if (!isValidSignatureDataUrl(params.signatureDataUrl)) {
+    const nextStatus =
+      params.attendanceStatus !== undefined
+        ? normalizeTeacherAttendanceStatus(params.attendanceStatus)
+        : '出席';
+    if (params.signatureDataUrl === '' && isTeacherOnLeaveStatus(nextStatus)) {
+      updates.signatureDataUrl = '';
+    } else if (!isValidSignatureDataUrl(params.signatureDataUrl)) {
       throw new Error('手寫簽名影像格式無效，請重新簽署後儲存。');
+    } else {
+      updates.signatureDataUrl = params.signatureDataUrl;
     }
-    updates.signatureDataUrl = params.signatureDataUrl;
   }
 
   const docPath = `${CHECKINS_COLLECTION}/${params.checkinId}`;
@@ -1202,7 +1354,7 @@ export async function updateMyCheckinNote(params: {
     try {
       handleFirestoreError(error, OperationType.UPDATE, docPath);
     } catch (wrapped) {
-      throw formatFriendlyMeetingError(wrapped, '更新簽到備註或簽名失敗。');
+      throw formatFriendlyMeetingError(wrapped, '更新簽到狀態、備註或簽名失敗。');
     }
   }
 }
@@ -1273,24 +1425,32 @@ export function buildMeetingCheckinsCsv(
     '會議時間',
     '教師姓名',
     '校內信箱',
+    '簽到 / 請假狀態',
     '職務或年段備註',
+    '請假 / 出席備註',
     '親自手寫簽名狀態',
-    '簽到時間',
+    '簽到 / 登記時間',
   ];
   const rows = teacherCheckins.map((item, idx) => {
     const dt = new Date(item.checkedInAtMs).toLocaleString('zh-TW', {
       hour12: false,
     });
+    const status = normalizeTeacherAttendanceStatus(item.attendanceStatus);
+    const sigState = isValidSignatureDataUrl(item.signatureDataUrl)
+      ? '已親自手寫簽名'
+      : isTeacherOnLeaveStatus(status)
+        ? `請假免簽名（${status}）`
+        : '尚未附簽名';
     return [
       String(idx + 1),
       meeting.title,
       meeting.meetingDate,
       item.userName,
       item.userEmail,
+      status,
       item.roleOrNote,
-      isValidSignatureDataUrl(item.signatureDataUrl)
-        ? '已親自手寫簽名'
-        : '尚未附簽名',
+      item.leaveNote,
+      sigState,
       dt,
     ]
       .map(escapeSafeCsvCell)
@@ -1316,6 +1476,14 @@ export function buildPrintableMeetingSheetHtml(
 ): string {
   const isParent = meeting.audience === 'parent';
   const count = isParent ? parentCheckins.length : teacherCheckins.length;
+  const teacherLeaveCount = isParent
+    ? 0
+    : teacherCheckins.filter((item) =>
+        isTeacherOnLeaveStatus(
+          normalizeTeacherAttendanceStatus(item.attendanceStatus),
+        ),
+      ).length;
+  const teacherPresentCount = teacherCheckins.length - teacherLeaveCount;
 
   const rowsHtml = isParent
     ? parentCheckins
@@ -1352,15 +1520,22 @@ export function buildPrintableMeetingSheetHtml(
             minute: '2-digit',
             hour12: false,
           });
+          const status = normalizeTeacherAttendanceStatus(item.attendanceStatus);
+          const isLeave = isTeacherOnLeaveStatus(status);
+          const combinedNote = [item.roleOrNote, item.leaveNote]
+            .filter((part) => Boolean(part && part.trim()))
+            .join('｜');
           const sigCell = isValidSignatureDataUrl(item.signatureDataUrl)
             ? `<img src="${item.signatureDataUrl}" alt="${escapeHtml(item.userName)}親筆簽名" class="sig-img" />`
-            : '<span class="muted">（尚未附手寫簽名）</span>';
+            : isLeave
+              ? `<span class="leave-badge">請假：${escapeHtml(status)}</span>`
+              : '<span class="muted">（尚未附手寫簽名）</span>';
           return `
         <tr>
           <td class="num">${idx + 1}</td>
           <td class="name">${escapeHtml(item.userName)}</td>
-          <td class="email">${escapeHtml(item.userEmail)}</td>
-          <td class="note">${escapeHtml(item.roleOrNote || '—')}</td>
+          <td class="email">${escapeHtml(item.userEmail || '（管理員代登）')}</td>
+          <td class="note">${escapeHtml(status)}${combinedNote ? `｜${escapeHtml(combinedNote)}` : ''}</td>
           <td class="sig">${sigCell}</td>
           <td class="time">${escapeHtml(dt)}</td>
         </tr>`;
@@ -1370,10 +1545,14 @@ export function buildPrintableMeetingSheetHtml(
   const schoolBanner = isParent
     ? '臺北市西門國小 · 學校日／親師活動家長出席簽到表'
     : '臺北市西門國小數學領域教師社群 · PesMath 會議出席簽到表';
-  const countUnit = isParent ? '位家長' : '位教師';
+  const countSummary = isParent
+    ? `${count} 位家長`
+    : teacherLeaveCount > 0
+      ? `${count} 位教師（出席 ${teacherPresentCount}・請假 ${teacherLeaveCount}）`
+      : `${count} 位教師`;
   const colHeaders = isParent
     ? ['學生班級 / 姓名', '家長姓名', '關係 / 備註']
-    : ['教師姓名', '校內帳號信箱', '職務 / 年段備註'];
+    : ['教師姓名', '校內帳號信箱', '出席狀態 / 職務與請假備註'];
 
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -1464,6 +1643,16 @@ export function buildPrintableMeetingSheetHtml(
       display: inline-block;
     }
     .muted { color: #a8a29e; font-size: 11px; }
+    .leave-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #92400e;
+      background: #fef3c7;
+      border: 1px solid #fcd34d;
+    }
     @media print {
       body { background: #ffffff; padding: 0; }
       .toolbar { display: none; }
@@ -1483,7 +1672,7 @@ export function buildPrintableMeetingSheetHtml(
       <div><strong>學年度：</strong>${escapeHtml(meeting.academicYear)}</div>
       <div><strong>活動時間：</strong>${escapeHtml(meeting.meetingDate)}</div>
       <div><strong>地點：</strong>${escapeHtml(meeting.location || '西門國小')}</div>
-      <div><strong>簽到人數：</strong>${count} ${countUnit}</div>
+      <div><strong>簽到統計：</strong>${escapeHtml(countSummary)}</div>
     </div>
     <table>
       <thead>

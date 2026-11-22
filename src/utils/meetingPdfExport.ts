@@ -1,8 +1,10 @@
 import {jsPDF} from 'jspdf';
 import {
+  isTeacherOnLeaveStatus,
   isValidSignatureDataUrl,
   MeetingCheckin,
   MeetingSession,
+  normalizeTeacherAttendanceStatus,
   ParentCheckin,
 } from '../services/meetingCheckinDb';
 
@@ -17,9 +19,9 @@ const CONTENT_W = PAGE_W - MARGIN_X * 2; // 1096
 const COL_WIDTHS = {
   index: 56,
   col1: 165,
-  col2: 215,
-  col3: 200,
-  signature: 270,
+  col2: 205,
+  col3: 240,
+  signature: 240,
   time: 190,
 } as const;
 
@@ -30,6 +32,8 @@ interface NormalizedAttendanceRow {
   col1: string;
   col2: string;
   col3: string;
+  attendanceStatus: string;
+  isLeave: boolean;
   signatureDataUrl: string;
   checkedInAtMs: number;
 }
@@ -104,8 +108,8 @@ function drawTableHeader(
         {label: '#', w: COL_WIDTHS.index, center: true},
         {label: '教師姓名', w: COL_WIDTHS.col1},
         {label: '校內帳號信箱', w: COL_WIDTHS.col2},
-        {label: '職務 / 年段備註', w: COL_WIDTHS.col3},
-        {label: '親自手寫簽名', w: COL_WIDTHS.signature, center: true},
+        {label: '狀態 / 職務與請假備註', w: COL_WIDTHS.col3},
+        {label: '簽名 / 請假別', w: COL_WIDTHS.signature, center: true},
         {label: '簽到時間', w: COL_WIDTHS.time},
       ];
 
@@ -160,16 +164,29 @@ export async function generateMeetingAttendancePdfBlob(
         col1: rec.studentClassAndSeat,
         col2: rec.parentName,
         col3: rec.relationshipOrNote,
+        attendanceStatus: '出席',
+        isLeave: false,
         signatureDataUrl: rec.signatureDataUrl,
         checkedInAtMs: rec.checkedInAtMs,
       }))
-    : teacherCheckins.map((rec) => ({
-        col1: rec.userName,
-        col2: rec.userEmail,
-        col3: rec.roleOrNote,
-        signatureDataUrl: rec.signatureDataUrl,
-        checkedInAtMs: rec.checkedInAtMs,
-      }));
+    : teacherCheckins.map((rec) => {
+        const status = normalizeTeacherAttendanceStatus(rec.attendanceStatus);
+        const isLeave = isTeacherOnLeaveStatus(status);
+        const noteParts = [
+          status,
+          rec.roleOrNote.trim(),
+          rec.leaveNote.trim(),
+        ].filter(Boolean);
+        return {
+          col1: rec.userName,
+          col2: rec.userEmail || '（管理員代登）',
+          col3: noteParts.join('｜'),
+          attendanceStatus: status,
+          isLeave,
+          signatureDataUrl: rec.signatureDataUrl,
+          checkedInAtMs: rec.checkedInAtMs,
+        };
+      });
 
   // Preload all valid signature images concurrently
   const loadedSignatures = await Promise.all(
@@ -226,11 +243,14 @@ export async function generateMeetingAttendancePdfBlob(
     MARGIN_X + 20,
     y + 64,
   );
-  ctx.fillText(
-    `總簽到人數：${rows.length} ${isParent ? '位家長' : '位教師'}`,
-    MARGIN_X + halfW + 12,
-    y + 64,
-  );
+  const leaveCount = rows.filter((r) => r.isLeave).length;
+  const presentCount = rows.length - leaveCount;
+  const summaryLabel = isParent
+    ? `總簽到人數：${rows.length} 位家長`
+    : leaveCount > 0
+      ? `總紀錄人數：${rows.length} 位教師（出席 ${presentCount}・請假 ${leaveCount}）`
+      : `總簽到人數：${rows.length} 位教師`;
+  ctx.fillText(summaryLabel, MARGIN_X + halfW + 12, y + 64);
   y += metaH + 22;
 
   y = drawTableHeader(ctx, y, isParent);
@@ -335,7 +355,7 @@ export async function generateMeetingAttendancePdfBlob(
       ctx.fillText(line, x + 12, col3StartY + i * 22);
     });
 
-    // Cell 5: Handwritten Signature Image
+    // Cell 5: Handwritten Signature Image or Leave Badge
     x += COL_WIDTHS.col3;
     if (sigImg) {
       const boxW = COL_WIDTHS.signature - 28;
@@ -346,6 +366,16 @@ export async function generateMeetingAttendancePdfBlob(
       const drawX = x + (COL_WIDTHS.signature - drawW) / 2;
       const drawY = y + (rowH - drawH) / 2;
       ctx.drawImage(sigImg, drawX, drawY, drawW, drawH);
+    } else if (rec.isLeave) {
+      ctx.fillStyle = '#92400E';
+      ctx.font = `700 17px ${FONT_FAMILY}`;
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        `請假：${rec.attendanceStatus}`,
+        x + COL_WIDTHS.signature / 2,
+        y + rowH / 2,
+      );
+      ctx.textAlign = 'left';
     } else {
       ctx.fillStyle = '#A8A29E';
       ctx.font = `400 16px ${FONT_FAMILY}`;

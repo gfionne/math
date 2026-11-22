@@ -247,6 +247,10 @@
           "type": "boolean",
           "description": "Whether check-in is manually enabled by admins."
         },
+        "allowLeaveReport": {
+          "type": "boolean",
+          "description": "Optional flag (defaults to true when omitted) enabling teacher leave status reporting (公假/事假/病假/其他請假) and leave notes."
+        },
         "checkinStartAt": {
           "type": "string",
           "format": "date-time",
@@ -298,7 +302,7 @@
     },
     "MeetingCheckin": {
       "title": "MeetingCheckin",
-      "description": "Teacher attendance check-in record keyed deterministically by {meetingId}_{userUid}. Contains teacher email PII so reads are strictly isolated to the record owner or admins.",
+      "description": "Teacher attendance and leave check-in record keyed deterministically by {meetingId}_{userUid}. Contains teacher email PII so reads are strictly isolated to the record owner or admins.",
       "type": "object",
       "properties": {
         "meetingId": {
@@ -316,7 +320,7 @@
         },
         "userUid": {
           "type": "string",
-          "description": "Firebase Auth UID of the checking-in teacher.",
+          "description": "Firebase Auth UID of the checking-in teacher (or generated ID when recorded by an admin for an absent teacher).",
           "minLength": 1,
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$"
@@ -329,8 +333,17 @@
         },
         "userEmail": {
           "type": "string",
-          "description": "Verified institutional or admin email.",
-          "minLength": 5,
+          "description": "Verified institutional or admin email (may be empty string when an admin records leave on behalf of an absent teacher).",
+          "maxLength": 200
+        },
+        "attendanceStatus": {
+          "type": "string",
+          "description": "Attendance or leave status (defaults to '出席' when omitted on legacy documents).",
+          "enum": ["出席", "公假", "事假", "病假", "其他請假"]
+        },
+        "leaveNote": {
+          "type": "string",
+          "description": "Optional leave reason, official notice, substitute teacher, or attendance remark.",
           "maxLength": 200
         },
         "roleOrNote": {
@@ -340,10 +353,8 @@
         },
         "signatureDataUrl": {
           "type": "string",
-          "description": "Base64-encoded PNG/WebP/JPEG data URL of the teacher's personal handwritten signature.",
-          "minLength": 22,
-          "maxLength": 200000,
-          "pattern": "^data:image/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$"
+          "description": "Base64-encoded PNG/WebP/JPEG data URL of the teacher's personal handwritten signature (required when attendanceStatus is '出席'; empty string allowed when on leave).",
+          "maxLength": 200000
         },
         "checkedInAt": {
           "type": "string",
