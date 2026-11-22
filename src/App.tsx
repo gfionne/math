@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import {ArticleCard} from './components/ArticleCard';
+import {ArticleDeckModal} from './components/ArticleDeckModal';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
 import {FeaturedSpotlight} from './components/FeaturedSpotlight';
@@ -244,6 +245,7 @@ function MainKnowledgeBaseApp() {
     url: string;
     title: string;
   } | null>(null);
+  const [deckModalPost, setDeckModalPost] = useState<JournalPost | null>(null);
   const handledQueryStageRef = useRef(false);
 
   const isSchoolAuthorized = useMemo(
@@ -3155,7 +3157,14 @@ function MainKnowledgeBaseApp() {
           setSiteQrTargetMode('current');
           setSiteQrMode('modal');
         }}
-        disableEscapeClose={siteQrMode === 'modal'}
+        onGenerateDeck={(targetPost) => setDeckModalPost(targetPost)}
+        disableEscapeClose={siteQrMode === 'modal' || Boolean(deckModalPost)}
+      />
+
+      <ArticleDeckModal
+        post={deckModalPost}
+        siteTitle={siteSettings.siteTitle}
+        onClose={() => setDeckModalPost(null)}
       />
 
       {/* Full-Viewport Interactive HTML Stage Modal */}

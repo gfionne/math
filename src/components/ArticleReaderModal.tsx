@@ -13,6 +13,7 @@ import {
   Lock,
   Maximize2,
   MonitorPlay,
+  Presentation,
   QrCode,
   ShieldCheck,
   X,
@@ -40,6 +41,7 @@ interface ArticleReaderModalProps {
   onEditPost: (post: JournalPost) => void;
   onOpenFullEmbed?: (url: string, title: string, initialTab?: 'map' | 'gallery') => void;
   onOpenShareQr?: () => void;
+  onGenerateDeck?: (post: JournalPost) => void;
   disableEscapeClose?: boolean;
 }
 
@@ -178,6 +180,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   onEditPost,
   onOpenFullEmbed,
   onOpenShareQr,
+  onGenerateDeck,
   disableEscapeClose = false,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -294,6 +297,18 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                   </>
                 )}
               </button>
+
+              {onGenerateDeck && !isLocked && (
+                <button
+                  type="button"
+                  onClick={() => onGenerateDeck(post)}
+                  title="利用 AI 整理此篇期刊重點，一鍵生成投影簡報"
+                  className="px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] border border-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 shadow-2xs"
+                >
+                  <Presentation className="w-3.5 h-3.5 shrink-0 text-[#FDE68A]" />
+                  <span>AI 生成簡報</span>
+                </button>
+              )}
 
               {onOpenShareQr && (
                 <button
