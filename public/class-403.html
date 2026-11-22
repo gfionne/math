@@ -6,6 +6,7 @@
   <title id="page-title">Pes Class Website 115 - 四年3班 (403)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth-compat.js"></script>
   <style>
@@ -147,6 +148,11 @@
             <div id="display-teacher-name" class="text-[10px] text-sky-200 font-medium">導師：黃老師</div>
             <div id="display-teacher-ext" class="font-bold text-sm tracking-wide">分機 5207</div>
           </div>
+
+          <!-- 網頁 QR Code 按鈕 -->
+          <button type="button" id="class-qr-open-btn" onclick="openClassQrModal()" title="顯示班級網頁 QR Code，方便現場投影掃碼或釘選於畫面角落" aria-label="顯示班級網頁 QR Code" class="inline-flex bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-2xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer border border-white/25 text-xs font-bold items-center gap-1.5">
+            <i class="fa-solid fa-qrcode"></i> <span>網頁 QR</span>
+          </button>
 
           <!-- 教師管理員登入 / 登出按鈕 -->
           <button type="button" id="admin-toggle-btn" onclick="openLoginModal()" class="inline-flex bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-2xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 cursor-pointer border border-white/25 text-xs font-bold items-center gap-1.5">
@@ -609,6 +615,81 @@
       <img id="modal-img-element" src="" alt="作業圖片放大預覽" class="max-w-full max-h-[85vh] object-contain rounded-xl mx-auto block">
     </div>
   </div>
+
+  <!-- 班級網頁 QR Code 投影視窗 -->
+  <div id="class-qr-modal" role="dialog" aria-modal="true" aria-labelledby="class-qr-modal-title" onclick="closeClassQrModal()" class="hidden fixed inset-0 bg-slate-950/65 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+    <div onclick="event.stopPropagation()" class="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-5 sm:p-6 space-y-4 text-center">
+      <div class="flex items-center justify-between pb-2.5 border-b border-slate-100">
+        <div class="flex items-center gap-2 text-xs font-bold text-indigo-700">
+          <i class="fa-solid fa-qrcode"></i>
+          <span id="class-qr-modal-title">現場簡報 · 掃碼進入班級網頁</span>
+        </div>
+        <button type="button" onclick="closeClassQrModal()" aria-label="關閉 QR Code 視窗" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <div class="space-y-1">
+        <h3 id="class-qr-heading" class="text-lg font-bold text-slate-900 leading-snug">Pes Class Website 115 ｜ 四年 3 班 (403)</h3>
+        <p id="class-qr-subtitle" class="text-xs text-slate-500">請家長或學生開啟手機相機或 LINE 掃描條碼，即可立即進入班級網頁</p>
+      </div>
+
+      <div class="inline-flex p-1 rounded-xl bg-slate-100 border border-slate-200 text-xs">
+        <button type="button" id="class-qr-target-home" onclick="setClassQrTargetMode('home')" class="px-3 py-1 rounded-lg font-bold transition cursor-pointer bg-white text-indigo-700 shadow-sm">
+          班網首頁
+        </button>
+        <button type="button" id="class-qr-target-tab" onclick="setClassQrTargetMode('tab')" class="px-3 py-1 rounded-lg font-semibold transition cursor-pointer text-slate-600 hover:text-slate-900">
+          目前分頁直達
+        </button>
+      </div>
+
+      <div class="w-60 h-60 sm:w-64 sm:h-64 mx-auto bg-white border border-slate-200 rounded-2xl p-3 shadow-sm flex items-center justify-center">
+        <img id="class-qr-modal-img" src="" alt="Pes Class Website QR Code" class="w-full h-full object-contain hidden">
+        <span id="class-qr-loading-text" class="text-xs text-slate-400">QR 碼產生中...</span>
+      </div>
+
+      <div id="class-qr-url-text" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-[11px] font-mono text-slate-600 break-all select-all"></div>
+
+      <div class="space-y-2 pt-1">
+        <button type="button" onclick="pinClassQr()" class="w-full py-2.5 px-4 text-xs font-bold text-white bg-indigo-700 hover:bg-indigo-800 rounded-xl inline-flex items-center justify-center gap-1.5 transition shadow-sm cursor-pointer">
+          <i class="fa-solid fa-thumbtack"></i>
+          <span>釘選於畫面角落（邊操作邊展示 QR 碼）</span>
+        </button>
+        <div class="flex items-center gap-2">
+          <button type="button" id="class-qr-copy-btn" onclick="copyClassQrUrl()" class="flex-1 py-2 px-3 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl inline-flex items-center justify-center gap-1.5 transition cursor-pointer">
+            <i class="fa-regular fa-copy"></i>
+            <span id="class-qr-copy-label">複製網址</span>
+          </button>
+          <button type="button" id="class-qr-download-btn" onclick="downloadClassQr()" class="flex-1 py-2 px-3 text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl inline-flex items-center justify-center gap-1.5 transition cursor-pointer">
+            <i class="fa-solid fa-download"></i>
+            <span>下載 QR 圖檔</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 釘選於左下角的班級網頁 QR Code 小卡（避開右下角 AI 小幫手） -->
+  <aside id="class-qr-pinned" aria-label="固定顯示班級網頁 QR Code" class="hidden fixed bottom-5 left-5 z-[60] w-44 sm:w-48 bg-white/95 backdrop-blur-md border-2 border-indigo-500/35 rounded-2xl shadow-2xl p-3 space-y-2">
+    <div class="flex items-center justify-between gap-1">
+      <span class="text-[11px] font-bold text-indigo-700 inline-flex items-center gap-1 truncate">
+        <i class="fa-solid fa-qrcode shrink-0"></i>
+        <span id="class-qr-pinned-header">掃碼進入班網</span>
+      </span>
+      <div class="flex items-center gap-0.5 shrink-0">
+        <button type="button" onclick="openClassQrModal()" title="放大 QR Code" aria-label="放大 QR Code" class="p-1 rounded-md text-slate-500 hover:text-indigo-700 hover:bg-slate-100 transition cursor-pointer">
+          <i class="fa-solid fa-maximize text-[11px]"></i>
+        </button>
+        <button type="button" onclick="closeClassQrAll()" title="關閉角落 QR Code" aria-label="關閉角落 QR Code" class="p-1 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition cursor-pointer">
+          <i class="fa-solid fa-xmark text-xs"></i>
+        </button>
+      </div>
+    </div>
+    <button type="button" onclick="openClassQrModal()" title="點擊放大顯示" class="w-36 h-36 sm:w-40 sm:h-40 mx-auto bg-white border border-slate-200 rounded-xl p-1.5 flex items-center justify-center hover:border-indigo-400 transition cursor-pointer">
+      <img id="class-qr-pinned-img" src="" alt="掃碼進入班級網頁 QR Code" class="w-full h-full object-contain">
+    </button>
+    <p id="class-qr-pinned-caption" class="text-[10px] text-slate-500 text-center truncate px-1 font-medium">Pes Class Website 115</p>
+  </aside>
 
   <script>
     const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw2Kzbm7OI8sDLUlpMNcoq_Zl86dTuBCCVEDK5yEnYkAAVTo18mFhkcfVnXkJ4Sd_9T/exec";
@@ -1403,12 +1484,21 @@ function toggleAdminUI(show) {
     }
 
 const VALID_CLASS_TABS = ['agenda', 'news', 'resources', 'contact', 'comments'];
+const CLASS_TAB_LABELS = {
+  agenda: '互動聯絡簿',
+  news: '最新公告與行事曆',
+  resources: '學習資源庫',
+  contact: '聯絡資訊與課表',
+  comments: '班級交流留言板'
+};
+let currentClassTab = 'agenda';
 
 window.switchTab = function(tabId, skipNotifyParent) {
   try {
     if (!VALID_CLASS_TABS.includes(tabId)) {
       tabId = 'agenda';
     }
+    currentClassTab = tabId;
 
     VALID_CLASS_TABS.forEach(t => {
       const contentEl = document.getElementById(`content-${t}`);
@@ -1443,6 +1533,10 @@ window.switchTab = function(tabId, skipNotifyParent) {
           window.location.origin
         );
       } catch {}
+    }
+
+    if (typeof refreshClassQrIfVisible === 'function') {
+      refreshClassQrIfVisible();
     }
 
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2665,6 +2759,195 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       timer = setTimeout(() => { clickCount = 0; }, 800);
     });
+  }
+});
+
+// ======================== 班級網頁 QR Code 簡報分享功能 ========================
+let classQrMode = 'closed'; // 'closed' | 'modal' | 'pinned'
+let classQrTargetMode = 'home'; // 'home' | 'tab'
+let classQrDataUrl = '';
+
+function getClassQrUrls() {
+  const baseUrl = window.location.origin + window.location.pathname;
+  const tabUrl = baseUrl + '?tab=' + encodeURIComponent(currentClassTab || 'agenda');
+  return { homeUrl: baseUrl, tabUrl: tabUrl };
+}
+
+function getActiveClassQrUrl() {
+  const urls = getClassQrUrls();
+  return classQrTargetMode === 'tab' ? urls.tabUrl : urls.homeUrl;
+}
+
+function buildClassQrDataUrl(text) {
+  if (!text || typeof window.qrcode !== 'function') return '';
+  try {
+    if (window.qrcode.stringToBytesFuncs && window.qrcode.stringToBytesFuncs['UTF-8']) {
+      window.qrcode.stringToBytes = window.qrcode.stringToBytesFuncs['UTF-8'];
+    }
+    const qr = window.qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const count = qr.getModuleCount();
+    const margin = 2;
+    const totalModules = count + margin * 2;
+    const size = 360;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#1E3A8A';
+    const cellSize = size / totalModules;
+    for (let r = 0; r < count; r++) {
+      for (let c = 0; c < count; c++) {
+        if (qr.isDark(r, c)) {
+          const x = Math.floor((c + margin) * cellSize);
+          const y = Math.floor((r + margin) * cellSize);
+          const w = Math.ceil((c + margin + 1) * cellSize) - x;
+          const h = Math.ceil((r + margin + 1) * cellSize) - y;
+          ctx.fillRect(x, y, w, h);
+        }
+      }
+    }
+    return canvas.toDataURL('image/png');
+  } catch (err) {
+    console.error('產生班網 QR Code 失敗：', err);
+    return '';
+  }
+}
+
+function renderClassQrUI() {
+  const modalEl = document.getElementById('class-qr-modal');
+  const pinnedEl = document.getElementById('class-qr-pinned');
+  if (!modalEl || !pinnedEl) return;
+
+  modalEl.classList.toggle('hidden', classQrMode !== 'modal');
+  pinnedEl.classList.toggle('hidden', classQrMode !== 'pinned');
+  if (classQrMode === 'closed') return;
+
+  const activeUrl = getActiveClassQrUrl();
+  classQrDataUrl = buildClassQrDataUrl(activeUrl);
+
+  const siteTitleText = (document.getElementById('display-site-title')?.textContent || 'Pes Class Website 115').trim();
+  const tabLabel = CLASS_TAB_LABELS[currentClassTab] || '互動聯絡簿';
+  const isTabMode = classQrTargetMode === 'tab';
+
+  const modalTitleEl = document.getElementById('class-qr-modal-title');
+  const headingEl = document.getElementById('class-qr-heading');
+  const subtitleEl = document.getElementById('class-qr-subtitle');
+  const urlEl = document.getElementById('class-qr-url-text');
+  const modalImgEl = document.getElementById('class-qr-modal-img');
+  const loadingEl = document.getElementById('class-qr-loading-text');
+  const homeBtn = document.getElementById('class-qr-target-home');
+  const tabBtn = document.getElementById('class-qr-target-tab');
+  const pinnedHeaderEl = document.getElementById('class-qr-pinned-header');
+  const pinnedImgEl = document.getElementById('class-qr-pinned-img');
+  const pinnedCaptionEl = document.getElementById('class-qr-pinned-caption');
+
+  if (modalTitleEl) {
+    modalTitleEl.textContent = isTabMode ? '現場簡報 · 掃碼直達目前分頁' : '現場簡報 · 掃碼進入班級網頁';
+  }
+  if (headingEl) {
+    headingEl.textContent = isTabMode ? `${siteTitleText} · ${tabLabel}` : `${siteTitleText} ｜ 四年 3 班 (403)`;
+  }
+  if (subtitleEl) {
+    subtitleEl.textContent = isTabMode
+      ? `請家長或學生用手機掃描條碼，即可直接開啟「${tabLabel}」頁面`
+      : '請家長或學生開啟手機相機或 LINE 掃描條碼，即可立即進入班級網頁';
+  }
+  if (urlEl) {
+    urlEl.textContent = activeUrl;
+  }
+  if (homeBtn && tabBtn) {
+    homeBtn.className = !isTabMode
+      ? 'px-3 py-1 rounded-lg font-bold transition cursor-pointer bg-white text-indigo-700 shadow-sm'
+      : 'px-3 py-1 rounded-lg font-semibold transition cursor-pointer text-slate-600 hover:text-slate-900';
+    tabBtn.className = isTabMode
+      ? 'px-3 py-1 rounded-lg font-bold transition cursor-pointer bg-white text-indigo-700 shadow-sm'
+      : 'px-3 py-1 rounded-lg font-semibold transition cursor-pointer text-slate-600 hover:text-slate-900';
+  }
+  if (modalImgEl && loadingEl) {
+    if (classQrDataUrl) {
+      modalImgEl.src = classQrDataUrl;
+      modalImgEl.classList.remove('hidden');
+      loadingEl.classList.add('hidden');
+    } else {
+      modalImgEl.classList.add('hidden');
+      loadingEl.textContent = '無法載入 QR 碼產生器，請複製上方網址分享';
+      loadingEl.classList.remove('hidden');
+    }
+  }
+  if (pinnedHeaderEl) {
+    pinnedHeaderEl.textContent = isTabMode ? `掃碼看${tabLabel}` : '掃碼進入班網';
+  }
+  if (pinnedImgEl && classQrDataUrl) {
+    pinnedImgEl.src = classQrDataUrl;
+  }
+  if (pinnedCaptionEl) {
+    pinnedCaptionEl.textContent = isTabMode ? tabLabel : siteTitleText;
+  }
+}
+
+function refreshClassQrIfVisible() {
+  if (classQrMode !== 'closed') {
+    renderClassQrUI();
+  }
+}
+
+window.openClassQrModal = function() {
+  classQrMode = 'modal';
+  renderClassQrUI();
+};
+
+window.closeClassQrModal = function() {
+  classQrMode = 'closed';
+  renderClassQrUI();
+};
+
+window.closeClassQrAll = function() {
+  classQrMode = 'closed';
+  renderClassQrUI();
+};
+
+window.pinClassQr = function() {
+  classQrMode = 'pinned';
+  renderClassQrUI();
+};
+
+window.setClassQrTargetMode = function(mode) {
+  classQrTargetMode = mode === 'tab' ? 'tab' : 'home';
+  renderClassQrUI();
+};
+
+window.copyClassQrUrl = function() {
+  const url = getActiveClassQrUrl();
+  if (!url || !navigator.clipboard) return;
+  navigator.clipboard.writeText(url).then(() => {
+    const label = document.getElementById('class-qr-copy-label');
+    if (label) {
+      label.textContent = '已複製網址';
+      setTimeout(() => { label.textContent = '複製網址'; }, 2200);
+    }
+  }).catch(() => {});
+};
+
+window.downloadClassQr = function() {
+  if (!classQrDataUrl) return;
+  const link = document.createElement('a');
+  link.href = classQrDataUrl;
+  link.download = classQrTargetMode === 'tab'
+    ? `pes-class-403-${currentClassTab || 'agenda'}-qrcode.png`
+    : 'pes-class-403-qrcode.png';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && classQrMode === 'modal') {
+    closeClassQrModal();
   }
 });
   </script>

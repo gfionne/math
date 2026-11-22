@@ -5,6 +5,7 @@ import {
   ExternalLink,
   GraduationCap,
   MonitorPlay,
+  QrCode,
   X,
 } from 'lucide-react';
 import {isClass403AdminEmail} from '../services/googleAuth';
@@ -63,6 +64,8 @@ interface InteractiveEmbedModalProps {
   onUpdateHiddenOfficialAssets: (
     nextIds: string[],
   ) => Promise<{synced: boolean; errorMessage?: string}>;
+  onOpenShareQr?: (url: string, title: string) => void;
+  disableEscapeClose?: boolean;
 }
 
 function buildTabbedUrl(
@@ -111,6 +114,8 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
   onSignOut,
   hiddenOfficialAssetIds,
   onUpdateHiddenOfficialAssets,
+  onOpenShareQr,
+  disableEscapeClose = false,
 }) => {
   const isXimenSite = useMemo(() => url.includes('ximen-scratch.html'), [url]);
   const isClass403Site = useMemo(() => url.includes('class-403.html'), [url]);
@@ -141,7 +146,7 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
   }, [isOpen, initialTab, url, isXimenSite, isClass403Site]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || disableEscapeClose) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -149,7 +154,7 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, disableEscapeClose, onClose]);
 
   const syncParentAuthToClass403 = useCallback(async () => {
     if (!isOpen || !isClass403Site) return;
@@ -346,6 +351,27 @@ export const InteractiveEmbedModal: React.FC<InteractiveEmbedModalProps> = ({
           )}
 
           <div className="flex items-center gap-2 shrink-0">
+            {onOpenShareQr && (!isXimenSite || activeTab !== 'gallery') && (
+              <button
+                type="button"
+                onClick={() => {
+                  const absoluteUrl = new URL(
+                    standaloneHref,
+                    window.location.href,
+                  ).toString();
+                  const tabLabel = isClass403Site
+                    ? CLASS403_TABS.find((t) => t.id === activeClassTab)?.label
+                    : XIMEN_TABS.find((t) => t.id === activeTab)?.label;
+                  const shareTitle = tabLabel ? `${title} · ${tabLabel}` : title;
+                  onOpenShareQr(absoluteUrl, shareTitle);
+                }}
+                title="產生此頁面的 QR Code（可投影放大或釘選角落）"
+                className="min-h-[40px] px-3 py-2 text-xs font-medium text-[#1E3A8A] bg-[#1E3A8A]/8 hover:bg-[#1E3A8A]/15 border border-[#1E3A8A]/25 active:scale-[0.97] rounded-lg inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+              >
+                <QrCode className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">網頁 QR</span>
+              </button>
+            )}
             {(!isXimenSite || activeTab !== 'gallery') && (
               <a
                 href={standaloneHref}

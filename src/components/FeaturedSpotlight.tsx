@@ -7,6 +7,7 @@ import {
   FileText,
   Lock,
   MonitorPlay,
+  Presentation,
   Table2,
   Video,
 } from 'lucide-react';
@@ -22,12 +23,14 @@ interface FeaturedSpotlightProps {
   posts: JournalPost[];
   onSelectPost: (post: JournalPost) => void;
   checkPostLocked?: (post: JournalPost) => boolean;
+  onOpenPresentationMode?: () => void;
 }
 
 export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
   posts,
   onSelectPost,
   checkPostLocked,
+  onOpenPresentationMode,
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [failedImageSlugs, setFailedImageSlugs] = useState<Record<string, boolean>>({});
@@ -221,31 +224,50 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
             )}
           </div>
 
-          {posts.length > 1 && (
+          {(posts.length > 1 || onOpenPresentationMode) && (
             <div
               className="flex items-center gap-1 shrink-0"
               onClick={(e) => e.stopPropagation()}
             >
-              <button
-                type="button"
-                onClick={handlePrev}
-                aria-label="上一篇焦點文章"
-                className="w-7 h-7 rounded-md bg-[#0A183D]/75 border border-white/20 text-white/90 hover:bg-white hover:text-[#0C1D47] flex items-center justify-center transition-colors"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              <span className="px-1.5 text-[11px] font-mono-tabular text-white/90 select-none">
-                {String(activeIndex + 1).padStart(2, '0')}/
-                {String(posts.length).padStart(2, '0')}
-              </span>
-              <button
-                type="button"
-                onClick={handleNext}
-                aria-label="下一篇焦點文章"
-                className="w-7 h-7 rounded-md bg-[#0A183D]/75 border border-white/20 text-white/90 hover:bg-white hover:text-[#0C1D47] flex items-center justify-center transition-colors"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+              {onOpenPresentationMode && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenPresentationMode();
+                  }}
+                  title="開啟簡報模式（適合投影，每 15 秒自動輪播本期焦點並同步 QR Code）"
+                  aria-label="開啟簡報模式"
+                  className="h-7 px-2 rounded-md bg-[#FDE68A] text-[#0C1D47] hover:bg-white text-[11px] font-bold inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0 mr-0.5 shadow-xs"
+                >
+                  <Presentation className="w-3.5 h-3.5 shrink-0" />
+                  <span>簡報模式</span>
+                </button>
+              )}
+              {posts.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handlePrev}
+                    aria-label="上一篇焦點文章"
+                    className="w-7 h-7 rounded-md bg-[#0A183D]/75 border border-white/20 text-white/90 hover:bg-white hover:text-[#0C1D47] flex items-center justify-center transition-colors"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="px-1.5 text-[11px] font-mono-tabular text-white/90 select-none">
+                    {String(activeIndex + 1).padStart(2, '0')}/
+                    {String(posts.length).padStart(2, '0')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleNext}
+                    aria-label="下一篇焦點文章"
+                    className="w-7 h-7 rounded-md bg-[#0A183D]/75 border border-white/20 text-white/90 hover:bg-white hover:text-[#0C1D47] flex items-center justify-center transition-colors"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

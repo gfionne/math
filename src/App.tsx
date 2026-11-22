@@ -240,6 +240,10 @@ function MainKnowledgeBaseApp() {
   );
   const [siteQrDataUrl, setSiteQrDataUrl] = useState<string>('');
   const [copiedSiteUrl, setCopiedSiteUrl] = useState(false);
+  const [customQrTarget, setCustomQrTarget] = useState<{
+    url: string;
+    title: string;
+  } | null>(null);
   const handledQueryStageRef = useRef(false);
 
   const isSchoolAuthorized = useMemo(
@@ -466,14 +470,20 @@ function MainKnowledgeBaseApp() {
       return {homeUrl: '', currentUrl: '', hasDistinctCurrent: false};
     }
     const homeUrl = `${window.location.origin}${window.location.pathname}`;
-    const currentUrl = activePost
-      ? `${window.location.origin}${window.location.pathname}${window.location.search}#post=${encodeURIComponent(activePost.slug)}`
-      : window.location.href;
+    const currentUrl = customQrTarget?.url
+      ? customQrTarget.url
+      : activePost
+        ? `${window.location.origin}${window.location.pathname}${window.location.search}#post=${encodeURIComponent(activePost.slug)}`
+        : interactiveStage.isOpen && interactiveStage.url
+          ? new URL(interactiveStage.url, window.location.href).toString()
+          : window.location.href;
     const hasDistinctCurrent =
+      Boolean(customQrTarget?.url) ||
       Boolean(activePost) ||
+      interactiveStage.isOpen ||
       (currentUrl !== homeUrl && currentUrl !== `${homeUrl}#top`);
     return {homeUrl, currentUrl, hasDistinctCurrent};
-  }, [activePost, interactiveStage.isOpen, siteQrMode]);
+  }, [activePost, interactiveStage.isOpen, interactiveStage.url, siteQrMode, customQrTarget]);
 
   const activeSiteShareUrl =
     siteQrTargetMode === 'current' && siteShareUrls.hasDistinctCurrent
@@ -1669,11 +1679,12 @@ function MainKnowledgeBaseApp() {
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  setCustomQrTarget(null);
                   setSiteQrMode((prev) =>
                     prev === 'modal' ? 'closed' : 'modal',
-                  )
-                }
+                  );
+                }}
                 title="顯示本網頁 QR Code，方便現場簡報時聽眾掃碼進入"
                 aria-label="顯示本網頁 QR Code"
                 className={`px-2 sm:px-2.5 py-1.5 text-xs font-medium rounded-lg border inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0 ${
@@ -3140,6 +3151,7 @@ function MainKnowledgeBaseApp() {
           });
         }}
         onOpenShareQr={() => {
+          setCustomQrTarget(null);
           setSiteQrTargetMode('current');
           setSiteQrMode('modal');
         }}
@@ -3152,9 +3164,16 @@ function MainKnowledgeBaseApp() {
         url={interactiveStage.url}
         title={interactiveStage.title}
         initialTab={interactiveStage.initialTab}
-        onClose={() =>
-          setInteractiveStage((prev) => ({...prev, isOpen: false}))
-        }
+        onClose={() => {
+          setCustomQrTarget(null);
+          setInteractiveStage((prev) => ({...prev, isOpen: false}));
+        }}
+        onOpenShareQr={(url, label) => {
+          setCustomQrTarget({url, title: label});
+          setSiteQrTargetMode('current');
+          setSiteQrMode('modal');
+        }}
+        disableEscapeClose={siteQrMode === 'modal'}
         user={user}
         isTeacher={isTeacherAdmin}
         hasAccessToken={hasAccessToken}
@@ -3407,7 +3426,9 @@ function MainKnowledgeBaseApp() {
                 <span id="site-qr-modal-title">
                   {siteQrTargetMode === 'current' && activePost
                     ? '現場簡報 · 掃碼直達本文章'
-                    : '現場簡報 · 掃碼進入本網頁'}
+                    : siteQrTargetMode === 'current' && (customQrTarget || interactiveStage.isOpen)
+                      ? '現場簡報 · 掃碼直達目前頁面'
+                      : '現場簡報 · 掃碼進入本網頁'}
                 </span>
               </div>
               <button
@@ -3424,12 +3445,16 @@ function MainKnowledgeBaseApp() {
               <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug line-clamp-2">
                 {siteQrTargetMode === 'current' && activePost
                   ? activePost.title
-                  : siteSettings.siteTitle}
+                  : siteQrTargetMode === 'current' && (customQrTarget?.title || interactiveStage.isOpen)
+                    ? customQrTarget?.title || interactiveStage.title
+                    : siteSettings.siteTitle}
               </h3>
               <p className="text-xs text-stone-500">
                 {siteQrTargetMode === 'current' && activePost
                   ? '請聽眾開啟手機相機或 LINE 掃描條碼，即可直接開啟本篇文章'
-                  : '請聽眾開啟手機相機或 LINE 掃描條碼，即可立即瀏覽本知識庫網頁'}
+                  : siteQrTargetMode === 'current' && (customQrTarget || interactiveStage.isOpen)
+                    ? '請聽眾開啟手機相機或 LINE 掃描條碼，即可直接進入此頁面'
+                    : '請聽眾開啟手機相機或 LINE 掃描條碼，即可立即瀏覽本知識庫網頁'}
               </p>
             </div>
 
@@ -3455,7 +3480,7 @@ function MainKnowledgeBaseApp() {
                       : 'text-stone-600 hover:text-stone-900'
                   }`}
                 >
-                  {activePost ? '目前文章直達' : '目前畫面直達'}
+                  {activePost ? '目前文章直達' : '目前頁面直達'}
                 </button>
               </div>
             )}
@@ -3523,7 +3548,11 @@ function MainKnowledgeBaseApp() {
       {siteQrMode === 'pinned' && (
         <aside
           aria-label="固定顯示網頁 QR Code"
-          className="fixed bottom-4 right-4 z-[60] w-44 sm:w-48 bg-white/95 backdrop-blur-md border border-[#1E3A8A]/30 rounded-2xl shadow-2xl p-3 space-y-2 print:hidden"
+          className={`fixed bottom-4 ${
+            interactiveStage.isOpen && interactiveStage.url.includes('class-403.html')
+              ? 'left-4'
+              : 'right-4'
+          } z-[60] w-44 sm:w-48 bg-white/95 backdrop-blur-md border border-[#1E3A8A]/30 rounded-2xl shadow-2xl p-3 space-y-2 print:hidden`}
         >
           <div className="flex items-center justify-between gap-1">
             <span className="text-[11px] font-bold text-[#1E3A8A] inline-flex items-center gap-1 truncate">
@@ -3531,7 +3560,9 @@ function MainKnowledgeBaseApp() {
               <span>
                 {siteQrTargetMode === 'current' && activePost
                   ? '掃碼直達本文章'
-                  : '掃碼進入本網頁'}
+                  : siteQrTargetMode === 'current' && (customQrTarget || interactiveStage.isOpen)
+                    ? '掃碼進入此頁面'
+                    : '掃碼進入本網頁'}
               </span>
             </span>
             <div className="flex items-center gap-0.5 shrink-0">
@@ -3576,7 +3607,9 @@ function MainKnowledgeBaseApp() {
           <p className="text-[10px] text-stone-500 text-center truncate px-1">
             {siteQrTargetMode === 'current' && activePost
               ? activePost.title
-              : siteSettings.siteTitle}
+              : siteQrTargetMode === 'current' && (customQrTarget?.title || interactiveStage.isOpen)
+                ? customQrTarget?.title || interactiveStage.title
+                : siteSettings.siteTitle}
           </p>
         </aside>
       )}
