@@ -2411,7 +2411,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                       className="px-3 py-1.5 text-xs font-semibold text-emerald-950 bg-emerald-100/80 border border-emerald-300 rounded-lg hover:bg-emerald-200 inline-flex items-center gap-1.5 shadow-sm"
                                     >
                                       <FileText className="w-3.5 h-3.5" />
-                                      <span>列印 1/4 A4 通知單</span>
+                                      <span>列印通知單</span>
                                     </button>
                                 </div>
 
@@ -4055,7 +4055,7 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
                                             className="px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#1E3A8A]/10 border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/20 inline-flex items-center gap-1.5 shadow-sm"
                                           >
                                             <FileText className="w-3.5 h-3.5" />
-                                            <span>列印 1/4 A4 通知單</span>
+                                            <span>列印通知單</span>
                                           </button>
                                       </div>
 
