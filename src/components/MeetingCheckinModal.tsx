@@ -64,6 +64,7 @@ import {
   updateMyCheckinNote,
 } from '../services/meetingCheckinDb';
 import {SignaturePad} from './SignaturePad';
+import {MeetingNoticeModal} from './MeetingNoticeModal';
 import {
   generateMeetingAttendancePdfBlob,
   triggerSafeBlobDownload,
@@ -372,6 +373,8 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
     teacherCheckins: MeetingCheckin[];
     parentCheckins: ParentCheckin[];
   } | null>(null);
+  const [activeNoticeMeeting, setActiveNoticeMeeting] =
+    useState<MeetingSession | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfNotice, setPdfNotice] = useState<string | null>(null);
   const [readyPdfDownload, setReadyPdfDownload] = useState<{
@@ -5123,6 +5126,11 @@ export const MeetingCheckinModal: React.FC<MeetingCheckinModalProps> = ({
           </div>,
           document.body,
         )}
+
+      <MeetingNoticeModal
+        meeting={activeNoticeMeeting}
+        onClose={() => setActiveNoticeMeeting(null)}
+      />
     </div>
   );
 };
