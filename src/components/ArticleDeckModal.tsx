@@ -1,4 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import QRCode from 'qrcode';
 import {
   AlertCircle,
@@ -7,6 +9,7 @@ import {
   ChevronRight,
   Download,
   Edit3,
+  FileText,
   Loader2,
   Maximize2,
   Minimize2,
@@ -17,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
+import {findPresetDeckForPost} from '../config/presetDecks';
 import {auth} from '../services/googleAuth';
 import {
   formatCategoryDisplay,
@@ -28,6 +32,8 @@ import {
   exportArticleDeckPdf,
   GeneratedArticleDeck,
 } from '../utils/slideDeckExport';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 interface ArticleDeckModalProps {
   post: JournalPost | null;
@@ -46,6 +52,9 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
   siteTitle,
   onClose,
 }) => {
+  const presetDeck = useMemo(() => findPresetDeckForPost(post), [post]);
+
+  const [viewSource, setViewSource] = useState<'preset' | 'ai'>('preset');
   const [audienceStyle, setAudienceStyle] =
     useState<AudienceStyle>('teaching');
   const [deck, setDeck] = useState<GeneratedArticleDeck | null>(null);
@@ -55,14 +64,27 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showNotes, setShowNotes] = useState(true);
-  const [showCornerQr, setShowCornerQr] = useState(true);
+  const [showCornerQr, setShowCornerQr] = useState(false);
   const [isEditingSlide, setIsEditingSlide] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [coverBroken, setCoverBroken] = useState(false);
 
+  // Preset PDF Deck rendering states
+  const [pdfPageCount, setPdfPageCount] = useState(0);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfSlides, setPdfSlides] = useState<Record<number, string>>({});
+  const [pdfThumbs, setPdfThumbs] = useState<Record<number, string>>({});
+
   const cacheRef = useRef<Record<string, GeneratedArticleDeck>>({});
   const abortRef = useRef<AbortController | null>(null);
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
+  const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+  const renderedSlideCacheRef = useRef<Record<string, string>>({});
+  const renderedThumbCacheRef = useRef<Record<string, string>>({});
+
+  const effectiveSource: 'preset' | 'ai' =
+    presetDeck && viewSource === 'preset' ? 'preset' : 'ai';
 
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined' || !post) return '';
@@ -89,12 +111,155 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
     };
   }, [post, shareUrl]);
 
+  // Reset source & active slide whenever switching posts
   useEffect(() => {
     setCoverBroken(false);
-  }, [post?.slug]);
+    setActiveIndex(0);
+    setIsEditingSlide(false);
+    setErrorMsg(null);
+    setPdfError(null);
+    if (presetDeck) {
+      setViewSource('preset');
+      setShowCornerQr(false);
+    } else {
+      setViewSource('ai');
+      setShowCornerQr(true);
+    }
+  }, [post?.slug, presetDeck]);
+
+  // Load and render preset PDF document when in preset mode
+  useEffect(() => {
+    if (!post || effectiveSource !== 'preset' || !presetDeck) {
+      return;
+    }
+
+    let cancelled = false;
+    setPdfLoading(true);
+    setPdfError(null);
+    setPdfSlides({});
+    setPdfThumbs({});
+    setPdfPageCount(presetDeck.slides.length);
+
+    const loadingTask = pdfjsLib.getDocument({url: presetDeck.pdfUrl});
+
+    void loadingTask.promise
+      .then(async (doc) => {
+        if (cancelled) {
+          void doc.cleanup().catch(() => {});
+          return;
+        }
+        pdfDocRef.current = doc;
+        setPdfPageCount(doc.numPages);
+        setPdfLoading(false);
+
+        const renderPageToDataUrl = async (
+          pageNum: number,
+          targetWidth: number,
+        ): Promise<string> => {
+          const page = await doc.getPage(pageNum);
+          const baseViewport = page.getViewport({scale: 1});
+          const scale = targetWidth / baseViewport.width;
+          const viewport = page.getViewport({scale});
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(viewport.width);
+          canvas.height = Math.round(viewport.height);
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return '';
+          await page.render({canvas, canvasContext: ctx, viewport}).promise;
+          return canvas.toDataURL('image/jpeg', 0.92);
+        };
+
+        // Render slide 1 immediately, then thumbnails and remaining slides sequentially
+        const firstUrl =
+          renderedSlideCacheRef.current[`${presetDeck.id}:1`] ||
+          (await renderPageToDataUrl(1, 1600));
+        if (!cancelled && firstUrl) {
+          renderedSlideCacheRef.current[`${presetDeck.id}:1`] = firstUrl;
+          setPdfSlides((prev) => ({...prev, 1: firstUrl}));
+        }
+
+        for (let p = 1; p <= doc.numPages; p++) {
+          if (cancelled) return;
+          const thumbKey = `${presetDeck.id}:${p}`;
+          const thumbUrl =
+            renderedThumbCacheRef.current[thumbKey] ||
+            (await renderPageToDataUrl(p, 300));
+          if (!cancelled && thumbUrl) {
+            renderedThumbCacheRef.current[thumbKey] = thumbUrl;
+            setPdfThumbs((prev) => ({...prev, [p]: thumbUrl}));
+          }
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Failed to load preset presentation PDF:', err);
+        setPdfError('無法載入預設簡報 PDF，請嘗試重新整理或改用下載檢視。');
+        setPdfLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+      void loadingTask.destroy().catch(() => {});
+      if (pdfDocRef.current) {
+        void pdfDocRef.current.cleanup().catch(() => {});
+        pdfDocRef.current = null;
+      }
+    };
+  }, [post, effectiveSource, presetDeck]);
+
+  // Render active PDF page at high resolution on demand when navigating slides
+  useEffect(() => {
+    if (effectiveSource !== 'preset' || !presetDeck) return;
+    const doc = pdfDocRef.current;
+    if (!doc) return;
+
+    const targetPage = activeIndex + 1;
+    if (targetPage < 1 || targetPage > doc.numPages) return;
+
+    const cacheKey = `${presetDeck.id}:${targetPage}`;
+    if (renderedSlideCacheRef.current[cacheKey]) {
+      setPdfSlides((prev) =>
+        prev[targetPage]
+          ? prev
+          : {...prev, [targetPage]: renderedSlideCacheRef.current[cacheKey]},
+      );
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const page = await doc.getPage(targetPage);
+        if (cancelled) return;
+        const baseViewport = page.getViewport({scale: 1});
+        const scale = 1600 / baseViewport.width;
+        const viewport = page.getViewport({scale});
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        await page.render({canvas, canvasContext: ctx, viewport}).promise;
+        if (cancelled) return;
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        renderedSlideCacheRef.current[cacheKey] = dataUrl;
+        setPdfSlides((prev) => ({...prev, [targetPage]: dataUrl}));
+      } catch {
+        // ignore transient page render cancellation
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveSource, presetDeck, activeIndex, pdfPageCount]);
 
   const generateDeck = useCallback(
-    async (targetPost: JournalPost, style: AudienceStyle, forceRefresh = false) => {
+    async (
+      targetPost: JournalPost,
+      style: AudienceStyle,
+      forceRefresh = false,
+    ) => {
       const cacheKey = `${targetPost.slug}::${style}`;
       if (!forceRefresh && cacheRef.current[cacheKey]) {
         setDeck(cacheRef.current[cacheKey]);
@@ -116,7 +281,9 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
       try {
         const idToken = await auth.currentUser?.getIdToken();
         if (!idToken) {
-          throw new Error('此功能僅限已登入之管理者使用，請先登入管理者帳號。');
+          throw new Error(
+            '此功能僅限已登入之管理者使用，請先登入管理者帳號。',
+          );
         }
 
         const response = await fetch('/api/ai/generate-slides', {
@@ -142,7 +309,7 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {
           throw new Error(
-            '目前所在的靜態網址環境未啟用後端 AI 服務，請於 AI Studio 預覽或全端伺服器環境中使用「AI 生成簡報」功能。',
+            '目前所在的靜態網址環境未啟用後端 AI 服務，請於 AI Studio 預覽或全端伺服器環境中使用「AI 重新整理文字版」功能。',
           );
         }
 
@@ -151,7 +318,9 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
         };
 
         if (!response.ok || payload.error) {
-          throw new Error(payload.error || `伺服器回應錯誤（${response.status}）`);
+          throw new Error(
+            payload.error || `伺服器回應錯誤（${response.status}）`,
+          );
         }
 
         if (!Array.isArray(payload.slides) || payload.slides.length === 0) {
@@ -184,7 +353,7 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
     [siteTitle],
   );
 
-  // Trigger 1-click generation immediately when modal opens with a post
+  // Trigger AI generation only when in AI mode
   useEffect(() => {
     if (!post) {
       abortRef.current?.abort();
@@ -194,11 +363,16 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
       setIsEditingSlide(false);
       return;
     }
+    if (effectiveSource !== 'ai') {
+      abortRef.current?.abort();
+      setIsLoading(false);
+      return;
+    }
     void generateDeck(post, audienceStyle, false);
     return () => {
       abortRef.current?.abort();
     };
-  }, [post, audienceStyle, generateDeck]);
+  }, [post, effectiveSource, audienceStyle, generateDeck]);
 
   // Track browser fullscreen state
   useEffect(() => {
@@ -228,7 +402,10 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
     }
   }, []);
 
-  const totalSlides = deck?.slides.length ?? 0;
+  const totalSlides =
+    effectiveSource === 'preset'
+      ? pdfPageCount || presetDeck?.slides.length || 0
+      : deck?.slides.length ?? 0;
 
   const goToSlide = useCallback(
     (nextIdx: number) => {
@@ -290,15 +467,33 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
     [post, activeIndex, audienceStyle],
   );
 
-  const handleExportPdf = useCallback(async () => {
-    if (!deck || !post || isExportingPdf) return;
+  const handleDownloadPdf = useCallback(async () => {
+    if (!post || isExportingPdf) return;
+    if (effectiveSource === 'preset' && presetDeck) {
+      const link = document.createElement('a');
+      link.href = presetDeck.pdfUrl;
+      link.download = presetDeck.downloadFileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+    if (!deck) return;
     setIsExportingPdf(true);
     try {
       await exportArticleDeckPdf(deck, post, siteTitle, qrDataUrl);
     } finally {
       setIsExportingPdf(false);
     }
-  }, [deck, post, siteTitle, qrDataUrl, isExportingPdf]);
+  }, [
+    post,
+    isExportingPdf,
+    effectiveSource,
+    presetDeck,
+    deck,
+    siteTitle,
+    qrDataUrl,
+  ]);
 
   if (!post) return null;
 
@@ -306,13 +501,21 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
   const normalizedCover = normalizeDriveImageUrl(post.coverImageUrl);
   const hasCover = Boolean(normalizedCover && !coverBroken);
   const categoryText = formatCategoryDisplay(post.category);
+  const activePresetPage = activeIndex + 1;
+  const activePresetSlideMeta = presetDeck?.slides[activeIndex];
+  const activePresetImage = pdfSlides[activePresetPage] || '';
+
+  const showToolbarActions =
+    effectiveSource === 'preset'
+      ? Boolean(presetDeck && !pdfError)
+      : Boolean(currentSlide && !isLoading);
 
   return (
     <div
       ref={stageContainerRef}
       role="dialog"
       aria-modal="true"
-      aria-label="AI 單篇簡報生成與投影室"
+      aria-label="期刊簡報投影工作台"
       className="fixed inset-0 z-[75] bg-[#081433] text-[#FBF9F5] flex flex-col overflow-hidden"
     >
       {/* Top Studio Control Header */}
@@ -321,80 +524,143 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
           <Presentation className="w-4 h-4 sm:w-5 sm:h-5 text-[#FDE68A] shrink-0" />
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-white truncate">
-              <span>AI 簡報工作台</span>
+              <span>
+                {effectiveSource === 'preset' ? '期刊簡報投影' : 'AI 簡報工作台'}
+              </span>
               <span aria-hidden="true" className="text-white/35">
                 ·
               </span>
-              <span className="font-normal text-blue-200/90 truncate max-w-[200px] sm:max-w-[320px]">
+              <span className="font-normal text-blue-200/90 truncate max-w-[180px] sm:max-w-[300px]">
                 {post.title}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Audience Style Switcher */}
-        <div
-          className="flex items-center gap-1 p-1 rounded-lg bg-white/8 border border-white/12 overflow-x-auto max-w-full"
-          role="group"
-          aria-label="簡報整理風格"
-        >
-          {STYLE_OPTIONS.map((opt) => {
-            const active = audienceStyle === opt.id;
-            return (
+        {/* Mode Switcher: Preset Deck vs AI Style Options */}
+        <div className="flex flex-wrap items-center gap-2 max-w-full">
+          {presetDeck && (
+            <div
+              className="flex items-center gap-1 p-1 rounded-lg bg-white/8 border border-white/12"
+              role="group"
+              aria-label="簡報來源切換"
+            >
               <button
-                key={opt.id}
                 type="button"
-                disabled={isLoading}
-                onClick={() => setAudienceStyle(opt.id)}
-                title={opt.hint}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                  active
+                onClick={() => {
+                  setViewSource('preset');
+                  setActiveIndex(0);
+                  setIsEditingSlide(false);
+                }}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
+                  effectiveSource === 'preset'
                     ? 'bg-[#FDE68A] text-[#081433] font-bold'
                     : 'text-blue-100/85 hover:text-white hover:bg-white/10'
-                } disabled:opacity-60`}
+                }`}
               >
-                {opt.label}
+                精選圖文簡報 ({presetDeck.slides.length}頁)
               </button>
-            );
-          })}
+              <button
+                type="button"
+                onClick={() => {
+                  setViewSource('ai');
+                  setActiveIndex(0);
+                }}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors whitespace-nowrap ${
+                  effectiveSource === 'ai'
+                    ? 'bg-[#FDE68A] text-[#081433] font-bold'
+                    : 'text-blue-100/85 hover:text-white hover:bg-white/10'
+                }`}
+              >
+                AI 生成文字版
+              </button>
+            </div>
+          )}
+
+          {effectiveSource === 'ai' && (
+            <div
+              className="flex items-center gap-1 p-1 rounded-lg bg-white/8 border border-white/12 overflow-x-auto max-w-full"
+              role="group"
+              aria-label="簡報整理風格"
+            >
+              {STYLE_OPTIONS.map((opt) => {
+                const active = audienceStyle === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => setAudienceStyle(opt.id)}
+                    title={opt.hint}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      active
+                        ? 'bg-[#FDE68A] text-[#081433] font-bold'
+                        : 'text-blue-100/85 hover:text-white hover:bg-white/10'
+                    } disabled:opacity-60`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Action Toolbar */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
-          <button
-            type="button"
-            disabled={isLoading}
-            onClick={() => void generateDeck(post, audienceStyle, true)}
-            title="重新呼叫 AI 整理此篇期刊簡報"
-            className="px-2.5 py-1.5 rounded-lg bg-white/8 hover:bg-white/18 border border-white/15 text-xs font-medium text-white inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 whitespace-nowrap"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`}
-            />
-            <span className="hidden sm:inline">重新生成</span>
-          </button>
+          {effectiveSource === 'ai' && (
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => void generateDeck(post, audienceStyle, true)}
+              title="重新呼叫 AI 整理此篇期刊簡報"
+              className="px-2.5 py-1.5 rounded-lg bg-white/8 hover:bg-white/18 border border-white/15 text-xs font-medium text-white inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`}
+              />
+              <span className="hidden sm:inline">重新生成</span>
+            </button>
+          )}
 
-          {currentSlide && !isLoading && (
+          {showToolbarActions && (
             <>
-              <button
-                type="button"
-                onClick={() => setIsEditingSlide((v) => !v)}
-                className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  isEditingSlide
-                    ? 'bg-[#FDE68A] text-[#081433] border-[#FDE68A] font-bold'
-                    : 'bg-white/8 hover:bg-white/18 border-white/15 text-white'
-                }`}
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span className="hidden md:inline">
-                  {isEditingSlide ? '完成微調' : '微調此頁'}
-                </span>
-              </button>
+              {effectiveSource === 'ai' && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingSlide((v) => !v)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                      isEditingSlide
+                        ? 'bg-[#FDE68A] text-[#081433] border-[#FDE68A] font-bold'
+                        : 'bg-white/8 hover:bg-white/18 border-white/15 text-white'
+                    }`}
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">
+                      {isEditingSlide ? '完成微調' : '微調此頁'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowNotes((v) => !v)}
+                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                      showNotes
+                        ? 'bg-white/20 border-white/30 text-white'
+                        : 'bg-white/8 hover:bg-white/18 border-white/15 text-blue-100/80'
+                    }`}
+                  >
+                    <StickyNote className="w-3.5 h-3.5" />
+                    <span className="hidden lg:inline">講稿</span>
+                  </button>
+                </>
+              )}
 
               <button
                 type="button"
                 onClick={() => setShowCornerQr((v) => !v)}
-                title="切換投影片內顯示文章 QR Code"
+                title="切換顯示文章 QR Code"
                 className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
                   showCornerQr
                     ? 'bg-white/20 border-white/30 text-[#FDE68A]'
@@ -407,26 +673,17 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
 
               <button
                 type="button"
-                onClick={() => setShowNotes((v) => !v)}
-                className={`px-2.5 py-1.5 rounded-lg border text-xs font-medium inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
-                  showNotes
-                    ? 'bg-white/20 border-white/30 text-white'
-                    : 'bg-white/8 hover:bg-white/18 border-white/15 text-blue-100/80'
-                }`}
-              >
-                <StickyNote className="w-3.5 h-3.5" />
-                <span className="hidden lg:inline">講稿</span>
-              </button>
-
-              <button
-                type="button"
                 disabled={isExportingPdf}
-                onClick={() => void handleExportPdf()}
+                onClick={() => void handleDownloadPdf()}
                 className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-medium text-white inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 whitespace-nowrap"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">
-                  {isExportingPdf ? '匯出中...' : '匯出 PDF'}
+                  {isExportingPdf
+                    ? '匯出中...'
+                    : effectiveSource === 'preset'
+                      ? '下載原版 PDF'
+                      : '匯出 PDF'}
                 </span>
               </button>
 
@@ -463,8 +720,67 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
 
       {/* Main Studio Body */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-        {/* Slide Filmstrip Sidebar (Hidden in fullscreen when presenting) */}
-        {!isFullscreen && deck && !isLoading && (
+        {/* Preset PDF Filmstrip Sidebar */}
+        {effectiveSource === 'preset' &&
+          presetDeck &&
+          !isFullscreen &&
+          !pdfError && (
+            <aside
+              aria-label="簡報頁面縮圖目錄"
+              className="lg:w-64 shrink-0 bg-[#060F27]/75 border-b lg:border-b-0 lg:border-r border-white/10 p-2.5 sm:p-3 flex lg:flex-col gap-2.5 overflow-x-auto lg:overflow-y-auto"
+            >
+              {Array.from(
+                {length: pdfPageCount || presetDeck.slides.length},
+                (_, idx) => {
+                  const pageNum = idx + 1;
+                  const meta = presetDeck.slides[idx];
+                  const thumbUrl = pdfThumbs[pageNum];
+                  const isActive = idx === activeIndex;
+                  return (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => goToSlide(idx)}
+                      className={`min-w-[164px] lg:min-w-0 w-auto lg:w-full text-left p-2 rounded-xl border transition-all shrink-0 space-y-1.5 ${
+                        isActive
+                          ? 'bg-[#1E3A8A]/70 border-[#FDE68A] shadow-md'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      <div className="aspect-[16/9] w-full rounded-lg overflow-hidden bg-[#0A183D] border border-white/10 flex items-center justify-center">
+                        {thumbUrl ? (
+                          <img
+                            src={thumbUrl}
+                            alt={`第 ${pageNum} 頁縮圖`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <FileText className="w-5 h-5 text-blue-200/40" />
+                        )}
+                      </div>
+                      <div className="flex items-start gap-1.5 px-0.5">
+                        <span
+                          className={`text-[11px] font-mono-tabular shrink-0 ${
+                            isActive
+                              ? 'text-[#FDE68A] font-bold'
+                              : 'text-blue-200/75'
+                          }`}
+                        >
+                          {String(pageNum).padStart(2, '0')}
+                        </span>
+                        <span className="text-[11px] font-semibold text-white line-clamp-2 leading-snug">
+                          {meta?.title || `第 ${pageNum} 頁`}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                },
+              )}
+            </aside>
+          )}
+
+        {/* AI Generated Slide Filmstrip Sidebar */}
+        {effectiveSource === 'ai' && !isFullscreen && deck && !isLoading && (
           <aside
             aria-label="投影片頁面目錄"
             className="lg:w-64 shrink-0 bg-[#060F27]/75 border-b lg:border-b-0 lg:border-r border-white/10 p-2.5 sm:p-3 flex lg:flex-col gap-2 overflow-x-auto lg:overflow-y-auto"
@@ -505,7 +821,104 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
 
         {/* Center Projector Viewport */}
         <main className="flex-1 min-w-0 min-h-0 flex flex-col justify-between p-3 sm:p-6 lg:p-8 overflow-y-auto">
-          {isLoading ? (
+          {effectiveSource === 'preset' && presetDeck ? (
+            pdfError ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center max-w-lg mx-auto space-y-4 py-12">
+                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-rose-200">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <p className="text-sm text-blue-100/90 leading-relaxed">
+                  {pdfError}
+                </p>
+                <a
+                  href={presetDeck.pdfUrl}
+                  download={presetDeck.downloadFileName}
+                  className="px-4 py-2 rounded-lg bg-[#FDE68A] text-[#081433] text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>直接下載原版 PDF</span>
+                </a>
+              </div>
+            ) : (
+              <div className="flex-1 min-h-0 flex flex-col justify-center gap-4 max-w-6xl w-full mx-auto">
+                <div className="relative rounded-2xl border border-white/15 bg-[#0A183D] shadow-2xl overflow-hidden aspect-[16/9] w-full flex items-center justify-center">
+                  {activePresetImage ? (
+                    <img
+                      src={activePresetImage}
+                      alt={
+                        activePresetSlideMeta?.title ||
+                        `第 ${activePresetPage} 頁簡報`
+                      }
+                      className="w-full h-full object-contain bg-[#0A183D]"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 text-blue-200">
+                      <Loader2 className="w-7 h-7 animate-spin text-[#FDE68A]" />
+                      <span className="text-xs sm:text-sm">
+                        {pdfLoading
+                          ? '正在載入精選圖文簡報...'
+                          : `正在繪製第 ${activePresetPage} 頁投影片...`}
+                      </span>
+                    </div>
+                  )}
+
+                  {showCornerQr && qrDataUrl && (
+                    <div className="hidden sm:block absolute bottom-4 right-4 bg-white/95 backdrop-blur-md border border-stone-200 rounded-2xl p-2.5 text-center shadow-2xl w-32 sm:w-36 space-y-1">
+                      <img
+                        src={qrDataUrl}
+                        alt="文章原文 QR Code"
+                        className="w-24 h-24 sm:w-28 sm:h-28 mx-auto object-contain"
+                      />
+                      <div className="text-[10px] font-bold text-[#1E3A8A]">
+                        掃碼看文章原文
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="flex-1 bg-[#0F2354] border border-[#2B4B9E] rounded-xl px-4 py-2.5 text-xs sm:text-sm text-blue-100 leading-relaxed min-w-0">
+                    <span className="font-bold text-[#FDE68A] mr-2">
+                      第 {String(activePresetPage).padStart(2, '0')} 頁：
+                    </span>
+                    <span className="font-semibold text-white">
+                      {activePresetSlideMeta?.title || presetDeck.deckTitle}
+                    </span>
+                    {activePresetSlideMeta?.subtitle && (
+                      <span className="text-blue-200/80 ml-2 hidden md:inline">
+                        — {activePresetSlideMeta.subtitle}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 shrink-0">
+                    <button
+                      type="button"
+                      disabled={activeIndex <= 0}
+                      onClick={() => goToSlide(activeIndex - 1)}
+                      className="px-3.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-semibold text-white inline-flex items-center gap-1.5 disabled:opacity-35 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      <span>上一頁</span>
+                    </button>
+                    <span className="px-2.5 text-xs font-mono-tabular text-[#FDE68A] font-bold">
+                      {String(activePresetPage).padStart(2, '0')} /{' '}
+                      {String(totalSlides).padStart(2, '0')}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={activeIndex >= totalSlides - 1}
+                      onClick={() => goToSlide(activeIndex + 1)}
+                      className="px-3.5 py-2 rounded-lg bg-[#FDE68A] hover:bg-amber-200 text-xs font-bold text-[#081433] inline-flex items-center gap-1.5 disabled:opacity-35 transition-colors"
+                    >
+                      <span>下一頁</span>
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          ) : isLoading ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-4 py-12">
               <div className="w-14 h-14 rounded-2xl bg-[#1E3A8A]/50 border border-[#93C5FD]/30 flex items-center justify-center">
                 <Loader2 className="w-7 h-7 text-[#FDE68A] animate-spin" />
@@ -648,7 +1061,6 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
               ) : activeIndex === 0 || currentSlide.slideType === 'cover' ? (
                 /* Cover Slide Layout */
                 <section className="relative rounded-2xl border border-white/15 bg-[#0A183D] shadow-2xl overflow-hidden min-h-[420px] sm:min-h-[500px] lg:aspect-[16/9] flex flex-col justify-between p-6 sm:p-10 lg:p-12">
-                  {/* Cover image backdrop if post has one */}
                   {hasCover && (
                     <div aria-hidden="true" className="absolute inset-0">
                       <img
@@ -746,7 +1158,6 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
               ) : (
                 /* Content Slide Layout */
                 <section className="relative rounded-2xl border border-stone-200 bg-[#FBF9F5] text-stone-950 shadow-2xl overflow-hidden min-h-[420px] sm:min-h-[500px] lg:aspect-[16/9] flex flex-col justify-between p-6 sm:p-10 lg:p-12">
-                  {/* Top Header */}
                   <div className="space-y-3 pb-4 border-b border-stone-200">
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-xs sm:text-sm font-bold tracking-wide text-[#1E3A8A]">
@@ -761,7 +1172,6 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
                     </h2>
                   </div>
 
-                  {/* Body Bullets + Optional Corner QR */}
                   <div className="my-auto py-5 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                     <div
                       className={
@@ -821,7 +1231,6 @@ export const ArticleDeckModal: React.FC<ArticleDeckModalProps> = ({
                     )}
                   </div>
 
-                  {/* Slide Footer */}
                   <footer className="pt-3.5 border-t border-stone-200 flex items-center justify-between gap-3 text-xs sm:text-sm text-stone-500">
                     <span className="truncate">
                       {siteTitle} · {post.title}
