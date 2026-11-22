@@ -6,31 +6,153 @@ import {
   Check,
   Copy,
   Download,
+  ExternalLink,
   MapPin,
   Printer,
   QrCode,
   Users,
   Video,
   X,
+  BookOpen,
 } from 'lucide-react';
 import {SCHOOL_DOMAIN} from '../services/googleAuth';
 import {
   buildDirectCheckinUrl,
   MeetingSession,
 } from '../services/meetingCheckinDb';
+import {JournalPost} from '../types/journal';
 import {jsPDF} from 'jspdf';
 import {triggerSafeBlobDownload} from '../utils/meetingPdfExport';
 
 interface MeetingNoticeModalProps {
   meeting: MeetingSession | null;
+  posts?: JournalPost[];
+  onOpenLinkedPost?: (slug: string) => void;
   onClose: () => void;
 }
 
+const loadImage = (src: string): Promise<HTMLImageElement> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(img);
+    img.src = src;
+  });
+};
+
+const drawSingleNoticeCard = (
+  ctx: CanvasRenderingContext2D,
+  cardX: number,
+  cardY: number,
+  cardW: number,
+  cardH: number,
+  meeting: MeetingSession,
+  linkedPost: JournalPost | null,
+  q1Img: HTMLImageElement | null,
+  q2Img: HTMLImageElement | null,
+  timeWindowText: string,
+) => {
+  ctx.save();
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(cardX, cardY, cardW, cardH);
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cardX, cardY, cardW, cardH);
+
+  // Header background (Black)
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(cardX, cardY, cardW, 75);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '700 15px "Noto Sans TC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('臺北市西門國小 · 數學領域～AI領航 徜徉酷數', cardX + cardW / 2, cardY + 26);
+  ctx.font = '700 16px "Noto Sans TC", sans-serif';
+  ctx.fillText(meeting.audience === 'parent' ? '學校日家長 · 開會暨簽到通知單' : '開會暨簽到通知單', cardX + cardW / 2, cardY + 52);
+
+  // Title & Metadata
+  let ty = cardY + 92;
+  ctx.fillStyle = '#000000';
+  ctx.font = '700 18px "Noto Sans TC", sans-serif';
+  ctx.textAlign = 'center';
+
+  const titleClean = meeting.title;
+  ctx.fillText(titleClean.length > 24 ? `${titleClean.slice(0, 24)}…` : titleClean, cardX + cardW / 2, ty);
+  ty += 28;
+
+  ctx.fillStyle = '#262626';
+  ctx.font = '600 12px "Noto Sans TC", sans-serif';
+  ctx.fillText(`學年度：${meeting.academicYear} | 開會：${meeting.meetingDate}`, cardX + cardW / 2, ty);
+  ty += 18;
+  ctx.fillText(`簽到開放：${timeWindowText}`, cardX + cardW / 2, ty);
+  ty += 18;
+  ctx.fillText(`地點：${meeting.location || '西門國小會議室'}`, cardX + cardW / 2, ty);
+  ty += 22;
+
+  if (linkedPost) {
+    ctx.fillStyle = '#000000';
+    ctx.font = '700 12px "Noto Sans TC", sans-serif';
+    ctx.fillText(`相關文章：${linkedPost.title.length > 26 ? `${linkedPost.title.slice(0, 26)}…` : linkedPost.title}`, cardX + cardW / 2, ty);
+    ty += 22;
+  }
+
+  // QR Codes
+  const hasTwoQr = Boolean(linkedPost && q2Img);
+  const qrSize = hasTwoQr ? 100 : 130;
+
+  if (hasTwoQr && q1Img && q2Img) {
+    const boxW = 110;
+    const startX = cardX + (cardW - (boxW * 2 + 16)) / 2;
+
+    // Checkin QR Box
+    ctx.fillStyle = '#FAFAFA';
+    ctx.fillRect(startX, ty, boxW, qrSize + 26);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(startX, ty, boxW, qrSize + 26);
+    ctx.drawImage(q1Img, startX + (boxW - qrSize) / 2, ty + 4, qrSize, qrSize);
+    ctx.fillStyle = '#000000';
+    ctx.font = '700 10px "Noto Sans TC", sans-serif';
+    ctx.fillText('【1】手機簽到', startX + boxW / 2, ty + qrSize + 16);
+
+    // Article QR Box
+    const startX2 = startX + boxW + 16;
+    ctx.fillStyle = '#FAFAFA';
+    ctx.fillRect(startX2, ty, boxW, qrSize + 26);
+    ctx.strokeRect(startX2, ty, boxW, qrSize + 26);
+    ctx.drawImage(q2Img, startX2 + (boxW - qrSize) / 2, ty + 4, qrSize, qrSize);
+    ctx.fillText('【2】相關文章', startX2 + boxW / 2, ty + qrSize + 16);
+
+    ty += qrSize + 36;
+  } else if (q1Img) {
+    ctx.drawImage(q1Img, cardX + (cardW - qrSize) / 2, ty, qrSize, qrSize);
+    ty += qrSize + 10;
+  }
+
+  ctx.fillStyle = '#000000';
+  ctx.font = '700 11px "Noto Sans TC", sans-serif';
+  ctx.fillText(`請使用手機掃描 QR Code 或登入 @${SCHOOL_DOMAIN}`, cardX + cardW / 2, ty);
+  ty += 16;
+  ctx.font = '500 10px "Noto Sans TC", sans-serif';
+  ctx.fillText('完成線上親筆簽名、請假登記與期刊閱讀', cardX + cardW / 2, ty);
+  ty += 16;
+
+  // Footer contact
+  ctx.font = '700 10px "Noto Sans TC", sans-serif';
+  ctx.fillText('領召：黃佩詩   403教室 (分機：5207)', cardX + cardW / 2, ty);
+
+  ctx.restore();
+};
+
 export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
   meeting,
+  posts = [],
+  onOpenLinkedPost,
   onClose,
 }) => {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [articleQrDataUrl, setArticleQrDataUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
@@ -40,6 +162,41 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
     return buildDirectCheckinUrl(meeting.audience, meeting.id);
   }, [meeting]);
 
+  const linkedPost = useMemo(() => {
+    if (!meeting?.linkedPostSlug || !posts.length) return null;
+    return posts.find((p) => p.slug === meeting.linkedPostSlug) || null;
+  }, [meeting?.linkedPostSlug, posts]);
+
+  const articleUrl = useMemo(() => {
+    if (!meeting?.linkedPostSlug) return '';
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}${window.location.pathname}#post=${encodeURIComponent(meeting.linkedPostSlug)}`;
+    }
+    return `#post=${meeting.linkedPostSlug}`;
+  }, [meeting?.linkedPostSlug]);
+
+  const timeWindowText = useMemo(() => {
+    if (!meeting) return '';
+    if (!meeting.checkinStartAtMs && !meeting.checkinEndAtMs) {
+      return `依排定時間：${meeting.meetingDate}`;
+    }
+    const fmt = (ms: number) => {
+      const d = new Date(ms);
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      const hr = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      return `${m}/${day} ${hr}:${min}`;
+    };
+    if (meeting.checkinStartAtMs && meeting.checkinEndAtMs) {
+      return `${fmt(meeting.checkinStartAtMs)} ~ ${fmt(meeting.checkinEndAtMs)}`;
+    }
+    if (meeting.checkinStartAtMs) {
+      return `自 ${fmt(meeting.checkinStartAtMs)} 起開放`;
+    }
+    return `至 ${fmt(meeting.checkinEndAtMs!)} 截止`;
+  }, [meeting]);
+
   useEffect(() => {
     if (!checkinUrl) return;
     let active = true;
@@ -47,7 +204,7 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       width: 320,
       margin: 2,
       color: {
-        dark: '#1E3A8A',
+        dark: '#000000',
         light: '#FFFFFF',
       },
     })
@@ -59,6 +216,26 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       active = false;
     };
   }, [checkinUrl]);
+
+  useEffect(() => {
+    if (!articleUrl) return;
+    let active = true;
+    void QRCode.toDataURL(articleUrl, {
+      width: 320,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    })
+      .then((url) => {
+        if (active) setArticleQrDataUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [articleUrl]);
 
   useEffect(() => {
     if (!meeting) return;
@@ -99,7 +276,7 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
     window.addEventListener('afterprint', cleanup);
     try {
       window.print();
-      setNoticeMessage('已送出 1/4 A4 通知單列印請求（可設定 A4 4合1或單張列印）。');
+      setNoticeMessage('已送出 1/4 A4 4合1黑白通知單列印請求。');
     } catch {
       cleanup();
       setNoticeMessage('此瀏覽環境不支援直接呼叫列印。');
@@ -111,81 +288,31 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
     setIsGeneratingPdf(true);
     setNoticeMessage(null);
     try {
-      // Create high-res A4 canvas packing 1/4 A4 notice
       const canvas = document.createElement('canvas');
       canvas.width = 1240;
-      canvas.height = 1754;
+      canvas.height = 1754; // A4 portrait dimensions at ~150 DPI
       const ctx = canvas.getContext('2d')!;
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, 1240, 1754);
 
-      // Draw a clean quarter A4 card frame (top-left or centered 1/4)
-      const cardW = 540;
-      const cardH = 760;
-      const cardX = (1240 - cardW) / 2;
-      const cardY = 120;
+      // Draw 4 identical cards in a 2x2 grid on A4 canvas
+      const cardW = 560;
+      const cardH = 810;
+      const colGap = 40;
+      const rowGap = 40;
+      const startX = (1240 - (cardW * 2 + colGap)) / 2;
+      const startY = (1754 - (cardH * 2 + rowGap)) / 2;
 
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(cardX, cardY, cardW, cardH);
-      ctx.strokeStyle = '#1E3A8A';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(cardX, cardY, cardW, cardH);
+      const q1Img = qrDataUrl ? await loadImage(qrDataUrl) : null;
+      const q2Img = linkedPost && articleQrDataUrl ? await loadImage(articleQrDataUrl) : null;
 
-      // Header background
-      ctx.fillStyle = '#1E3A8A';
-      ctx.fillRect(cardX, cardY, cardW, 84);
-
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = '700 24px "Noto Sans TC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('臺北市西門國小 · 會議與簽到通知單', cardX + cardW / 2, cardY + 42);
-
-      // Title & Metadata
-      let ty = cardY + 110;
-      ctx.fillStyle = '#1C1917';
-      ctx.font = '700 26px "Noto Sans TC", sans-serif';
-      ctx.textAlign = 'center';
-      
-      const titleClean = meeting.title;
-      ctx.fillText(titleClean.length > 22 ? `${titleClean.slice(0, 22)}…` : titleClean, cardX + cardW / 2, ty);
-      ty += 45;
-
-      ctx.fillStyle = '#44403C';
-      ctx.font = '500 18px "Noto Sans TC", sans-serif';
-      ctx.fillText(`學年度：${meeting.academicYear}`, cardX + cardW / 2, ty);
-      ty += 30;
-      ctx.fillText(`時間：${meeting.meetingDate}`, cardX + cardW / 2, ty);
-      ty += 30;
-      ctx.fillText(`地點：${meeting.location || '西門國小會議室'}`, cardX + cardW / 2, ty);
-      ty += 45;
-
-      // Draw QR Code image if loaded
-      if (qrDataUrl) {
-        const qrImg = new Image();
-        await new Promise((resolve) => {
-          qrImg.onload = resolve;
-          qrImg.onerror = resolve;
-          qrImg.src = qrDataUrl;
-        });
-        const qrSize = 240;
-        ctx.drawImage(
-          qrImg,
-          cardX + (cardW - qrSize) / 2,
-          ty,
-          qrSize,
-          qrSize,
-        );
-        ty += qrSize + 25;
+      for (let r = 0; r < 2; r++) {
+        for (let c = 0; c < 2; c++) {
+          const cx = startX + c * (cardW + colGap);
+          const cy = startY + r * (cardH + rowGap);
+          drawSingleNoticeCard(ctx, cx, cy, cardW, cardH, meeting, linkedPost, q1Img, q2Img, timeWindowText);
+        }
       }
-
-      ctx.fillStyle = '#1E3A8A';
-      ctx.font = '700 17px "Noto Sans TC", sans-serif';
-      ctx.fillText(`請使用手機掃描 QR Code 或登入 @${SCHOOL_DOMAIN}`, cardX + cardW / 2, ty);
-      ty += 26;
-      ctx.fillStyle = '#57534E';
-      ctx.font = '400 15px "Noto Sans TC", sans-serif';
-      ctx.fillText('完成線上親筆簽名與請假登記', cardX + cardW / 2, ty);
 
       const pdf = new jsPDF({
         orientation: 'portrait',
@@ -197,14 +324,106 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       pdf.addImage(imgData, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
       const blob = pdf.output('blob');
       const safeFile = meeting.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 35);
-      triggerSafeBlobDownload(blob, `會議通知單_14A4_${safeFile}.pdf`);
-      setNoticeMessage('已成功產生 1/4 A4 會議通知單 PDF 檔！');
+      triggerSafeBlobDownload(blob, `會議通知單_4合1A4_${safeFile}.pdf`);
+      setNoticeMessage('已成功產生 4合1 A4 會議通知單 PDF 檔（內含4個重複版面）！');
     } catch (err: any) {
       setNoticeMessage(err?.message || '產生通知單 PDF 失敗，請改用系統列印。');
     } finally {
       setIsGeneratingPdf(false);
     }
   };
+
+  const renderCardContent = () => (
+    <div className="space-y-2.5">
+      <div className="bg-black text-white -mx-4 sm:-mx-5 -mt-4 sm:-mt-5 p-3 sm:p-3.5 text-center rounded-t-lg space-y-1">
+        <div className="text-[11px] sm:text-xs font-bold tracking-widest uppercase text-stone-200">
+          臺北市西門國民小學 · 數學領域～AI領航 徜徉酷數
+        </div>
+        <div className="font-editorial text-base sm:text-lg font-extrabold tracking-wide">
+          開會暨簽到通知單
+        </div>
+      </div>
+
+      <div className="space-y-1.5 pt-1 text-center">
+        <h2 className="font-editorial text-base sm:text-lg font-extrabold text-black leading-snug">
+          {meeting.title}
+        </h2>
+        <div className="text-[11px] sm:text-xs text-stone-900 space-y-0.5 text-left bg-stone-50 border border-stone-300 rounded-lg p-2.5">
+          <div><strong>學年度：</strong>{meeting.academicYear}</div>
+          <div><strong>開會時間：</strong>{meeting.meetingDate}</div>
+          <div><strong>簽到開放：</strong><span className="font-bold underline">{timeWindowText}</span></div>
+          <div><strong>地點：</strong>{meeting.location || '西門國小會議室'}</div>
+          {linkedPost && (
+            <div className="pt-1 border-t border-stone-300 flex items-center justify-between gap-1">
+              <div className="truncate text-[11px]">
+                <strong>相關文章：</strong>
+                <span className="font-bold underline cursor-pointer" onClick={() => {
+                  if (onOpenLinkedPost && meeting.linkedPostSlug) {
+                    onClose();
+                    onOpenLinkedPost(meeting.linkedPostSlug);
+                  }
+                }}>
+                  {linkedPost.title}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={`grid gap-2 ${linkedPost && articleQrDataUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
+        <div className="bg-white border border-black rounded-xl p-1.5 text-center shadow-2xs">
+          <div className="w-28 h-28 sm:w-32 sm:h-32 mx-auto flex items-center justify-center">
+            {qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt="簽到 QR Code"
+                className="w-full h-full object-contain grayscale contrast-200"
+              />
+            ) : (
+              <span className="text-[10px] text-stone-400">產生中...</span>
+            )}
+          </div>
+          <div className="text-[10px] sm:text-[11px] font-bold text-black mt-1">
+            【1】手機線上簽到
+          </div>
+        </div>
+
+        {linkedPost && (
+          <div className="bg-white border border-black rounded-xl p-1.5 text-center shadow-2xs">
+            <div className="w-28 h-28 sm:w-32 sm:h-32 mx-auto flex items-center justify-center">
+              {articleQrDataUrl ? (
+                <img
+                  src={articleQrDataUrl}
+                  alt="相關文章 QR Code"
+                  className="w-full h-full object-contain grayscale contrast-200"
+                />
+              ) : (
+                <span className="text-[10px] text-stone-400">產生中...</span>
+              )}
+            </div>
+            <div className="text-[10px] sm:text-[11px] font-bold text-black mt-1">
+              【2】相關文章閱讀
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderCardFooter = () => (
+    <div className="text-center space-y-1 pt-2 border-t border-black">
+      <div className="text-[11px] sm:text-xs font-bold text-black">
+        請使用手機掃描 QR Code 或登入 @{SCHOOL_DOMAIN}
+      </div>
+      <p className="text-[10px] sm:text-[11px] text-stone-700 leading-tight">
+        完成線上親筆簽名、請假登記與期刊文章閱讀。
+      </p>
+      <div className="pt-1 text-[11px] sm:text-xs font-extrabold text-black tracking-wide">
+        領召：黃佩詩 &nbsp; 403教室 (分機：5207)
+      </div>
+    </div>
+  );
 
   return createPortal(
     <div
@@ -220,8 +439,8 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="min-w-0">
-          <div className="text-xs font-semibold text-[#1E3A8A]">
-            直式 A4 大小的 1/4 通知單（便條／發放卡片格式）
+          <div className="text-xs font-semibold text-stone-900">
+            直式 A4 4合1黑白通知單（單頁含4個重複版面）
           </div>
           <div className="text-sm font-bold text-stone-950 truncate">
             {meeting.title}
@@ -233,19 +452,19 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
             type="button"
             disabled={isGeneratingPdf}
             onClick={handleDownloadNoticePdf}
-            className="px-3 py-2 text-xs font-semibold text-white bg-[#1E3A8A] hover:bg-[#172554] disabled:opacity-60 rounded-lg inline-flex items-center gap-1.5"
+            className="px-3 py-2 text-xs font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-60 rounded-lg inline-flex items-center gap-1.5"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{isGeneratingPdf ? '產製 PDF...' : '下載 PDF'}</span>
+            <span>{isGeneratingPdf ? '產製 PDF...' : '下載 4合1 PDF'}</span>
           </button>
 
           <button
             type="button"
             onClick={handleNativePrint}
-            className="px-3 py-2 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-300 hover:bg-stone-200/70 rounded-lg inline-flex items-center gap-1.5"
+            className="px-3 py-2 text-xs font-semibold text-stone-900 bg-stone-100 border border-stone-300 hover:bg-stone-200 rounded-lg inline-flex items-center gap-1.5"
           >
-            <Printer className="w-3.5 h-3.5 text-[#1E3A8A]" />
-            <span>列印通知單</span>
+            <Printer className="w-3.5 h-3.5 text-stone-900" />
+            <span>列印 4合1 A4</span>
           </button>
 
           <button
@@ -260,58 +479,45 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       </div>
 
       {noticeMessage && (
-        <div className="no-print w-full max-w-xl bg-emerald-50 border border-emerald-200 text-emerald-950 rounded-lg px-3 py-2 text-xs mb-3 text-center">
+        <div className="no-print w-full max-w-xl bg-stone-100 border border-stone-300 text-stone-900 rounded-lg px-3 py-2 text-xs mb-3 text-center">
           {noticeMessage}
         </div>
       )}
 
-      {/* Printable 1/4 A4 Notice Card Container */}
-      <div
-        id="printable-quarter-notice-card"
-        className="w-[105mm] min-h-[148.5mm] bg-white border-2 border-[#1E3A8A] rounded-xl shadow-2xl p-5 flex flex-col justify-between text-stone-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="space-y-3">
-          <div className="bg-[#1E3A8A] text-white -mx-5 -mt-5 p-3.5 text-center rounded-t-lg space-y-0.5">
-            <div className="text-[11px] font-bold tracking-widest uppercase opacity-90">
-              臺北市西門國民小學
-            </div>
-            <div className="font-editorial text-base font-bold">
-              {meeting.audience === 'parent' ? '學校日家長簽到通知單' : '教師社群會議簽到通知單'}
-            </div>
-          </div>
-
-          <div className="space-y-1.5 pt-1 text-center">
-            <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950 leading-snug">
-              {meeting.title}
-            </h2>
-            <div className="text-xs text-stone-600 space-y-0.5">
-              <div><strong>學年度：</strong>{meeting.academicYear}</div>
-              <div><strong>時間：</strong>{meeting.meetingDate}</div>
-              <div><strong>地點：</strong>{meeting.location || '西門國小會議室'}</div>
-            </div>
-          </div>
-
-          <div className="w-40 h-40 mx-auto bg-white border border-stone-200 rounded-xl p-2 shadow-2xs flex items-center justify-center">
-            {qrDataUrl ? (
-              <img
-                src={qrDataUrl}
-                alt="簽到 QR Code"
-                className="w-full h-full object-contain"
-              />
-            ) : (
-              <span className="text-[11px] text-stone-400">QR 碼產生中...</span>
-            )}
-          </div>
+      {/* Screen Preview: single card or 2x2 grid preview */}
+      <div className="no-print max-h-[75vh] overflow-y-auto p-2">
+        <div className="text-center text-xs text-stone-300 mb-2">
+          （下方為預覽畫面；點擊上方「下載 4合1 PDF」或「列印 4合1 A4」將自動在單張 A4 紙排版 4 個重複版面）
         </div>
+        <div
+          id="printable-quarter-notice-card"
+          className="w-[105mm] min-h-[148.5mm] bg-white border-2 border-black rounded-xl shadow-2xl p-4 sm:p-5 flex flex-col justify-between text-black font-sans mx-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {renderCardContent()}
+          {renderCardFooter()}
+        </div>
+      </div>
 
-        <div className="text-center space-y-1.5 pt-2 border-t border-stone-200">
-          <div className="text-xs font-bold text-[#1E3A8A]">
-            請用手機掃描 QR Code 或登入 @{SCHOOL_DOMAIN}
+      {/* Hidden print container with 4 identical cards in 2x2 grid layout for window.print() */}
+      <div className="print-only-grid hidden">
+        <div className="notice-grid-print">
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+            {renderCardContent()}
+            {renderCardFooter()}
           </div>
-          <p className="text-[11px] text-stone-500 leading-tight">
-            開啟線上簽到專區，完成親筆簽名與請假登記。
-          </p>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+            {renderCardContent()}
+            {renderCardFooter()}
+          </div>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+            {renderCardContent()}
+            {renderCardFooter()}
+          </div>
+          <div className="printable-quarter-notice-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff'}}>
+            {renderCardContent()}
+            {renderCardFooter()}
+          </div>
         </div>
       </div>
     </div>,
