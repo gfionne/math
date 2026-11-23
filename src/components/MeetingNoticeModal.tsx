@@ -1,20 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {createPortal} from 'react-dom';
 import QRCode from 'qrcode';
-import {
-  Calendar,
-  Check,
-  Copy,
-  Download,
-  ExternalLink,
-  MapPin,
-  Printer,
-  QrCode,
-  Users,
-  Video,
-  X,
-  BookOpen,
-} from 'lucide-react';
+import {Download, Printer, X} from 'lucide-react';
 import {SCHOOL_DOMAIN} from '../services/googleAuth';
 import {
   buildDirectCheckinUrl,
@@ -23,6 +10,8 @@ import {
 import {JournalPost} from '../types/journal';
 import {jsPDF} from 'jspdf';
 import {triggerSafeBlobDownload} from '../utils/meetingPdfExport';
+
+type NoticeLayoutMode = '6up' | '4up';
 
 interface MeetingNoticeModalProps {
   meeting: MeetingSession | null;
@@ -40,113 +29,350 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
   });
 };
 
-const drawSingleLandscapeNoticeCard = (
+const fitTextToWidth = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+): string => {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let truncated = text;
+  while (truncated.length > 1 && ctx.measureText(`${truncated}…`).width > maxWidth) {
+    truncated = truncated.slice(0, -1);
+  }
+  return `${truncated}…`;
+};
+
+const wrapTextLines = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+  maxLines: number,
+): string[] => {
+  const chars = Array.from(text.trim());
+  if (chars.length === 0) return [''];
+  const lines: string[] = [];
+  let current = '';
+
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    const test = current + ch;
+    if (ctx.measureText(test).width > maxWidth && current.length > 0) {
+      if (lines.length + 1 === maxLines) {
+        const remaining = current + chars.slice(i).join('');
+        lines.push(fitTextToWidth(ctx, remaining, maxWidth));
+        return lines;
+      }
+      lines.push(current);
+      current = ch;
+    } else {
+      current = test;
+    }
+  }
+  if (current) {
+    lines.push(current);
+  }
+  return lines.slice(0, maxLines);
+};
+
+const drawBalancedNoticeCard = (
   ctx: CanvasRenderingContext2D,
   cardX: number,
   cardY: number,
   cardW: number,
   cardH: number,
+  mode: NoticeLayoutMode,
   meeting: MeetingSession,
   linkedPost: JournalPost | null,
   q1Img: HTMLImageElement | null,
   q2Img: HTMLImageElement | null,
   timeWindowText: string,
 ) => {
+  const isSixUp = mode === '6up';
+  const padX = isSixUp ? 20 : 26;
+  const padTop = isSixUp ? 14 : 18;
+  const padBottom = isSixUp ? 14 : 18;
+  const innerW = cardW - padX * 2;
+  const centerX = cardX + cardW / 2;
+
   ctx.save();
+
+  // Outer card background & crisp grayscale-friendly frame
   ctx.fillStyle = '#FFFFFF';
   ctx.fillRect(cardX, cardY, cardW, cardH);
-  ctx.strokeStyle = '#000000';
+  ctx.strokeStyle = '#171717';
   ctx.lineWidth = 2;
   ctx.strokeRect(cardX, cardY, cardW, cardH);
 
-  // Clean toner-saving header
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(cardX, cardY, cardW, 72);
-  ctx.strokeStyle = '#000000';
+  // Subtle top bar tint for clean editorial header
+  const headerH = isSixUp ? 68 : 88;
+  ctx.fillStyle = '#F5F5F4';
+  ctx.fillRect(cardX + 1, cardY + 1, cardW - 2, headerH);
+  ctx.strokeStyle = '#171717';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(cardX, cardY + 72);
-  ctx.lineTo(cardX + cardW, cardY + 72);
+  ctx.moveTo(cardX, cardY + headerH);
+  ctx.lineTo(cardX + cardW, cardY + headerH);
   ctx.stroke();
 
-  ctx.fillStyle = '#000000';
-  ctx.font = '700 14px "Noto Sans TC", sans-serif';
+  ctx.fillStyle = '#262626';
+  ctx.font = `700 ${isSixUp ? 12.5 : 15}px "Noto Sans TC", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('臺北市西門國小 · 數學領域～AI領航 徜徉酷數', cardX + cardW / 2, cardY + 23);
-  ctx.font = '700 16px "Noto Sans TC", sans-serif';
-  ctx.fillText(meeting.audience === 'parent' ? '學校日家長 · 開會暨簽到通知單' : '開會暨簽到通知單', cardX + cardW / 2, cardY + 49);
+  ctx.fillText(
+    '臺北市西門國小 · 數學領域～AI領航 徜徉酷數',
+    centerX,
+    cardY + (isSixUp ? 22 : 28),
+  );
 
-  // Title & Metadata with larger text and wider line spacing
-  let ty = cardY + 88;
   ctx.fillStyle = '#000000';
-  ctx.font = '700 18px "Noto Sans TC", sans-serif';
-  ctx.textAlign = 'center';
+  ctx.font = `800 ${isSixUp ? 18 : 22}px "Noto Sans TC", sans-serif`;
+  ctx.fillText(
+    meeting.audience === 'parent'
+      ? '學校日家長 · 開會暨簽到通知單'
+      : '開會暨簽到通知單',
+    centerX,
+    cardY + (isSixUp ? 48 : 60),
+  );
 
-  const titleClean = meeting.title;
-  ctx.fillText(titleClean.length > 24 ? `${titleClean.slice(0, 24)}…` : titleClean, cardX + cardW / 2, ty);
-  ty += 28;
+  // Footer dimensions anchored cleanly at card bottom
+  const footerH = isSixUp ? 56 : 74;
+  const footerTopY = cardY + cardH - padBottom - footerH;
+
+  ctx.strokeStyle = '#737373';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(cardX + padX, footerTopY);
+  ctx.lineTo(cardX + cardW - padX, footerTopY);
+  ctx.stroke();
 
   ctx.fillStyle = '#171717';
-  ctx.font = '600 13px "Noto Sans TC", sans-serif';
-  ctx.fillText(`學年度：${meeting.academicYear} | 開會：${meeting.meetingDate}`, cardX + cardW / 2, ty);
-  ty += 20;
-  ctx.fillText(`簽到開放：${timeWindowText}`, cardX + cardW / 2, ty);
-  ty += 20;
-  ctx.fillText(`地點：${meeting.location || '西門國小會議室'}`, cardX + cardW / 2, ty);
-  ty += 24;
+  ctx.font = `700 ${isSixUp ? 12 : 14.5}px "Noto Sans TC", sans-serif`;
+  ctx.fillText(
+    `掃碼或登入 @${SCHOOL_DOMAIN} 完成線上簽到／請假`,
+    centerX,
+    footerTopY + (isSixUp ? 19 : 25),
+  );
 
-  if (linkedPost) {
-    ctx.fillStyle = '#000000';
-    ctx.font = '700 13px "Noto Sans TC", sans-serif';
-    ctx.fillText(`相關文章：${linkedPost.title.length > 28 ? `${linkedPost.title.slice(0, 28)}…` : linkedPost.title}`, cardX + cardW / 2, ty);
-    ty += 24;
-  }
-
-  // QR Codes
-  const hasTwoQr = Boolean(linkedPost && q2Img);
-  const qrSize = hasTwoQr ? 96 : 120;
-
-  if (hasTwoQr && q1Img && q2Img) {
-    const boxW = 115;
-    const startX = cardX + (cardW - (boxW * 2 + 18)) / 2;
-
-    // Checkin QR Box
-    ctx.fillStyle = '#FAFAFA';
-    ctx.fillRect(startX, ty, boxW, qrSize + 26);
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(startX, ty, boxW, qrSize + 26);
-    ctx.drawImage(q1Img, startX + (boxW - qrSize) / 2, ty + 4, qrSize, qrSize);
-    ctx.fillStyle = '#000000';
-    ctx.font = '700 11px "Noto Sans TC", sans-serif';
-    ctx.fillText('【1】手機簽到', startX + boxW / 2, ty + qrSize + 16);
-
-    // Article QR Box
-    const startX2 = startX + boxW + 18;
-    ctx.fillStyle = '#FAFAFA';
-    ctx.fillRect(startX2, ty, boxW, qrSize + 26);
-    ctx.strokeRect(startX2, ty, boxW, qrSize + 26);
-    ctx.drawImage(q2Img, startX2 + (boxW - qrSize) / 2, ty + 4, qrSize, qrSize);
-    ctx.fillText('【2】相關文章', startX2 + boxW / 2, ty + qrSize + 16);
-
-    ty += qrSize + 36;
-  } else if (q1Img) {
-    ctx.drawImage(q1Img, cardX + (cardW - qrSize) / 2, ty, qrSize, qrSize);
-    ty += qrSize + 12;
-  }
-
-  // Footer text and contact with larger font & wider spacing
   ctx.fillStyle = '#000000';
-  ctx.font = '700 12px "Noto Sans TC", sans-serif';
-  ctx.fillText(`請使用手機掃描 QR Code 或登入 @${SCHOOL_DOMAIN}`, cardX + cardW / 2, ty);
-  ty += 18;
-  ctx.font = '500 11px "Noto Sans TC", sans-serif';
-  ctx.fillText('完成線上親筆簽名、請假登記與期刊文章閱讀', cardX + cardW / 2, ty);
-  ty += 18;
+  ctx.font = `800 ${isSixUp ? 12.5 : 15}px "Noto Sans TC", sans-serif`;
+  ctx.fillText(
+    '領召：黃佩詩　403教室（分機：5207）',
+    centerX,
+    footerTopY + (isSixUp ? 42 : 54),
+  );
 
-  ctx.font = '700 12px "Noto Sans TC", sans-serif';
-  ctx.fillText('領召：黃佩詩   403教室 (分機：5207)', cardX + cardW / 2, ty);
+  // Middle zone: Title + Info Box + QR Section dynamically spaced to fill the card evenly
+  const bodyTop = cardY + headerH + (isSixUp ? 14 : 20);
+  const bodyBottom = footerTopY - (isSixUp ? 12 : 16);
+  const availableBodyH = bodyBottom - bodyTop;
+
+  // 1. Meeting Title (wrap up to 2 lines cleanly)
+  ctx.fillStyle = '#000000';
+  ctx.font = `800 ${isSixUp ? 18 : 22}px "Noto Sans TC", sans-serif`;
+  const titleLines = wrapTextLines(ctx, meeting.title, innerW, 2);
+  const titleLineH = isSixUp ? 24 : 30;
+  const titleBlockH = titleLines.length * titleLineH;
+
+  const academicYearLabel = meeting.academicYear.includes('學年度')
+    ? meeting.academicYear
+    : `${meeting.academicYear} 學年度`;
+
+  // 2. Metadata Info Box with generous line spacing
+  const infoLines: Array<{label: string; value: string}> = [
+    {
+      label: '開會時間',
+      value: `${academicYearLabel}・${meeting.meetingDate}`,
+    },
+    {label: '簽到開放', value: timeWindowText},
+    {label: '開會地點', value: meeting.location || '西門國小會議室'},
+  ];
+  if (linkedPost) {
+    infoLines.push({label: '相關文章', value: linkedPost.title});
+  }
+
+  const infoRowH = isSixUp ? 26 : 35;
+  const infoPadY = isSixUp ? 11 : 15;
+  const infoBoxH = infoPadY * 2 + infoLines.length * infoRowH;
+
+  // 3. QR Section height fills remaining space proportionally
+  const minGaps = isSixUp ? 22 : 32; // gap below title + gap below infoBox
+  const maxQrAreaH = availableBodyH - titleBlockH - infoBoxH - minGaps;
+  const hasTwoQr = Boolean(linkedPost && q2Img);
+
+  const labelBandH = isSixUp ? 24 : 28;
+  const qrSize = Math.max(
+    isSixUp ? 84 : 115,
+    Math.min(
+      isSixUp ? 136 : 196,
+      maxQrAreaH - labelBandH - (isSixUp ? 12 : 16),
+    ),
+  );
+  const qrAreaH = qrSize + labelBandH + (isSixUp ? 10 : 14);
+
+  // Distribute extra vertical gap cleanly so there is zero bottom void
+  const leftover = Math.max(0, availableBodyH - titleBlockH - infoBoxH - qrAreaH);
+  const gap1 = Math.round(leftover * 0.34);
+  const gap2 = Math.round(leftover * 0.42);
+
+  // Draw Title
+  let curY = bodyTop;
+  ctx.fillStyle = '#000000';
+  ctx.font = `800 ${isSixUp ? 18 : 22}px "Noto Sans TC", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  titleLines.forEach((line, idx) => {
+    ctx.fillText(line, centerX, curY + titleLineH * idx + titleLineH / 2);
+  });
+  curY += titleBlockH + gap1;
+
+  // Draw Info Box
+  const infoX = cardX + padX;
+  ctx.fillStyle = '#FAFAFA';
+  ctx.fillRect(infoX, curY, innerW, infoBoxH);
+  ctx.strokeStyle = '#A3A3A3';
+  ctx.lineWidth = 1.25;
+  ctx.strokeRect(infoX, curY, innerW, infoBoxH);
+
+  const infoPadX = isSixUp ? 14 : 18;
+  const infoFontSize = isSixUp ? 13.5 : 16.5;
+  infoLines.forEach((row, idx) => {
+    const rowY = curY + infoPadY + idx * infoRowH + infoRowH / 2;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+
+    ctx.fillStyle = '#404040';
+    ctx.font = `700 ${infoFontSize}px "Noto Sans TC", sans-serif`;
+    const labelStr = `${row.label}：`;
+    const labelW = ctx.measureText(labelStr).width;
+    ctx.fillText(labelStr, infoX + infoPadX, rowY);
+
+    ctx.fillStyle = '#000000';
+    ctx.font = `${row.label === '簽到開放' || row.label === '相關文章' ? 700 : 600} ${infoFontSize}px "Noto Sans TC", sans-serif`;
+    const valFitted = fitTextToWidth(
+      ctx,
+      row.value,
+      innerW - infoPadX * 2 - labelW,
+    );
+    ctx.fillText(valFitted, infoX + infoPadX + labelW, rowY);
+  });
+
+  curY += infoBoxH + gap2;
+
+  // Draw QR Code Area
+  if (hasTwoQr && q1Img && q2Img) {
+    const qrGap = isSixUp ? 20 : 28;
+    const boxW = Math.min(isSixUp ? 220 : 240, (innerW - qrGap) / 2);
+    const startX = centerX - (boxW * 2 + qrGap) / 2;
+
+    // Left: Checkin QR
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(startX, curY, boxW, qrAreaH);
+    ctx.strokeStyle = '#262626';
+    ctx.lineWidth = 1.25;
+    ctx.strokeRect(startX, curY, boxW, qrAreaH);
+    ctx.drawImage(
+      q1Img,
+      startX + (boxW - qrSize) / 2,
+      curY + (isSixUp ? 6 : 8),
+      qrSize,
+      qrSize,
+    );
+    ctx.fillStyle = '#000000';
+    ctx.font = `700 ${isSixUp ? 12.5 : 15}px "Noto Sans TC", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      '【1】手機線上簽到',
+      startX + boxW / 2,
+      curY + qrSize + (isSixUp ? 20 : 24),
+    );
+
+    // Right: Linked Article QR
+    const startX2 = startX + boxW + qrGap;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(startX2, curY, boxW, qrAreaH);
+    ctx.strokeRect(startX2, curY, boxW, qrAreaH);
+    ctx.drawImage(
+      q2Img,
+      startX2 + (boxW - qrSize) / 2,
+      curY + (isSixUp ? 6 : 8),
+      qrSize,
+      qrSize,
+    );
+    ctx.fillStyle = '#000000';
+    ctx.font = `700 ${isSixUp ? 12.5 : 15}px "Noto Sans TC", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      '【2】相關文章閱讀',
+      startX2 + boxW / 2,
+      curY + qrSize + (isSixUp ? 20 : 24),
+    );
+  } else if (q1Img) {
+    // Single QR: clean side-by-side QR + step instructions box for balanced visual density
+    const qrBoxSize = qrSize + 12;
+    const guideBoxW = innerW - qrBoxSize - (isSixUp ? 18 : 22);
+    const leftX = cardX + padX;
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(leftX, curY, qrBoxSize, qrAreaH);
+    ctx.strokeStyle = '#262626';
+    ctx.lineWidth = 1.25;
+    ctx.strokeRect(leftX, curY, qrBoxSize, qrAreaH);
+    ctx.drawImage(q1Img, leftX + 6, curY + 5, qrSize, qrSize);
+    ctx.fillStyle = '#000000';
+    ctx.font = `700 ${isSixUp ? 12 : 14}px "Noto Sans TC", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      '手機掃碼簽到',
+      leftX + qrBoxSize / 2,
+      curY + qrSize + (isSixUp ? 19 : 22),
+    );
+
+    // Right instruction panel
+    const rightX = leftX + qrBoxSize + (isSixUp ? 18 : 22);
+    ctx.fillStyle = '#FAFAFA';
+    ctx.fillRect(rightX, curY, guideBoxW, qrAreaH);
+    ctx.strokeStyle = '#D4D4D4';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rightX, curY, guideBoxW, qrAreaH);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#000000';
+    ctx.font = `700 ${isSixUp ? 13.5 : 16}px "Noto Sans TC", sans-serif`;
+    const gPadX = isSixUp ? 14 : 18;
+    const stepSpacing = Math.round(qrAreaH / 4.2);
+    const gStartY = curY + Math.round(qrAreaH * 0.22);
+    ctx.fillText('簽到步驟說明：', rightX + gPadX, gStartY);
+
+    ctx.font = `500 ${isSixUp ? 12.5 : 14.5}px "Noto Sans TC", sans-serif`;
+    ctx.fillStyle = '#262626';
+    ctx.fillText(
+      fitTextToWidth(ctx, '1. 手機掃描左側 QR Code', guideBoxW - gPadX * 2),
+      rightX + gPadX,
+      gStartY + stepSpacing,
+    );
+    ctx.fillText(
+      fitTextToWidth(
+        ctx,
+        meeting.audience === 'parent'
+          ? '2. 免登入即可填寫簽名'
+          : `2. 登入 @${SCHOOL_DOMAIN}`,
+        guideBoxW - gPadX * 2,
+      ),
+      rightX + gPadX,
+      gStartY + stepSpacing * 2,
+    );
+    ctx.fillText(
+      fitTextToWidth(
+        ctx,
+        meeting.audience === 'parent'
+          ? '3. 送出即完成出席登記'
+          : '3. 完成親筆簽名或請假',
+        guideBoxW - gPadX * 2,
+      ),
+      rightX + gPadX,
+      gStartY + stepSpacing * 3,
+    );
+  }
 
   ctx.restore();
 };
@@ -157,9 +383,9 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
   onOpenLinkedPost,
   onClose,
 }) => {
+  const [layoutMode, setLayoutMode] = useState<NoticeLayoutMode>('6up');
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [articleQrDataUrl, setArticleQrDataUrl] = useState<string>('');
-  const [copiedLink, setCopiedLink] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [noticeMessage, setNoticeMessage] = useState<string | null>(null);
 
@@ -257,35 +483,42 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
   useEffect(() => {
     return () => {
       document.body.classList.remove('printing-quarter-notice');
+      document.getElementById('notice-print-page-style')?.remove();
     };
   }, []);
 
   if (!meeting || typeof document === 'undefined') return null;
 
-  const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(checkinUrl);
-      setCopiedLink(true);
-      setNoticeMessage('已複製會議簽到直達連結！');
-      window.setTimeout(() => setCopiedLink(false), 2000);
-    } catch {
-      setNoticeMessage(`直達連結：${checkinUrl}`);
-    }
-  };
-
   const handleNativePrint = () => {
     document.body.classList.add('printing-quarter-notice');
+
+    // Dynamically scope @page orientation so other print modals stay A4 portrait
+    const existing = document.getElementById('notice-print-page-style');
+    if (existing) existing.remove();
+    const pageStyle = document.createElement('style');
+    pageStyle.id = 'notice-print-page-style';
+    pageStyle.textContent =
+      layoutMode === '6up'
+        ? '@media print { @page { size: A4 landscape; margin: 0; } }'
+        : '@media print { @page { size: A4 portrait; margin: 0; } }';
+    document.head.appendChild(pageStyle);
+
     const cleanup = () => {
       document.body.classList.remove('printing-quarter-notice');
+      document.getElementById('notice-print-page-style')?.remove();
       window.removeEventListener('afterprint', cleanup);
     };
     window.addEventListener('afterprint', cleanup);
     try {
       window.print();
-      setNoticeMessage('已送出 A4 橫式 6合1 黑白通知單列印請求。');
+      setNoticeMessage(
+        layoutMode === '6up'
+          ? '已送出 A4 橫式 6 份（3×2）灰階通知單列印請求。'
+          : '已送出 A4 直式 4 份（2×2）灰階通知單列印請求。',
+      );
     } catch {
       cleanup();
-      setNoticeMessage('此瀏覽環境不支援直接呼叫列印。');
+      setNoticeMessage('此瀏覽環境不支援直接呼叫列印，請點選「下載 PDF」。');
     }
     window.setTimeout(cleanup, 3000);
   };
@@ -294,45 +527,92 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
     setIsGeneratingPdf(true);
     setNoticeMessage(null);
     try {
+      const isSixUp = layoutMode === '6up';
       const canvas = document.createElement('canvas');
-      // Landscape A4 dimensions at ~150 DPI: Width = 1754, Height = 1240
-      canvas.width = 1754;
-      canvas.height = 1240;
+      canvas.width = isSixUp ? 1754 : 1240;
+      canvas.height = isSixUp ? 1240 : 1754;
       const ctx = canvas.getContext('2d')!;
       ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, 1754, 1240);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Draw 6 identical cards in a 3x2 grid (3 columns, 2 rows) on A4 Landscape canvas
-      const cardW = 530;
-      const cardH = 555;
-      const colGap = 28;
-      const rowGap = 35;
-      const startX = (1754 - (cardW * 3 + colGap * 2)) / 2;
-      const startY = (1240 - (cardH * 2 + rowGap)) / 2;
+      const cols = isSixUp ? 3 : 2;
+      const rows = 2;
+      const cardW = isSixUp ? 536 : 555;
+      const cardH = isSixUp ? 570 : 812;
+      const colGap = isSixUp ? 30 : 36;
+      const rowGap = isSixUp ? 30 : 36;
+      const startX = (canvas.width - (cardW * cols + colGap * (cols - 1))) / 2;
+      const startY = (canvas.height - (cardH * rows + rowGap * (rows - 1))) / 2;
 
       const q1Img = qrDataUrl ? await loadImage(qrDataUrl) : null;
-      const q2Img = linkedPost && articleQrDataUrl ? await loadImage(articleQrDataUrl) : null;
+      const q2Img =
+        linkedPost && articleQrDataUrl ? await loadImage(articleQrDataUrl) : null;
 
-      for (let r = 0; r < 2; r++) {
-        for (let c = 0; c < 3; c++) {
+      // Subtle dashed cut guides across margins for easy paper cutting
+      ctx.save();
+      ctx.strokeStyle = '#D4D4D4';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      for (let c = 1; c < cols; c++) {
+        const cutX = startX + c * cardW + (c - 0.5) * colGap;
+        ctx.beginPath();
+        ctx.moveTo(cutX, 16);
+        ctx.lineTo(cutX, canvas.height - 16);
+        ctx.stroke();
+      }
+      const cutY = startY + cardH + rowGap / 2;
+      ctx.beginPath();
+      ctx.moveTo(16, cutY);
+      ctx.lineTo(canvas.width - 16, cutY);
+      ctx.stroke();
+      ctx.restore();
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
           const cx = startX + c * (cardW + colGap);
           const cy = startY + r * (cardH + rowGap);
-          drawSingleLandscapeNoticeCard(ctx, cx, cy, cardW, cardH, meeting, linkedPost, q1Img, q2Img, timeWindowText);
+          drawBalancedNoticeCard(
+            ctx,
+            cx,
+            cy,
+            cardW,
+            cardH,
+            layoutMode,
+            meeting,
+            linkedPost,
+            q1Img,
+            q2Img,
+            timeWindowText,
+          );
         }
       }
 
       const pdf = new jsPDF({
-        orientation: 'landscape',
+        orientation: isSixUp ? 'landscape' : 'portrait',
         unit: 'mm',
         format: 'a4',
         compress: true,
       });
-      const imgData = canvas.toDataURL('image/jpeg', 0.92);
-      pdf.addImage(imgData, 'JPEG', 0, 0, 297, 210, undefined, 'FAST');
+      const imgData = canvas.toDataURL('image/jpeg', 0.94);
+      pdf.addImage(
+        imgData,
+        'JPEG',
+        0,
+        0,
+        isSixUp ? 297 : 210,
+        isSixUp ? 210 : 297,
+        undefined,
+        'FAST',
+      );
       const blob = pdf.output('blob');
       const safeFile = meeting.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 35);
-      triggerSafeBlobDownload(blob, `會議通知單_A4橫式6合1_${safeFile}.pdf`);
-      setNoticeMessage('已成功產生 A4 橫式 6合1 會議通知單 PDF 檔（內含6個重複版面）！');
+      const labelSuffix = isSixUp ? 'A4橫式6份' : 'A4直式4份';
+      triggerSafeBlobDownload(blob, `會議通知單_${labelSuffix}_${safeFile}.pdf`);
+      setNoticeMessage(
+        isSixUp
+          ? '已成功產生 A4 橫式 6 份通知單 PDF 檔！可直接灰階列印後裁切發放。'
+          : '已成功產生 A4 直式 4 份通知單 PDF 檔！可直接灰階列印後裁切發放。',
+      );
     } catch (err: any) {
       setNoticeMessage(err?.message || '產生通知單 PDF 失敗，請改用系統列印。');
     } finally {
@@ -340,63 +620,124 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
     }
   };
 
-  const renderCardContent = () => (
-    <div className="space-y-3 leading-relaxed">
-      <div className="border-b-2 border-black pb-2 text-center space-y-1">
-        <div className="text-xs sm:text-sm font-bold tracking-widest uppercase text-black">
-          臺北市西門國民小學 · 數學領域～AI領航 徜徉酷數
+  const isSixUp = layoutMode === '6up';
+
+  const renderHtmlCard = (compactForSixUp: boolean) => (
+    <>
+      {/* Header */}
+      <div
+        className={`bg-stone-100 border-b-2 border-stone-900 text-center shrink-0 ${
+          compactForSixUp ? '-mx-4 -mt-3.5 px-3 py-2' : '-mx-5 -mt-4 px-4 py-2.5'
+        }`}
+      >
+        <div
+          className={`font-bold tracking-wider text-stone-700 ${
+            compactForSixUp ? 'text-[10.5px]' : 'text-xs'
+          }`}
+        >
+          臺北市西門國小 · 數學領域～AI領航 徜徉酷數
         </div>
-        <div className="font-editorial text-base sm:text-lg font-extrabold tracking-wide text-black">
-          開會暨簽到通知單
+        <div
+          className={`font-editorial font-extrabold tracking-wide text-black mt-0.5 ${
+            compactForSixUp ? 'text-[15px]' : 'text-lg'
+          }`}
+        >
+          {meeting.audience === 'parent'
+            ? '學校日家長 · 開會暨簽到通知單'
+            : '開會暨簽到通知單'}
         </div>
       </div>
 
-      <div className="space-y-1.5 text-center">
-        <h2 className="font-editorial text-base sm:text-lg font-extrabold text-black leading-snug">
+      {/* Title */}
+      <div className="text-center px-1">
+        <h2
+          className={`font-editorial font-extrabold text-black leading-snug line-clamp-2 ${
+            compactForSixUp ? 'text-[15px]' : 'text-lg'
+          }`}
+        >
           {meeting.title}
         </h2>
-        <div className="text-xs sm:text-sm text-stone-900 space-y-1 text-left bg-stone-50 border border-stone-300 rounded-md p-2.5">
-          <div><strong>學年度：</strong>{meeting.academicYear}</div>
-          <div><strong>開會時間：</strong>{meeting.meetingDate}</div>
-          <div><strong>簽到開放：</strong><span className="font-bold underline">{timeWindowText}</span></div>
-          <div><strong>地點：</strong>{meeting.location || '西門國小會議室'}</div>
-          {linkedPost && (
-            <div className="pt-1 border-t border-stone-300 truncate text-xs sm:text-sm">
-              <strong>相關文章：</strong>
-              <span className="font-bold underline cursor-pointer" onClick={() => {
+      </div>
+
+      {/* Info Box with spacious line spacing */}
+      <div
+        className={`bg-stone-50 border border-stone-300 rounded-md text-left text-stone-900 ${
+          compactForSixUp
+            ? 'px-3 py-2 space-y-1.5 text-[11px] leading-relaxed'
+            : 'px-3.5 py-2.5 space-y-2 text-xs leading-relaxed'
+        }`}
+      >
+        <div className="truncate">
+          <strong className="text-stone-700">開會時間：</strong>
+          <span className="font-semibold">
+            {meeting.academicYear.includes('學年度')
+              ? meeting.academicYear
+              : `${meeting.academicYear} 學年度`}
+            ・{meeting.meetingDate}
+          </span>
+        </div>
+        <div className="truncate">
+          <strong className="text-stone-700">簽到開放：</strong>
+          <span className="font-bold text-black">{timeWindowText}</span>
+        </div>
+        <div className="truncate">
+          <strong className="text-stone-700">開會地點：</strong>
+          <span className="font-semibold">
+            {meeting.location || '西門國小會議室'}
+          </span>
+        </div>
+        {linkedPost && (
+          <div className="pt-1 border-t border-stone-300 truncate">
+            <strong className="text-stone-700">相關文章：</strong>
+            <span
+              className="font-bold underline cursor-pointer text-black"
+              onClick={() => {
                 if (onOpenLinkedPost && meeting.linkedPostSlug) {
                   onClose();
                   onOpenLinkedPost(meeting.linkedPostSlug);
                 }
-              }}>
-                {linkedPost.title}
-              </span>
-            </div>
-          )}
-        </div>
+              }}
+            >
+              {linkedPost.title}
+            </span>
+          </div>
+        )}
       </div>
 
-      <div className={`grid gap-2 ${linkedPost && articleQrDataUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
-        <div className="bg-white border border-black rounded-lg p-1.5 text-center">
-          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto flex items-center justify-center">
-            {qrDataUrl ? (
-              <img
-                src={qrDataUrl}
-                alt="簽到 QR Code"
-                className="w-full h-full object-contain grayscale contrast-200"
-              />
-            ) : (
-              <span className="text-xs text-stone-400">產生中...</span>
-            )}
+      {/* QR Code Area */}
+      {linkedPost ? (
+        <div className="grid grid-cols-2 gap-2.5">
+          <div className="bg-white border border-stone-800 rounded-md p-1.5 text-center flex flex-col items-center justify-center">
+            <div
+              className={`flex items-center justify-center ${
+                compactForSixUp ? 'w-[78px] h-[78px]' : 'w-28 h-28'
+              }`}
+            >
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="簽到 QR Code"
+                  className="w-full h-full object-contain grayscale contrast-200"
+                />
+              ) : (
+                <span className="text-[10px] text-stone-400">產生中...</span>
+              )}
+            </div>
+            <div
+              className={`font-bold text-black mt-1 ${
+                compactForSixUp ? 'text-[10.5px]' : 'text-xs'
+              }`}
+            >
+              【1】手機線上簽到
+            </div>
           </div>
-          <div className="text-xs font-bold text-black mt-1">
-            【1】手機線上簽到
-          </div>
-        </div>
 
-        {linkedPost && (
-          <div className="bg-white border border-black rounded-lg p-1.5 text-center">
-            <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto flex items-center justify-center">
+          <div className="bg-white border border-stone-800 rounded-md p-1.5 text-center flex flex-col items-center justify-center">
+            <div
+              className={`flex items-center justify-center ${
+                compactForSixUp ? 'w-[78px] h-[78px]' : 'w-28 h-28'
+              }`}
+            >
               {articleQrDataUrl ? (
                 <img
                   src={articleQrDataUrl}
@@ -404,30 +745,92 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
                   className="w-full h-full object-contain grayscale contrast-200"
                 />
               ) : (
-                <span className="text-xs text-stone-400">產生中...</span>
+                <span className="text-[10px] text-stone-400">產生中...</span>
               )}
             </div>
-            <div className="text-xs font-bold text-black mt-1">
+            <div
+              className={`font-bold text-black mt-1 ${
+                compactForSixUp ? 'text-[10.5px]' : 'text-xs'
+              }`}
+            >
               【2】相關文章閱讀
             </div>
           </div>
-        )}
-      </div>
-    </div>
-  );
+        </div>
+      ) : (
+        <div className="grid grid-cols-[auto_1fr] gap-2.5 items-stretch">
+          <div className="bg-white border border-stone-800 rounded-md p-1.5 text-center flex flex-col items-center justify-center">
+            <div
+              className={`flex items-center justify-center ${
+                compactForSixUp ? 'w-[78px] h-[78px]' : 'w-28 h-28'
+              }`}
+            >
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="簽到 QR Code"
+                  className="w-full h-full object-contain grayscale contrast-200"
+                />
+              ) : (
+                <span className="text-[10px] text-stone-400">產生中...</span>
+              )}
+            </div>
+            <div
+              className={`font-bold text-black mt-1 ${
+                compactForSixUp ? 'text-[10px]' : 'text-xs'
+              }`}
+            >
+              手機掃碼簽到
+            </div>
+          </div>
 
-  const renderCardFooter = () => (
-    <div className="text-center space-y-1 pt-2 border-t border-black leading-relaxed">
-      <div className="text-xs sm:text-sm font-bold text-black">
-        請使用手機掃描 QR Code 或登入 @{SCHOOL_DOMAIN}
+          <div
+            className={`bg-stone-50 border border-stone-300 rounded-md flex flex-col justify-center text-left text-stone-800 ${
+              compactForSixUp
+                ? 'px-2.5 py-2 space-y-1.5 text-[10.5px]'
+                : 'px-3.5 py-3 space-y-2 text-xs'
+            }`}
+          >
+            <div className="font-bold text-black">簽到步驟說明：</div>
+            <div>1. 手機掃描左側 QR Code</div>
+            <div>
+              2.{' '}
+              {meeting.audience === 'parent'
+                ? '免登入即可填寫簽名'
+                : `登入 @${SCHOOL_DOMAIN}`}
+            </div>
+            <div>
+              3.{' '}
+              {meeting.audience === 'parent'
+                ? '送出即完成出席登記'
+                : '完成親筆簽名或請假'}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Footer */}
+      <div
+        className={`text-center border-t border-stone-400 pt-1.5 shrink-0 ${
+          compactForSixUp ? 'space-y-1' : 'space-y-1.5 pt-2'
+        }`}
+      >
+        <div
+          className={`font-bold text-stone-900 ${
+            compactForSixUp ? 'text-[10.5px]' : 'text-xs'
+          }`}
+        >
+          掃碼或登入 @{SCHOOL_DOMAIN} 完成線上簽到／請假
+        </div>
+        <div
+          className={`font-extrabold text-black tracking-wide ${
+            compactForSixUp ? 'text-[11px]' : 'text-[13px]'
+          }`}
+        >
+          領召：黃佩詩　403教室（分機：5207）
+        </div>
       </div>
-      <p className="text-[11px] sm:text-xs text-stone-800 leading-tight">
-        完成線上親筆簽名、請假登記與期刊文章閱讀。
-      </p>
-      <div className="text-xs sm:text-sm font-extrabold text-black tracking-wide pt-0.5">
-        領召：黃佩詩 &nbsp; 403教室 (分機：5207)
-      </div>
-    </div>
+    </>
   );
 
   return createPortal(
@@ -436,16 +839,17 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       className="fixed inset-0 z-[75] overflow-y-auto bg-stone-950/75 backdrop-blur-xs p-3 sm:p-6 flex flex-col items-center justify-center"
       role="dialog"
       aria-modal="true"
-      aria-label="A4 橫式 6合1 會議通知單預覽與列印"
+      aria-label="多份合印黑白會議通知單預覽與列印"
       onClick={onClose}
     >
+      {/* Top Toolbar */}
       <div
-        className="no-print w-full max-w-xl bg-white border border-stone-200 rounded-xl shadow-lg p-3.5 sm:p-4 mb-4 flex flex-wrap items-center justify-between gap-2.5 shrink-0"
+        className="no-print w-full max-w-2xl bg-white border border-stone-200 rounded-xl shadow-lg p-3.5 sm:p-4 mb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="min-w-0">
-          <div className="text-xs font-semibold text-stone-900">
-            A4 橫式 6合1 黑白通知單（單頁含6個重複版面·字體加大行距優化）
+        <div className="min-w-0 space-y-1">
+          <div className="text-xs font-semibold text-stone-800">
+            省墨黑白列印版 · 單張 A4 可印 {isSixUp ? '6 份（橫式 3×2）' : '4 份（直式 2×2）'}
           </div>
           <div className="text-sm font-bold text-stone-950 truncate">
             {meeting.title}
@@ -453,6 +857,36 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* 4-up vs 6-up Layout Switcher */}
+          <div
+            className="inline-flex bg-stone-100 border border-stone-300 rounded-lg p-0.5"
+            role="group"
+            aria-label="每張 A4 列印份數"
+          >
+            <button
+              type="button"
+              onClick={() => setLayoutMode('6up')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                isSixUp
+                  ? 'bg-stone-900 text-white shadow-2xs'
+                  : 'text-stone-700 hover:text-stone-950'
+              }`}
+            >
+              6份 (A4橫式)
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('4up')}
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                !isSixUp
+                  ? 'bg-stone-900 text-white shadow-2xs'
+                  : 'text-stone-700 hover:text-stone-950'
+              }`}
+            >
+              4份 (A4直式)
+            </button>
+          </div>
+
           <button
             type="button"
             disabled={isGeneratingPdf}
@@ -460,7 +894,13 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
             className="px-3 py-2 text-xs font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-60 rounded-lg inline-flex items-center gap-1.5"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>{isGeneratingPdf ? '產製 PDF...' : '下載 6合1 PDF'}</span>
+            <span>
+              {isGeneratingPdf
+                ? '產製 PDF...'
+                : isSixUp
+                  ? '下載 6份 PDF'
+                  : '下載 4份 PDF'}
+            </span>
           </button>
 
           <button
@@ -469,7 +909,7 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
             className="px-3 py-2 text-xs font-semibold text-stone-900 bg-stone-100 border border-stone-300 hover:bg-stone-200 rounded-lg inline-flex items-center gap-1.5"
           >
             <Printer className="w-3.5 h-3.5 text-stone-900" />
-            <span>列印 A4 橫式 6合1</span>
+            <span>直接列印</span>
           </button>
 
           <button
@@ -484,33 +924,52 @@ export const MeetingNoticeModal: React.FC<MeetingNoticeModalProps> = ({
       </div>
 
       {noticeMessage && (
-        <div className="no-print w-full max-w-xl bg-stone-100 border border-stone-300 text-stone-900 rounded-lg px-3 py-2 text-xs mb-3 text-center">
+        <div className="no-print w-full max-w-2xl bg-stone-100 border border-stone-300 text-stone-900 rounded-lg px-3 py-2 text-xs mb-3 text-center">
           {noticeMessage}
         </div>
       )}
 
-      {/* Screen Preview: single card */}
-      <div className="no-print max-h-[75vh] overflow-y-auto p-2">
+      {/* Screen Preview: Exact Proportional Single Card */}
+      <div
+        className="no-print max-h-[75vh] overflow-y-auto p-2"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="text-center text-xs text-stone-300 mb-2">
-          （下方為預覽畫面；點擊上方「下載 6合1 PDF」或「列印 A4 橫式 6合1」將自動在單張 A4 橫式紙張排版 6 個重複版面）
+          {isSixUp
+            ? '單張通知卡預覽（輸出時將於單張橫式 A4 自動排列 6 份，並附虛線裁切線）'
+            : '單張通知卡預覽（輸出時將於單張直式 A4 自動排列 4 份，並附虛線裁切線）'}
         </div>
         <div
           id="printable-quarter-notice-card"
-          className="w-[95mm] bg-white border-2 border-black rounded-lg shadow-2xl p-4 flex flex-col justify-between text-black font-sans mx-auto"
-          onClick={(e) => e.stopPropagation()}
+          className={`bg-white border-2 border-stone-900 rounded-md shadow-2xl flex flex-col justify-between text-black font-sans mx-auto overflow-hidden ${
+            isSixUp
+              ? 'w-[91mm] h-[96.5mm] px-4 py-3.5'
+              : 'w-[94mm] h-[137.5mm] px-5 py-4'
+          }`}
         >
-          {renderCardContent()}
-          {renderCardFooter()}
+          {renderHtmlCard(isSixUp)}
         </div>
       </div>
 
-      {/* Hidden print container with 6 identical cards in 3x2 landscape grid layout for window.print() */}
+      {/* Hidden Print Grid Container for window.print() */}
       <div className="print-only-grid hidden">
-        <div className="notice-grid-print-landscape">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="printable-landscape-card-item" style={{border: '1.5px solid black', padding: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxSizing: 'border-box', background: '#fff', overflow: 'hidden'}}>
-              {renderCardContent()}
-              {renderCardFooter()}
+        <div
+          className={
+            isSixUp
+              ? 'notice-grid-print-landscape'
+              : 'notice-grid-print-portrait'
+          }
+        >
+          {[...Array(isSixUp ? 6 : 4)].map((_, i) => (
+            <div
+              key={i}
+              className={
+                isSixUp
+                  ? 'printable-landscape-card-item'
+                  : 'printable-portrait-card-item'
+              }
+            >
+              {renderHtmlCard(isSixUp)}
             </div>
           ))}
         </div>
