@@ -55,6 +55,7 @@ import {MeetingMinutesModal} from './components/MeetingMinutesModal';
 import {SchoolAccessModal} from './components/SchoolAccessModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {StandaloneParentCheckinPage} from './components/StandaloneParentCheckinPage';
+import {TeachingResourcesHubModal} from './components/TeachingResourcesHubModal';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
@@ -74,6 +75,7 @@ import {
 } from './config/siteConfig';
 import firebaseConfig from '../firebase-applet-config.json';
 import {SEED_POSTS} from './data/seedPosts';
+import {SEED_TEACHING_RESOURCES} from './data/seedResources';
 import {
   auth,
   checkIsTeacherAdmin,
@@ -100,6 +102,18 @@ import {
   subscribeMyCheckins,
 } from './services/meetingCheckinDb';
 import {
+  appendResourceToSheet,
+  batchAppendResourcesToSheet,
+  deleteResourceFromSheet,
+  ensureResourcesTabExists,
+  fetchResourcesFromPublicGviz,
+  fetchResourcesFromSheetsApi,
+  findResourcesTab,
+  readLocalResourcesCache,
+  updateResourceInSheet,
+  writeLocalResourcesCache,
+} from './services/resourcesDb';
+import {
   appendPostToSheet,
   batchAppendPostsToSheet,
   createAndSeedJournalSheet,
@@ -118,6 +132,7 @@ import {
   JournalPost,
   SiteSettings,
   SpreadsheetMeta,
+  TeachingResource,
 } from './types/journal';
 
 const PUBLIC_SHEET_STORAGE_KEY = 'pesmath_public_sheet_id';
@@ -250,6 +265,11 @@ function MainKnowledgeBaseApp() {
   const [minutesModalPost, setMinutesModalPost] = useState<JournalPost | null>(
     null,
   );
+  const [resources, setResources] = useState<TeachingResource[]>(
+    () => readLocalResourcesCache(DEFAULT_PUBLIC_SHEET_ID) || SEED_TEACHING_RESOURCES,
+  );
+  const [hasRemoteResourcesTab, setHasRemoteResourcesTab] = useState(false);
+  const [isResourcesHubOpen, setIsResourcesHubOpen] = useState(false);
   const handledQueryStageRef = useRef(false);
 
   const isSchoolAuthorized = useMemo(
@@ -476,20 +496,38 @@ function MainKnowledgeBaseApp() {
       return {homeUrl: '', currentUrl: '', hasDistinctCurrent: false};
     }
     const homeUrl = `${window.location.origin}${window.location.pathname}`;
+    const activeSheetId = sheetMeta?.spreadsheetId || publicSheetId;
+    const resourcesUrl = `${window.location.origin}${window.location.pathname}${
+      activeSheetId
+        ? `?sheet=${encodeURIComponent(activeSheetId)}&tab=resources`
+        : '?tab=resources'
+    }`;
     const currentUrl = customQrTarget?.url
       ? customQrTarget.url
       : activePost
         ? `${window.location.origin}${window.location.pathname}${window.location.search}#post=${encodeURIComponent(activePost.slug)}`
         : interactiveStage.isOpen && interactiveStage.url
           ? new URL(interactiveStage.url, window.location.href).toString()
-          : window.location.href;
+          : isResourcesHubOpen
+            ? resourcesUrl
+            : window.location.href;
     const hasDistinctCurrent =
       Boolean(customQrTarget?.url) ||
       Boolean(activePost) ||
       interactiveStage.isOpen ||
+      isResourcesHubOpen ||
       (currentUrl !== homeUrl && currentUrl !== `${homeUrl}#top`);
     return {homeUrl, currentUrl, hasDistinctCurrent};
-  }, [activePost, interactiveStage.isOpen, interactiveStage.url, siteQrMode, customQrTarget]);
+  }, [
+    activePost,
+    interactiveStage.isOpen,
+    interactiveStage.url,
+    isResourcesHubOpen,
+    sheetMeta?.spreadsheetId,
+    publicSheetId,
+    siteQrMode,
+    customQrTarget,
+  ]);
 
   const activeSiteShareUrl =
     siteQrTargetMode === 'current' && siteShareUrls.hasDistinctCurrent
@@ -588,6 +626,26 @@ function MainKnowledgeBaseApp() {
     [],
   );
 
+  const applyLoadedResources = useCallback(
+    (
+      spreadsheetId: string,
+      resData: {hasTab: boolean; resources: TeachingResource[]},
+    ) => {
+      if (resData.hasTab) {
+        setHasRemoteResourcesTab(true);
+        setResources(resData.resources);
+        writeLocalResourcesCache(spreadsheetId, resData.resources);
+      } else {
+        setHasRemoteResourcesTab(false);
+        const cached = readLocalResourcesCache(spreadsheetId);
+        setResources(
+          cached && cached.length > 0 ? cached : SEED_TEACHING_RESOURCES,
+        );
+      }
+    },
+    [],
+  );
+
   // Load public Google Sheet from URL query parameter (?sheet=ID) or saved config
   const loadPublicSheet = useCallback(
     async (spreadsheetId: string, tabName?: string) => {
@@ -595,9 +653,10 @@ function MainKnowledgeBaseApp() {
       setIsSyncing(true);
       setSyncError(null);
       try {
-        const [fetched, remoteSettings] = await Promise.all([
+        const [fetched, remoteSettings, resData] = await Promise.all([
           fetchPostsFromPublicGviz(spreadsheetId, tabName),
           fetchSiteSettingsFromPublicGviz(spreadsheetId),
+          fetchResourcesFromPublicGviz(spreadsheetId),
         ]);
         setPosts(fetched);
         setPublicSheetId(spreadsheetId);
@@ -606,13 +665,14 @@ function MainKnowledgeBaseApp() {
         setDataSourceMode('sheets-public');
         localStorage.setItem(PUBLIC_SHEET_STORAGE_KEY, spreadsheetId);
         applyRemoteSettingsIfEnabled(remoteSettings);
+        applyLoadedResources(spreadsheetId, resData);
       } catch (err: any) {
         setSyncError(err?.message || '讀取公開試算表失敗。');
       } finally {
         setIsSyncing(false);
       }
     },
-    [applyRemoteSettingsIfEnabled],
+    [applyRemoteSettingsIfEnabled, applyLoadedResources],
   );
 
   useEffect(() => {
@@ -623,6 +683,7 @@ function MainKnowledgeBaseApp() {
       const class403Param = params.get('class403');
       const checkinParam = params.get('checkin');
       const meetingParam = params.get('meeting');
+      const tabParam = params.get('tab');
       if (
         ximenParam === 'map' ||
         ximenParam === 'gallery' ||
@@ -644,6 +705,11 @@ function MainKnowledgeBaseApp() {
           audienceMode: 'teacher',
           meetingId: meetingParam || undefined,
         });
+      } else if (
+        tabParam === 'resources' ||
+        window.location.hash === '#resources'
+      ) {
+        setIsResourcesHubOpen(true);
       }
     }
 
@@ -723,11 +789,18 @@ function MainKnowledgeBaseApp() {
                     token,
                   );
                   const targetTab = cloudCfg.tabName || meta.activeTab;
-                  const fetched = await fetchPostsFromSheetsApi(
-                    meta.spreadsheetId,
-                    targetTab,
-                    token,
-                  );
+                  const [fetched, resData] = await Promise.all([
+                    fetchPostsFromSheetsApi(
+                      meta.spreadsheetId,
+                      targetTab,
+                      token,
+                    ),
+                    fetchResourcesFromSheetsApi(
+                      meta.spreadsheetId,
+                      meta.tabs,
+                      token,
+                    ),
+                  ]);
                   setSheetMeta({...meta, activeTab: targetTab});
                   setPosts(fetched);
                   setPublicSheetId(meta.spreadsheetId);
@@ -736,6 +809,7 @@ function MainKnowledgeBaseApp() {
                     PUBLIC_SHEET_STORAGE_KEY,
                     meta.spreadsheetId,
                   );
+                  applyLoadedResources(meta.spreadsheetId, resData);
                 } catch {
                   await loadPublicSheet(
                     cloudCfg.spreadsheetId,
@@ -755,7 +829,7 @@ function MainKnowledgeBaseApp() {
     );
 
     return () => unsubscribe();
-  }, [loadPublicSheet]);
+  }, [loadPublicSheet, applyLoadedResources]);
 
   useEffect(() => {
     updateDynamicFavicon(posts.length, dataSourceMode);
@@ -973,7 +1047,7 @@ function MainKnowledgeBaseApp() {
         if (targetId && dataSourceMode !== 'sheets-api') {
           try {
             const meta = await fetchSpreadsheetMeta(targetId, result.accessToken);
-            const [fetched, remoteSettings] = await Promise.all([
+            const [fetched, remoteSettings, resData] = await Promise.all([
               fetchPostsFromSheetsApi(
                 meta.spreadsheetId,
                 meta.activeTab,
@@ -984,12 +1058,18 @@ function MainKnowledgeBaseApp() {
                 meta.tabs,
                 result.accessToken,
               ),
+              fetchResourcesFromSheetsApi(
+                meta.spreadsheetId,
+                meta.tabs,
+                result.accessToken,
+              ),
             ]);
             setSheetMeta(meta);
             setPosts(fetched);
             setPublicSheetId(meta.spreadsheetId);
             setDataSourceMode('sheets-api');
             applyRemoteSettingsIfEnabled(remoteSettings, meta.title);
+            applyLoadedResources(meta.spreadsheetId, resData);
           } catch {
             // Keep existing view if signed-in account lacks permission on the public sheet
           }
@@ -1070,9 +1150,10 @@ function MainKnowledgeBaseApp() {
     setSyncError(null);
     try {
       const meta = await fetchSpreadsheetMeta(spreadsheetId, token);
-      const [fetched, remoteSettings] = await Promise.all([
+      const [fetched, remoteSettings, resData] = await Promise.all([
         fetchPostsFromSheetsApi(meta.spreadsheetId, meta.activeTab, token),
         fetchSiteSettingsFromSheetsApi(meta.spreadsheetId, meta.tabs, token),
+        fetchResourcesFromSheetsApi(meta.spreadsheetId, meta.tabs, token),
       ]);
       setSheetMeta(meta);
       setPosts(fetched);
@@ -1080,6 +1161,7 @@ function MainKnowledgeBaseApp() {
       setDataSourceMode('sheets-api');
       localStorage.setItem(PUBLIC_SHEET_STORAGE_KEY, meta.spreadsheetId);
       applyRemoteSettingsIfEnabled(remoteSettings, meta.title);
+      applyLoadedResources(meta.spreadsheetId, resData);
     } catch (err: any) {
       setSyncError(err?.message || '連線 Google Sheet API 失敗。');
     } finally {
@@ -1117,7 +1199,7 @@ function MainKnowledgeBaseApp() {
       setIsSyncing(true);
       setSyncError(null);
       try {
-        const [fetched, remoteSettings] = await Promise.all([
+        const [fetched, remoteSettings, resData] = await Promise.all([
           fetchPostsFromSheetsApi(
             sheetMeta.spreadsheetId,
             sheetMeta.activeTab,
@@ -1128,9 +1210,15 @@ function MainKnowledgeBaseApp() {
             sheetMeta.tabs,
             token,
           ),
+          fetchResourcesFromSheetsApi(
+            sheetMeta.spreadsheetId,
+            sheetMeta.tabs,
+            token,
+          ),
         ]);
         setPosts(fetched);
         applyRemoteSettingsIfEnabled(remoteSettings, sheetMeta.title);
+        applyLoadedResources(sheetMeta.spreadsheetId, resData);
       } catch (err: any) {
         setSyncError(err?.message || '重新同步 Google Sheet 失敗。');
       } finally {
@@ -1550,6 +1638,197 @@ function MainKnowledgeBaseApp() {
     });
   };
 
+  const handleSyncSeedResourcesToSheet = async () => {
+    const token = getAccessToken();
+    const targetId = sheetMeta?.spreadsheetId || publicSheetId;
+    if (!token || !targetId) {
+      setSyncError('請先登入並授權 Google Sheets 寫入權限後，再同步資源分頁。');
+      return;
+    }
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const activeMeta =
+        sheetMeta && sheetMeta.spreadsheetId === targetId
+          ? sheetMeta
+          : await fetchSpreadsheetMeta(targetId, token);
+      const ensured = await ensureResourcesTabExists(
+        activeMeta.spreadsheetId,
+        activeMeta.tabs,
+        token,
+      );
+      const existingRemote = await fetchResourcesFromSheetsApi(
+        activeMeta.spreadsheetId,
+        ensured.tabs,
+        token,
+      );
+      if (existingRemote.resources.length === 0 && resources.length > 0) {
+        await batchAppendResourcesToSheet(
+          activeMeta.spreadsheetId,
+          ensured.tabName,
+          resources,
+          token,
+        );
+      }
+      const refreshed = await fetchResourcesFromSheetsApi(
+        activeMeta.spreadsheetId,
+        ensured.tabs,
+        token,
+      );
+      setSheetMeta({...activeMeta, tabs: ensured.tabs});
+      setDataSourceMode('sheets-api');
+      setHasRemoteResourcesTab(true);
+      setResources(refreshed.resources);
+      writeLocalResourcesCache(activeMeta.spreadsheetId, refreshed.resources);
+    } catch (err: any) {
+      setSyncError(err?.message || '建立並寫入 Resources 分頁失敗。');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSaveResource = async (
+    resource: TeachingResource,
+    isNew: boolean,
+  ) => {
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+    const token = getAccessToken();
+
+    if (token && targetId) {
+      setIsSyncing(true);
+      setSyncError(null);
+      try {
+        const activeMeta =
+          sheetMeta && sheetMeta.spreadsheetId === targetId
+            ? sheetMeta
+            : await fetchSpreadsheetMeta(targetId, token);
+        const ensured = await ensureResourcesTabExists(
+          activeMeta.spreadsheetId,
+          activeMeta.tabs,
+          token,
+        );
+
+        // If tab was newly created just now, keep any other existing local items synced too
+        if (ensured.createdNow) {
+          const existingLocal = resources.filter((r) => r.id !== resource.id);
+          if (existingLocal.length > 0) {
+            await batchAppendResourcesToSheet(
+              activeMeta.spreadsheetId,
+              ensured.tabName,
+              existingLocal,
+              token,
+            );
+          }
+          await appendResourceToSheet(
+            activeMeta.spreadsheetId,
+            ensured.tabName,
+            resource,
+            token,
+          );
+        } else if (isNew || !resource.rowIndex) {
+          await appendResourceToSheet(
+            activeMeta.spreadsheetId,
+            ensured.tabName,
+            resource,
+            token,
+          );
+        } else {
+          await updateResourceInSheet(
+            activeMeta.spreadsheetId,
+            ensured.tabName,
+            resource.rowIndex,
+            resource,
+            token,
+          );
+        }
+
+        const refreshed = await fetchResourcesFromSheetsApi(
+          activeMeta.spreadsheetId,
+          ensured.tabs,
+          token,
+        );
+        setSheetMeta({...activeMeta, tabs: ensured.tabs});
+        setDataSourceMode('sheets-api');
+        setHasRemoteResourcesTab(true);
+        setResources(refreshed.resources);
+        writeLocalResourcesCache(activeMeta.spreadsheetId, refreshed.resources);
+        return;
+      } finally {
+        setIsSyncing(false);
+      }
+    }
+
+    // Fallback: save locally in browser storage so admins can prepare even before Sheets write auth
+    setResources((prev) => {
+      const next = isNew
+        ? [resource, ...prev]
+        : prev.map((item) => (item.id === resource.id ? resource : item));
+      writeLocalResourcesCache(targetId, next);
+      return next;
+    });
+  };
+
+  const handleDeleteResource = (resource: TeachingResource) => {
+    const token = getAccessToken();
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+    const resTab = sheetMeta ? findResourcesTab(sheetMeta.tabs) : undefined;
+    const canDeleteFromSheet = Boolean(
+      token && sheetMeta && resTab && resource.rowIndex,
+    );
+
+    setConfirmState({
+      isOpen: true,
+      title: canDeleteFromSheet
+        ? '確認從 Google Sheet 刪除此教學資源？'
+        : '確認從教學資源清單移除此項目？',
+      description: canDeleteFromSheet
+        ? `即將自試算表「${sheetMeta?.title}」的「${resTab?.title}」分頁永久刪除第 ${resource.rowIndex} 列資料。`
+        : '此操作將從目前的本機資源列表中移除該項目。',
+      details: [
+        `資源標題：${resource.title}`,
+        `年段與類型：${resource.gradeBand} · ${resource.resourceType}`,
+      ],
+      confirmLabel: '確認刪除',
+      isDestructive: true,
+      onConfirm: async () => {
+        if (canDeleteFromSheet && token && sheetMeta && resTab && resource.rowIndex) {
+          setIsSyncing(true);
+          setSyncError(null);
+          try {
+            await deleteResourceFromSheet(
+              sheetMeta.spreadsheetId,
+              resTab.sheetId,
+              resource.rowIndex,
+              token,
+            );
+            const refreshed = await fetchResourcesFromSheetsApi(
+              sheetMeta.spreadsheetId,
+              sheetMeta.tabs,
+              token,
+            );
+            setResources(refreshed.resources);
+            writeLocalResourcesCache(
+              sheetMeta.spreadsheetId,
+              refreshed.resources,
+            );
+          } catch (err: any) {
+            setSyncError(err?.message || '刪除 Google Sheet 教學資源失敗。');
+          } finally {
+            setIsSyncing(false);
+          }
+        } else {
+          setResources((prev) => {
+            const next = prev.filter((item) => item.id !== resource.id);
+            writeLocalResourcesCache(targetId, next);
+            return next;
+          });
+        }
+      },
+    });
+  };
+
   const openDrawer = (tab: DrawerTab, postToEdit: JournalPost | null = null) => {
     if (!user || !hasAccessToken) {
       handleSignIn();
@@ -1631,12 +1910,12 @@ function MainKnowledgeBaseApp() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedCategory('教學資源');
-                  setViewMode('grid');
-                  scrollToSection('journal-catalog');
-                }}
-                className="px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                onClick={() => setIsResourcesHubOpen(true)}
+                className={`px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                  isResourcesHubOpen
+                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                    : ''
+                }`}
               >
                 教學資源
               </button>
@@ -1861,12 +2140,12 @@ function MainKnowledgeBaseApp() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setSelectedCategory('教學資源');
-                setViewMode('grid');
-                scrollToSection('journal-catalog');
-              }}
-              className="px-2.5 py-1 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+              onClick={() => setIsResourcesHubOpen(true)}
+              className={`px-2.5 py-1 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                isResourcesHubOpen
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                  : ''
+              }`}
             >
               教學資源
             </button>
@@ -3102,6 +3381,7 @@ function MainKnowledgeBaseApp() {
         isSuspended={
           Boolean(activePost) ||
           interactiveStage.isOpen ||
+          isResourcesHubOpen ||
           schoolAccessPrompt.isOpen ||
           meetingCheckinState.isOpen
         }
@@ -3338,6 +3618,63 @@ function MainKnowledgeBaseApp() {
             setActivePost(found);
           }
         }}
+      />
+
+      {/* Standalone Elementary Teaching Resources Platform Modal */}
+      <TeachingResourcesHubModal
+        isOpen={isResourcesHubOpen}
+        onClose={() => {
+          setCustomQrTarget(null);
+          setIsResourcesHubOpen(false);
+          if (window.location.hash === '#resources') {
+            history.replaceState(
+              null,
+              '',
+              window.location.pathname + window.location.search,
+            );
+          }
+        }}
+        resources={resources}
+        posts={posts}
+        checkPostLocked={checkPostLocked}
+        hasRemoteResourcesTab={hasRemoteResourcesTab}
+        spreadsheetId={sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID}
+        isSyncing={isSyncing}
+        syncError={syncError}
+        isTeacherAdmin={isTeacherAdmin}
+        hasAccessToken={hasAccessToken}
+        defaultAuthorName={user?.displayName || '黃佩詩 老師'}
+        onRefreshSync={handleRefreshSync}
+        onRequestSheetsAuth={handleSignIn}
+        onSyncSeedToSheet={handleSyncSeedResourcesToSheet}
+        onSaveResource={handleSaveResource}
+        onDeleteResource={handleDeleteResource}
+        onOpenPost={(targetPost) => setActivePost(targetPost)}
+        onOpenEmbedStage={(url, title) => {
+          if (url.includes('ximen-scratch.html')) {
+            openXimenStage('map');
+          } else if (url.includes('class-403.html')) {
+            openClass403Stage('agenda');
+          } else {
+            setInteractiveStage({
+              isOpen: true,
+              url,
+              title,
+              initialTab: 'map',
+            });
+          }
+        }}
+        onOpenShareQr={(url, title) => {
+          setCustomQrTarget({url, title});
+          setSiteQrTargetMode('current');
+          setSiteQrMode('modal');
+        }}
+        disableEscapeClose={
+          siteQrMode === 'modal' ||
+          Boolean(activePost) ||
+          interactiveStage.isOpen ||
+          Boolean(confirmState?.isOpen)
+        }
       />
 
       {/* Mandatory Explicit Confirmation Dialog for Mutating / Destructive Operations */}

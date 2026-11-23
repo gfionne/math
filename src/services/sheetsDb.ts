@@ -210,7 +210,8 @@ export async function fetchSpreadsheetMeta(
     tabs.find((t: {title: string}) => t.title.toLowerCase() === 'posts') ||
     tabs.find(
       (t: {title: string}) =>
-        t.title.toLowerCase() !== SETTINGS_TAB_NAME.toLowerCase(),
+        t.title.toLowerCase() !== SETTINGS_TAB_NAME.toLowerCase() &&
+        t.title.toLowerCase() !== 'resources',
     ) ||
     tabs[0];
 

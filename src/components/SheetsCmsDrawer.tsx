@@ -850,21 +850,45 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
 
                   {sheetMeta && sheetMeta.tabs.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="text-stone-500">工作表分頁：</span>
-                      {sheetMeta.tabs.map((tab) => (
-                        <button
-                          key={tab.sheetId}
-                          type="button"
-                          onClick={() => onSwitchSheetTab(tab.title)}
-                          className={`px-2.5 py-1 rounded-md border transition-colors whitespace-nowrap shrink-0 ${
-                            sheetMeta.activeTab === tab.title
-                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                              : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
-                          }`}
-                        >
-                          {tab.title}
-                        </button>
-                      ))}
+                      <span className="text-stone-500">文章分頁：</span>
+                      {sheetMeta.tabs
+                        .filter(
+                          (tab) =>
+                            tab.title.toLowerCase() !== 'settings' &&
+                            tab.title.toLowerCase() !== 'resources',
+                        )
+                        .map((tab) => (
+                          <button
+                            key={tab.sheetId}
+                            type="button"
+                            onClick={() => onSwitchSheetTab(tab.title)}
+                            className={`px-2.5 py-1 rounded-md border transition-colors whitespace-nowrap shrink-0 ${
+                              sheetMeta.activeTab === tab.title
+                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                : 'bg-white text-stone-700 border-stone-200 hover:border-stone-300'
+                            }`}
+                          >
+                            {tab.title}
+                          </button>
+                        ))}
+                      {sheetMeta.tabs.some(
+                        (t) =>
+                          t.title.toLowerCase() === 'resources' ||
+                          t.title.toLowerCase() === 'settings',
+                      ) && (
+                        <span className="text-[11px] text-stone-400">
+                          （含自動同步分頁：
+                          {sheetMeta.tabs
+                            .filter(
+                              (t) =>
+                                t.title.toLowerCase() === 'resources' ||
+                                t.title.toLowerCase() === 'settings',
+                            )
+                            .map((t) => t.title)
+                            .join(' · ')}
+                          ）
+                        </span>
+                      )}
                       <a
                         href={`https://docs.google.com/spreadsheets/d/${sheetMeta.spreadsheetId}/edit`}
                         target="_blank"

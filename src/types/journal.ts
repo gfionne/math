@@ -59,3 +59,34 @@ export interface SiteSettings {
   lockedCategories?: string[];
   lockedNavOptions?: string[];
 }
+
+export type ResourceGradeBand =
+  | '低年級 (1-2)'
+  | '中年級 (3-4)'
+  | '高年級 (5-6)'
+  | '跨年級通用';
+
+export type ResourceType =
+  | '自製教案 / 學習單'
+  | '數位互動工具'
+  | '研習心得筆記'
+  | '公開好站精選';
+
+export type ResourceSourceOrigin = '原創自製' | '研習筆記' | '公開精選';
+
+export interface TeachingResource {
+  id: string;
+  title: string;
+  gradeBand: ResourceGradeBand;
+  resourceType: ResourceType;
+  sourceOrigin: ResourceSourceOrigin;
+  topicTags: string;
+  summary: string;
+  content?: string;
+  resourceUrl?: string;
+  author: string;
+  publishedAt: string;
+  isPublic: boolean;
+  isPinned: boolean;
+  rowIndex?: number; // 1-based row index inside Google Sheet 'Resources' tab
+}
