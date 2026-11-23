@@ -271,17 +271,28 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top Reader Utility Bar */}
-          <div className="px-4 sm:px-10 py-3 sm:py-4 bg-white border-b border-stone-200 flex flex-wrap items-center justify-between gap-2 sm:gap-4 shrink-0">
-            <button
-              type="button"
-              onClick={onClose}
-              className="inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-stone-700 hover:text-stone-950 transition-colors whitespace-nowrap shrink-0"
-            >
-              <ArrowLeft className="w-4 h-4 shrink-0" />
-              <span>返回期刊目錄</span>
-            </button>
+          <div className="px-4 sm:px-10 py-3 sm:py-4 bg-white border-b border-stone-200 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-2.5 sm:gap-4 shrink-0">
+            <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-stone-700 hover:text-stone-950 transition-colors whitespace-nowrap shrink-0"
+              >
+                <ArrowLeft className="w-4 h-4 shrink-0" />
+                <span>返回期刊目錄</span>
+              </button>
 
-            <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className="sm:hidden p-1.5 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors shrink-0"
+                aria-label="關閉文章"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-start sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto min-w-0">
               <button
                 type="button"
                 onClick={handleCopyPermalink}
@@ -350,7 +361,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-2 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors shrink-0"
+                className="hidden sm:inline-flex p-2 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-100 transition-colors shrink-0"
                 aria-label="關閉文章"
               >
                 <X className="w-4 h-4" />
