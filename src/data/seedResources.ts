@@ -15,6 +15,7 @@ export const RESOURCE_GRADE_BANDS: ResourceGradeBand[] = [
 export const RESOURCE_TYPES: ResourceType[] = [
   '自製教案 / 學習單',
   '數位互動工具',
+  '電子書',
   '研習心得筆記',
   '公開好站精選',
 ];
@@ -59,6 +60,27 @@ export const SEED_TEACHING_RESOURCES: TeachingResource[] = [
     resourceUrl: './ximen-scratch.html',
     author: '黃佩詩 老師 (PesMath)',
     publishedAt: '2026-11-19',
+    isPublic: true,
+    isPinned: true,
+  },
+  {
+    id: 'res-steam-math-ebook',
+    title: '跨域玩數學：AI 賦能與 STEAM 新視界（數位電子書）',
+    gradeBand: '跨年級通用',
+    resourceType: '電子書',
+    sourceOrigin: '原創自製',
+    topicTags: '跨領域 STEAM, AI 融入教學, 素養導向',
+    summary:
+      '收錄四年級除法情境教案、自然演化數學、黃金比例與名畫密碼學等跨領域探索內容，支援站內單頁與雙頁跨頁閱讀。',
+    content: `## 電子書導讀建議
+
+本電子書適合教師於領域共備或高年級專題探索課程直接內嵌投影導讀：
+1. **第 1–3 頁**：從生活情境出發，拆解「皮克敏探索隊物資分配」的除法任務設計。
+2. **第 4–5 頁**：引導學生觀察自然界中的質數週期與生命縮放規律。
+3. **第 6–8 頁**：結合文藝復興透視法與幻方密碼，體驗數學與藝術的跨界連結。`,
+    resourceUrl: './assets/aistudio/_________4__6772eea7.pdf',
+    author: '黃佩詩 老師 (PesMath)',
+    publishedAt: '2026-11-24',
     isPublic: true,
     isPinned: true,
   },

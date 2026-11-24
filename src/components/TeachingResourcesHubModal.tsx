@@ -39,6 +39,7 @@ import {
   formatCategoryDisplay,
   parseCategories,
 } from '../utils/postFormatting';
+import {EbookViewerModal} from './EbookViewerModal';
 
 interface TeachingResourcesHubModalProps {
   isOpen: boolean;
@@ -312,6 +313,9 @@ export const TeachingResourcesHubModal: React.FC<
   // Reader & Editor Sub-modals
   const [readingResource, setReadingResource] =
     useState<TeachingResource | null>(null);
+  const [viewingEbook, setViewingEbook] = useState<TeachingResource | null>(
+    null,
+  );
   const [editorState, setEditorState] = useState<{
     isOpen: boolean;
     isNew: boolean;
@@ -334,6 +338,10 @@ export const TeachingResourcesHubModal: React.FC<
           setEditorState((prev) => ({...prev, isOpen: false}));
           return;
         }
+        if (viewingEbook) {
+          setViewingEbook(null);
+          return;
+        }
         if (readingResource) {
           setReadingResource(null);
           return;
@@ -347,6 +355,7 @@ export const TeachingResourcesHubModal: React.FC<
     isOpen,
     disableEscapeClose,
     editorState.isOpen,
+    viewingEbook,
     readingResource,
     onClose,
   ]);
@@ -548,6 +557,9 @@ export const TeachingResourcesHubModal: React.FC<
       if (readingResource && readingResource.id === payload.id) {
         setReadingResource(payload);
       }
+      if (viewingEbook && viewingEbook.id === payload.id) {
+        setViewingEbook(payload);
+      }
     } catch (err: any) {
       setFormError(err?.message || '儲存教學資源失敗，請再試一次。');
     } finally {
@@ -636,25 +648,27 @@ export const TeachingResourcesHubModal: React.FC<
               <span className="hidden md:inline">重新同步</span>
             </button>
 
-            <button
-              type="button"
-              onClick={handleExportCsv}
-              className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-              title="下載目前公開教學資源清單 CSV"
-            >
-              <Download className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">匯出清冊</span>
-            </button>
-
             {isTeacherAdmin && (
-              <button
-                type="button"
-                onClick={handleOpenCreateModal}
-                className="min-h-[40px] px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap"
-              >
-                <Plus className="w-4 h-4 shrink-0" />
-                <span>新增資源</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportCsv}
+                  className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  title="下載目前公開教學資源清單 CSV"
+                >
+                  <Download className="w-3.5 h-3.5 shrink-0" />
+                  <span className="hidden sm:inline">匯出清冊</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenCreateModal}
+                  className="min-h-[40px] px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap"
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span>新增資源</span>
+                </button>
+              </>
             )}
 
             <button
@@ -777,7 +791,7 @@ export const TeachingResourcesHubModal: React.FC<
                     },
                     {
                       id: 'custom',
-                      label: `教案・工具・研習筆記 (${visibleCustomResources.length})`,
+                      label: `教案・電子書・工具・筆記 (${visibleCustomResources.length})`,
                     },
                     {
                       id: 'journal',
@@ -925,6 +939,11 @@ export const TeachingResourcesHubModal: React.FC<
                   const isInteractive = isInternalInteractiveHtmlUrl(
                     res.resourceUrl,
                   );
+                  const isEbook = res.resourceType === '電子書';
+                  const resolvedShareUrl =
+                    hasValidUrl && !isInteractive && typeof window !== 'undefined'
+                      ? new URL(res.resourceUrl!, window.location.href).toString()
+                      : hubShareUrl;
 
                   return (
                     <article
@@ -997,7 +1016,17 @@ export const TeachingResourcesHubModal: React.FC<
                             </button>
                           )}
 
-                          {hasValidUrl &&
+                          {isEbook && (hasValidUrl || Boolean(res.content)) ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewingEbook(res)}
+                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                            >
+                              <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                              <span>閱讀電子書</span>
+                            </button>
+                          ) : (
+                            hasValidUrl &&
                             (isInteractive ? (
                               <button
                                 type="button"
@@ -1022,17 +1051,13 @@ export const TeachingResourcesHubModal: React.FC<
                                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
                                 <span>開啟資源連結</span>
                               </a>
-                            ))}
+                            ))
+                          )}
 
                           <button
                             type="button"
                             onClick={() =>
-                              onOpenShareQr(
-                                hasValidUrl && !isInteractive
-                                  ? res.resourceUrl!
-                                  : hubShareUrl,
-                                res.title,
-                              )
+                              onOpenShareQr(resolvedShareUrl, res.title)
                             }
                             className="min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 inline-flex items-center justify-center transition-colors"
                             title="分享此資源 QR Code"
@@ -1243,7 +1268,23 @@ export const TeachingResourcesHubModal: React.FC<
 
             <div className="px-5 py-3.5 bg-[#FBF9F5] border-t border-stone-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex flex-wrap items-center gap-2">
-                {isSafeExternalOrLocalUrl(readingResource.resourceUrl) &&
+                {readingResource.resourceType === '電子書' &&
+                (isSafeExternalOrLocalUrl(readingResource.resourceUrl) ||
+                  Boolean(readingResource.content)) ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = readingResource;
+                      setReadingResource(null);
+                      setViewingEbook(target);
+                    }}
+                    className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <BookOpen className="w-4 h-4" />
+                    <span>開啟內嵌電子書閱讀器</span>
+                  </button>
+                ) : (
+                  isSafeExternalOrLocalUrl(readingResource.resourceUrl) &&
                   (isInternalInteractiveHtmlUrl(readingResource.resourceUrl) ? (
                     <button
                       type="button"
@@ -1267,7 +1308,8 @@ export const TeachingResourcesHubModal: React.FC<
                       <ExternalLink className="w-4 h-4" />
                       <span>開啟資源連結</span>
                     </a>
-                  ))}
+                  ))
+                )}
 
                 <button
                   type="button"
@@ -1276,8 +1318,12 @@ export const TeachingResourcesHubModal: React.FC<
                       isSafeExternalOrLocalUrl(readingResource.resourceUrl) &&
                         !isInternalInteractiveHtmlUrl(
                           readingResource.resourceUrl,
-                        )
-                        ? readingResource.resourceUrl!
+                        ) &&
+                        typeof window !== 'undefined'
+                        ? new URL(
+                            readingResource.resourceUrl!,
+                            window.location.href,
+                          ).toString()
                         : hubShareUrl,
                       readingResource.title,
                     )
@@ -1490,7 +1536,9 @@ export const TeachingResourcesHubModal: React.FC<
 
               <div>
                 <label className="block text-xs font-medium text-stone-700 mb-1">
-                  資源連結網址（選填：Google 雲端硬碟、GeoGebra、外部網站或站內互動工具）
+                  {editorState.draft.resourceType === '電子書'
+                    ? '電子書檔案或網頁連結（支援 PDF 檔 .pdf、HTML5 電子書 .html、或 Google 雲端硬碟連結，將內嵌於平台閱讀）'
+                    : '資源連結網址（選填：Google 雲端硬碟、GeoGebra、外部網站或站內互動工具）'}
                 </label>
                 <div className="relative">
                   <Globe className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1503,7 +1551,11 @@ export const TeachingResourcesHubModal: React.FC<
                         draft: {...prev.draft, resourceUrl: e.target.value},
                       }))
                     }
-                    placeholder="https://drive.google.com/... 或 https://www.geogebra.org/..."
+                    placeholder={
+                      editorState.draft.resourceType === '電子書'
+                        ? './assets/.../ebook.pdf 或 https://.../index.html 或 Google Drive 連結'
+                        : 'https://drive.google.com/... 或 https://www.geogebra.org/...'
+                    }
                     className="w-full min-h-[40px] pl-10 pr-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                   />
                 </div>
@@ -1647,6 +1699,14 @@ export const TeachingResourcesHubModal: React.FC<
           </div>
         </div>
       )}
+      {/* Sub-Modal: Embedded Lightweight PDF / HTML5 Ebook Viewer */}
+      <EbookViewerModal
+        resource={viewingEbook}
+        onClose={() => setViewingEbook(null)}
+        onOpenShareQr={onOpenShareQr}
+        hubShareUrl={hubShareUrl}
+        renderNotes={(content) => <SafeMarkdownNotes content={content} />}
+      />
     </div>
   );
 };

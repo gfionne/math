@@ -60,6 +60,13 @@ function parseGradeBand(raw: string): ResourceGradeBand {
 
 function parseResourceType(raw: string): ResourceType {
   const s = raw.trim();
+  if (
+    s.includes('電子書') ||
+    s.toLowerCase().includes('ebook') ||
+    s.toLowerCase().includes('e-book')
+  ) {
+    return '電子書';
+  }
   if (s.includes('工具') || s.includes('互動') || s.includes('軟體') || s.includes('app')) {
     return '數位互動工具';
   }

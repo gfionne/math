@@ -69,6 +69,7 @@ export type ResourceGradeBand =
 export type ResourceType =
   | '自製教案 / 學習單'
   | '數位互動工具'
+  | '電子書'
   | '研習心得筆記'
   | '公開好站精選';
 
