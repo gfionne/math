@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Globe,
   Layers,
+  Loader2,
   Lock,
   MonitorPlay,
   Plus,
@@ -19,6 +20,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import {
@@ -27,6 +29,7 @@ import {
   RESOURCE_TYPES,
   SUGGESTED_TOPIC_TAGS,
 } from '../data/seedResources';
+import {DriveUploadResult} from '../services/driveUpload';
 import {exportResourcesAsCsv} from '../services/resourcesDb';
 import {
   JournalPost,
@@ -62,6 +65,10 @@ interface TeachingResourcesHubModalProps {
     isNew: boolean,
   ) => Promise<void>;
   onDeleteResource: (resource: TeachingResource) => void;
+  onUploadResourceFile?: (
+    file: File,
+    categoryFolder?: string,
+  ) => Promise<DriveUploadResult>;
   onOpenPost: (post: JournalPost) => void;
   onOpenEmbedStage: (url: string, title: string) => void;
   onOpenShareQr: (url: string, title: string) => void;
@@ -305,6 +312,7 @@ export const TeachingResourcesHubModal: React.FC<
   onSyncSeedToSheet,
   onSaveResource,
   onDeleteResource,
+  onUploadResourceFile,
   onOpenPost,
   onOpenEmbedStage,
   onOpenShareQr,
@@ -333,6 +341,9 @@ export const TeachingResourcesHubModal: React.FC<
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSyncingSeedBatch, setIsSyncingSeedBatch] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const resourceFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -492,6 +503,7 @@ export const TeachingResourcesHubModal: React.FC<
 
   const handleOpenCreateModal = () => {
     setFormError(null);
+    setUploadNotice(null);
     setEditorState({
       isOpen: true,
       isNew: true,
@@ -501,11 +513,51 @@ export const TeachingResourcesHubModal: React.FC<
 
   const handleOpenEditModal = (res: TeachingResource) => {
     setFormError(null);
+    setUploadNotice(null);
     setEditorState({
       isOpen: true,
       isNew: false,
       draft: {...res},
     });
+  };
+
+  const handleResourceFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !onUploadResourceFile) return;
+
+    const maxBytes = 50 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setFormError('檔案超過 50MB 上限，請壓縮後再上傳或改用 Google Drive 分享連結。');
+      return;
+    }
+
+    setFormError(null);
+    setUploadNotice(null);
+    setIsUploadingFile(true);
+    try {
+      const folderLabel = editorState.draft.gradeBand || '教學資源';
+      const uploaded = await onUploadResourceFile(file, folderLabel);
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      const cleanNameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+      setEditorState((prev) => ({
+        ...prev,
+        draft: {
+          ...prev.draft,
+          title: prev.draft.title.trim() ? prev.draft.title : cleanNameWithoutExt,
+          resourceUrl: uploaded.webViewLink,
+        },
+      }));
+      setUploadNotice(
+        `已上傳「${file.name}」（${sizeMb} MB）至 Google Drive「TeachingResources/${folderLabel}」資料夾並設為公開檢視，連結已自動填入！`,
+      );
+    } catch (err: any) {
+      setFormError(err?.message || '上傳檔案至 Google Drive 失敗，請再試一次。');
+    } finally {
+      setIsUploadingFile(false);
+    }
   };
 
   const handleToggleTagInDraft = (tag: string) => {
@@ -1598,7 +1650,7 @@ export const TeachingResourcesHubModal: React.FC<
                 <label className="block text-xs font-medium text-stone-700 mb-1">
                   {editorState.draft.resourceType === '電子書'
                     ? '電子書檔案或網頁連結（支援 PDF .pdf、EPUB .epub、Markdown .md、HTML5 .html 或 Google 雲端硬碟連結，將內嵌於平台閱讀）'
-                    : '資源連結網址（選填：Google 雲端硬碟、GeoGebra、外部網站、.epub/.md 檔案或站內互動工具）'}
+                    : '資源連結網址（選填：可直接上傳 10MB+ PDF 至 Google Drive，或貼上雲端硬碟、GeoGebra、.epub/.md 連結）'}
                 </label>
                 <div className="relative">
                   <Globe className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1619,6 +1671,46 @@ export const TeachingResourcesHubModal: React.FC<
                     className="w-full min-h-[40px] pl-10 pr-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                   />
                 </div>
+
+                {onUploadResourceFile && (
+                  <div className="mt-2 p-3 bg-[#F7F4EE] border border-stone-200 rounded-xl space-y-2">
+                    <input
+                      ref={resourceFileInputRef}
+                      type="file"
+                      accept=".pdf,.epub,.md,.markdown,.html,.htm"
+                      onChange={handleResourceFileChange}
+                      className="hidden"
+                    />
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="text-xs text-stone-600 leading-relaxed">
+                        檔案較大（如 10MB PDF）建議直接上傳至您的 Google 雲端硬碟，系統會依上方「適用年段」自動建立分類資料夾並取得公開檢視連結，不佔用網站與 GitHub 容量。
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => resourceFileInputRef.current?.click()}
+                        disabled={isUploadingFile || isSavingDraft}
+                        className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                      >
+                        {isUploadingFile ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                            <span>檔案上傳中...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-3.5 h-3.5 shrink-0" />
+                            <span>上傳 PDF / EPUB / MD 至雲端</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    {uploadNotice && (
+                      <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                        {uploadNotice}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>

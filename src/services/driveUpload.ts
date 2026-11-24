@@ -100,12 +100,31 @@ async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function inferUploadMimeType(file: File): string {
+  if (file.type && file.type.trim()) return file.type;
+  const lower = file.name.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.epub')) return 'application/epub+zip';
+  if (lower.endsWith('.md') || lower.endsWith('.markdown')) {
+    return 'text/markdown; charset=utf-8';
+  }
+  if (lower.endsWith('.html') || lower.endsWith('.htm')) {
+    return 'text/html; charset=utf-8';
+  }
+  if (lower.endsWith('.txt')) return 'text/plain; charset=utf-8';
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.svg')) return 'image/svg+xml';
+  if (lower.endsWith('.png')) return 'image/png';
+  return 'application/octet-stream';
+}
+
 async function uploadResumableToFolder(
   file: File,
   accessToken: string,
   metadata: Record<string, unknown>,
 ): Promise<{id: string; name?: string; webViewLink?: string}> {
-  const mimeType = file.type || 'image/png';
+  const mimeType = inferUploadMimeType(file);
   const initRes = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,webViewLink',
     {
@@ -161,9 +180,10 @@ async function uploadMultipartToFolder(
 ): Promise<DriveUploadResult> {
   const safeBaseName = file.name.replace(/[^\w.\-\u4e00-\u9fff]/g, '_');
   const cleanName = `${filePrefix}_${Date.now()}_${safeBaseName}`;
+  const mimeType = inferUploadMimeType(file);
   const metadata: Record<string, unknown> = {
     name: cleanName,
-    mimeType: file.type || 'image/png',
+    mimeType,
     description,
   };
 
@@ -193,7 +213,7 @@ async function uploadMultipartToFolder(
 
     const fileHeader =
       `--${boundary}\r\n` +
-      `Content-Type: ${file.type || 'image/png'}\r\n\r\n`;
+      `Content-Type: ${mimeType}\r\n\r\n`;
 
     const multipartBlob = new Blob(
       [metadataPart, fileHeader, file, closeDelimiter],
@@ -365,6 +385,58 @@ export async function uploadGalleryImageToDrive(
     targetFolderId,
     'ximen',
     '由百年西門 Scratch 舞台秀互動學習網圖庫中心上傳之教學素材',
+  );
+}
+
+/**
+ * 將大型 PDF、電子書（EPUB/MD）或教案檔案上傳至 Google Drive
+ * 存放路徑：PesMath_Journal_Assets/TeachingResources/{categoryFolder}，並設為任何知道連結者皆可檢視
+ */
+export async function uploadTeachingResourceFileToDrive(
+  file: File,
+  accessToken: string,
+  categoryFolder?: string,
+): Promise<DriveUploadResult> {
+  if (!accessToken) {
+    throw new Error('未取得 Google Drive 授權憑證，請先完成 Google 帳號授權。');
+  }
+
+  const rootFolderId = await getOrCreatePesMathFolder(accessToken);
+  let targetFolderId = rootFolderId;
+
+  if (rootFolderId) {
+    const resourcesRootId = await getOrCreateFolder(
+      'TeachingResources',
+      accessToken,
+      rootFolderId,
+      'PesMath 國小數學教學資源平台 PDF / 電子書 / 教案檔案庫',
+    );
+    if (resourcesRootId) {
+      targetFolderId = resourcesRootId;
+      const cleanedSubfolder = (categoryFolder ?? '')
+        .trim()
+        .replace(/[<>:"/\\|?*]/g, '_')
+        .slice(0, 80);
+      if (cleanedSubfolder) {
+        const subId = await getOrCreateFolder(
+          cleanedSubfolder,
+          accessToken,
+          resourcesRootId,
+          `教學資源分類資料夾：${cleanedSubfolder}`,
+        );
+        if (subId) {
+          targetFolderId = subId;
+        }
+      }
+    }
+  }
+
+  return uploadMultipartToFolder(
+    file,
+    accessToken,
+    targetFolderId,
+    'resource',
+    '由 PesMath 國小數學教學資源平台上傳之教學 PDF / 電子書檔案',
   );
 }
 

@@ -89,6 +89,10 @@ import {
   schoolGoogleSignIn,
 } from './services/googleAuth';
 import {
+  DriveUploadResult,
+  uploadTeachingResourceFileToDrive,
+} from './services/driveUpload';
+import {
   saveSharedSiteConfig,
   subscribeSharedSiteConfig,
 } from './services/firestoreSync';
@@ -1967,6 +1971,36 @@ function MainKnowledgeBaseApp() {
     });
   };
 
+  const handleUploadResourceFile = async (
+    file: File,
+    categoryFolder?: string,
+  ): Promise<DriveUploadResult> => {
+    let token = getAccessToken();
+    if (!token) {
+      const authResult = await handleSignIn();
+      token = authResult?.accessToken || getAccessToken();
+      if (!token) {
+        throw new Error(
+          '請先完成 Google 帳號授權，才能上傳檔案至 Google 雲端硬碟。',
+        );
+      }
+    }
+    try {
+      return await uploadTeachingResourceFileToDrive(
+        file,
+        token,
+        categoryFolder,
+      );
+    } catch (err: any) {
+      if (isSheetsAuthExpired(err)) {
+        clearAccessToken();
+        setHasAccessToken(false);
+        throw new Error('Google 授權已過期，請重新授權後再上傳檔案。');
+      }
+      throw err;
+    }
+  };
+
   const openDrawer = (tab: DrawerTab, postToEdit: JournalPost | null = null) => {
     if (!user || !hasAccessToken) {
       handleSignIn();
@@ -3787,6 +3821,7 @@ function MainKnowledgeBaseApp() {
         onSyncSeedToSheet={handleSyncSeedResourcesToSheet}
         onSaveResource={handleSaveResource}
         onDeleteResource={handleDeleteResource}
+        onUploadResourceFile={handleUploadResourceFile}
         onOpenPost={(targetPost) => setActivePost(targetPost)}
         onOpenEmbedStage={(url, title) => {
           if (url.includes('ximen-scratch.html')) {
