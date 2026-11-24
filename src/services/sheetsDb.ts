@@ -237,6 +237,7 @@ export async function fetchPostsFromSheetsApi(
       spreadsheetId,
     )}/values/${range}`,
     {
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -525,9 +526,9 @@ export async function fetchPostsFromPublicGviz(
   const sheetParam = tabName ? `&sheet=${encodeURIComponent(tabName)}` : '';
   const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(
     spreadsheetId,
-  )}/gviz/tq?tqx=out:json${sheetParam}`;
+  )}/gviz/tq?tqx=out:json&headers=1${sheetParam}`;
 
-  const res = await fetch(url);
+  const res = await fetch(url, {cache: 'no-store'});
   if (!res.ok) {
     throw new Error(
       `無法讀取公開試算表 (${res.status})，請確認試算表權限已設為「知道連結的任何人均可檢視」。`,

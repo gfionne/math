@@ -147,6 +147,10 @@ export const studentGoogleSignIn = schoolGoogleSignIn;
 
 export const getAccessToken = (): string | null => cachedAccessToken;
 
+export const clearAccessToken = (): void => {
+  cachedAccessToken = null;
+};
+
 export const logout = async (): Promise<void> => {
   await auth.signOut();
   cachedAccessToken = null;

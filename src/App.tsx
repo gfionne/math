@@ -79,6 +79,7 @@ import {SEED_TEACHING_RESOURCES} from './data/seedResources';
 import {
   auth,
   checkIsTeacherAdmin,
+  clearAccessToken,
   getAccessToken,
   googleSignIn,
   initAuth,
@@ -1032,7 +1033,10 @@ function MainKnowledgeBaseApp() {
   }, [posts, includeDrafts]);
 
   // Auth handlers
-  const handleSignIn = async () => {
+  const handleSignIn = async (): Promise<{
+    user: User;
+    accessToken: string;
+  } | null> => {
     setIsSigningIn(true);
     setSyncError(null);
     setGalleryAuthError(null);
@@ -1074,7 +1078,9 @@ function MainKnowledgeBaseApp() {
             // Keep existing view if signed-in account lacks permission on the public sheet
           }
         }
+        return result;
       }
+      return null;
     } catch (err: any) {
       const rawMsg = err?.message || '';
       const code = err?.code || '';
@@ -1086,6 +1092,7 @@ function MainKnowledgeBaseApp() {
           : rawMsg || 'Google 登入授權失敗，請再試一次。';
       setSyncError(formatted);
       setGalleryAuthError(formatted);
+      return null;
     } finally {
       setIsSigningIn(false);
     }
@@ -1220,7 +1227,19 @@ function MainKnowledgeBaseApp() {
         applyRemoteSettingsIfEnabled(remoteSettings, sheetMeta.title);
         applyLoadedResources(sheetMeta.spreadsheetId, resData);
       } catch (err: any) {
-        setSyncError(err?.message || '重新同步 Google Sheet 失敗。');
+        const msg = err?.message || '';
+        if (
+          msg.includes('401') ||
+          msg.toLowerCase().includes('invalid authentication credentials') ||
+          msg.toLowerCase().includes('unauthenticated') ||
+          msg.toLowerCase().includes('invalid credentials')
+        ) {
+          clearAccessToken();
+          setHasAccessToken(false);
+          setSyncError('Google Sheets 授權工作階段已過期，請重新授權登入後再試。');
+        } else {
+          setSyncError(msg || '重新同步 Google Sheet 失敗。');
+        }
       } finally {
         setIsSyncing(false);
       }
@@ -1638,10 +1657,31 @@ function MainKnowledgeBaseApp() {
     });
   };
 
+  const isSheetsAuthExpired = (err: unknown): boolean => {
+    const msg = (
+      err instanceof Error ? err.message : String(err ?? '')
+    ).toLowerCase();
+    return (
+      msg.includes('401') ||
+      msg.includes('unauthenticated') ||
+      msg.includes('invalid authentication credentials') ||
+      msg.includes('invalid credentials')
+    );
+  };
+
   const handleSyncSeedResourcesToSheet = async () => {
-    const token = getAccessToken();
-    const targetId = sheetMeta?.spreadsheetId || publicSheetId;
-    if (!token || !targetId) {
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+    if (!targetId) {
+      setSyncError('尚未連結目標 Google 試算表。');
+      return;
+    }
+    let token = getAccessToken();
+    if (!token) {
+      const authResult = await handleSignIn();
+      token = authResult?.accessToken || getAccessToken();
+    }
+    if (!token) {
       setSyncError('請先登入並授權 Google Sheets 寫入權限後，再同步資源分頁。');
       return;
     }
@@ -1668,6 +1708,7 @@ function MainKnowledgeBaseApp() {
           ensured.tabName,
           resources,
           token,
+          existingRemote.headerRow,
         );
       }
       const refreshed = await fetchResourcesFromSheetsApi(
@@ -1675,13 +1716,25 @@ function MainKnowledgeBaseApp() {
         ensured.tabs,
         token,
       );
-      setSheetMeta({...activeMeta, tabs: ensured.tabs});
+      setSheetMeta({
+        ...activeMeta,
+        activeTab: publicTabName || activeMeta.activeTab,
+        tabs: ensured.tabs,
+      });
       setDataSourceMode('sheets-api');
       setHasRemoteResourcesTab(true);
       setResources(refreshed.resources);
       writeLocalResourcesCache(activeMeta.spreadsheetId, refreshed.resources);
     } catch (err: any) {
-      setSyncError(err?.message || '建立並寫入 Resources 分頁失敗。');
+      if (isSheetsAuthExpired(err)) {
+        clearAccessToken();
+        setHasAccessToken(false);
+        setSyncError(
+          'Google Sheets 登入授權已過期，請重新點擊「授權 Google Sheets 寫入權限」後再試一次。',
+        );
+      } else {
+        setSyncError(err?.message || '建立並寫入 Resources 分頁失敗。');
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -1693,9 +1746,19 @@ function MainKnowledgeBaseApp() {
   ) => {
     const targetId =
       sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
-    const token = getAccessToken();
+    let token = getAccessToken();
 
-    if (token && targetId) {
+    if (targetId) {
+      if (!token) {
+        const authResult = await handleSignIn();
+        token = authResult?.accessToken || getAccessToken();
+        if (!token) {
+          throw new Error(
+            '尚未完成 Google Sheets 寫入授權，本次資源尚未儲存至雲端試算表（為避免重新整理後遺失，請完成 Google 授權後再點擊「確認發布資源」，表單內容已保留）。',
+          );
+        }
+      }
+
       setIsSyncing(true);
       setSyncError(null);
       try {
@@ -1708,6 +1771,11 @@ function MainKnowledgeBaseApp() {
           activeMeta.tabs,
           token,
         );
+        const existingRemote = await fetchResourcesFromSheetsApi(
+          activeMeta.spreadsheetId,
+          ensured.tabs,
+          token,
+        );
 
         // If tab was newly created just now, keep any other existing local items synced too
         if (ensured.createdNow) {
@@ -1718,6 +1786,7 @@ function MainKnowledgeBaseApp() {
               ensured.tabName,
               existingLocal,
               token,
+              existingRemote.headerRow,
             );
           }
           await appendResourceToSheet(
@@ -1725,22 +1794,33 @@ function MainKnowledgeBaseApp() {
             ensured.tabName,
             resource,
             token,
-          );
-        } else if (isNew || !resource.rowIndex) {
-          await appendResourceToSheet(
-            activeMeta.spreadsheetId,
-            ensured.tabName,
-            resource,
-            token,
+            existingRemote.headerRow,
           );
         } else {
-          await updateResourceInSheet(
-            activeMeta.spreadsheetId,
-            ensured.tabName,
-            resource.rowIndex,
-            resource,
-            token,
-          );
+          const matchedRow =
+            !isNew && resource.rowIndex
+              ? resource.rowIndex
+              : existingRemote.resources.find((r) => r.id === resource.id)
+                  ?.rowIndex;
+
+          if (isNew || !matchedRow) {
+            await appendResourceToSheet(
+              activeMeta.spreadsheetId,
+              ensured.tabName,
+              resource,
+              token,
+              existingRemote.headerRow,
+            );
+          } else {
+            await updateResourceInSheet(
+              activeMeta.spreadsheetId,
+              ensured.tabName,
+              matchedRow,
+              resource,
+              token,
+              existingRemote.headerRow,
+            );
+          }
         }
 
         const refreshed = await fetchResourcesFromSheetsApi(
@@ -1748,18 +1828,31 @@ function MainKnowledgeBaseApp() {
           ensured.tabs,
           token,
         );
-        setSheetMeta({...activeMeta, tabs: ensured.tabs});
+        setSheetMeta({
+          ...activeMeta,
+          activeTab: publicTabName || activeMeta.activeTab,
+          tabs: ensured.tabs,
+        });
         setDataSourceMode('sheets-api');
         setHasRemoteResourcesTab(true);
         setResources(refreshed.resources);
         writeLocalResourcesCache(activeMeta.spreadsheetId, refreshed.resources);
         return;
+      } catch (err: any) {
+        if (isSheetsAuthExpired(err)) {
+          clearAccessToken();
+          setHasAccessToken(false);
+          throw new Error(
+            'Google Sheets 登入授權已過期，請重新授權 Google 帳號後再點擊「確認發布資源」（表單內容已保留）。',
+          );
+        }
+        throw err;
       } finally {
         setIsSyncing(false);
       }
     }
 
-    // Fallback: save locally in browser storage so admins can prepare even before Sheets write auth
+    // Fallback: only used when no Google Sheet is configured at all
     setResources((prev) => {
       const next = isNew
         ? [resource, ...prev]
@@ -1770,21 +1863,19 @@ function MainKnowledgeBaseApp() {
   };
 
   const handleDeleteResource = (resource: TeachingResource) => {
-    const token = getAccessToken();
     const targetId =
       sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
-    const resTab = sheetMeta ? findResourcesTab(sheetMeta.tabs) : undefined;
-    const canDeleteFromSheet = Boolean(
-      token && sheetMeta && resTab && resource.rowIndex,
+    const isRemoteSheetTarget = Boolean(
+      targetId && (hasRemoteResourcesTab || sheetMeta),
     );
 
     setConfirmState({
       isOpen: true,
-      title: canDeleteFromSheet
+      title: isRemoteSheetTarget
         ? '確認從 Google Sheet 刪除此教學資源？'
         : '確認從教學資源清單移除此項目？',
-      description: canDeleteFromSheet
-        ? `即將自試算表「${sheetMeta?.title}」的「${resTab?.title}」分頁永久刪除第 ${resource.rowIndex} 列資料。`
+      description: isRemoteSheetTarget
+        ? `即將自 Google 試算表「${sheetMeta?.title || 'Resources'}」分頁永久刪除這筆教學資源（若重新整理後尚未取得寫入授權，確認時將先跳出 Google 授權視窗）。`
         : '此操作將從目前的本機資源列表中移除該項目。',
       details: [
         `資源標題：${resource.title}`,
@@ -1793,28 +1884,75 @@ function MainKnowledgeBaseApp() {
       confirmLabel: '確認刪除',
       isDestructive: true,
       onConfirm: async () => {
-        if (canDeleteFromSheet && token && sheetMeta && resTab && resource.rowIndex) {
+        if (isRemoteSheetTarget && targetId) {
+          let token = getAccessToken();
+          if (!token) {
+            const authResult = await handleSignIn();
+            token = authResult?.accessToken || getAccessToken();
+          }
+          if (!token) {
+            setSyncError(
+              '尚未完成 Google Sheets 寫入授權，已取消刪除以確保與雲端試算表一致。',
+            );
+            return;
+          }
+
           setIsSyncing(true);
           setSyncError(null);
           try {
+            const activeMeta =
+              sheetMeta && sheetMeta.spreadsheetId === targetId
+                ? sheetMeta
+                : await fetchSpreadsheetMeta(targetId, token);
+            const resTab = findResourcesTab(activeMeta.tabs);
+            if (!resTab) {
+              throw new Error('找不到「Resources」教學資源分頁。');
+            }
+            const existingRemote = await fetchResourcesFromSheetsApi(
+              activeMeta.spreadsheetId,
+              activeMeta.tabs,
+              token,
+            );
+            const targetRowIndex =
+              resource.rowIndex ||
+              existingRemote.resources.find((r) => r.id === resource.id)
+                ?.rowIndex;
+            if (!targetRowIndex) {
+              throw new Error(
+                '在 Google Sheet 中找不到此資源列，請按「重新同步」後再試。',
+              );
+            }
             await deleteResourceFromSheet(
-              sheetMeta.spreadsheetId,
+              activeMeta.spreadsheetId,
               resTab.sheetId,
-              resource.rowIndex,
+              targetRowIndex,
               token,
             );
             const refreshed = await fetchResourcesFromSheetsApi(
-              sheetMeta.spreadsheetId,
-              sheetMeta.tabs,
+              activeMeta.spreadsheetId,
+              activeMeta.tabs,
               token,
             );
+            setSheetMeta({
+              ...activeMeta,
+              activeTab: publicTabName || activeMeta.activeTab,
+            });
+            setDataSourceMode('sheets-api');
             setResources(refreshed.resources);
             writeLocalResourcesCache(
-              sheetMeta.spreadsheetId,
+              activeMeta.spreadsheetId,
               refreshed.resources,
             );
           } catch (err: any) {
-            setSyncError(err?.message || '刪除 Google Sheet 教學資源失敗。');
+            if (isSheetsAuthExpired(err)) {
+              clearAccessToken();
+              setHasAccessToken(false);
+              setSyncError(
+                'Google Sheets 登入授權已過期，請重新授權後再試一次。',
+              );
+            } else {
+              setSyncError(err?.message || '刪除 Google Sheet 教學資源失敗。');
+            }
           } finally {
             setIsSyncing(false);
           }

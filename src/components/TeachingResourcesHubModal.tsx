@@ -774,6 +774,30 @@ export const TeachingResourcesHubModal: React.FC<
                 )}
               </div>
             )}
+
+            {isTeacherAdmin &&
+              hasRemoteResourcesTab &&
+              !hasAccessToken &&
+              Boolean(spreadsheetId) && (
+                <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5 text-xs text-amber-950 leading-relaxed">
+                    <div className="font-semibold">
+                      目前尚未啟用 Google Sheets 寫入授權（重新整理網頁後需重新驗證）
+                    </div>
+                    <div className="text-amber-900">
+                      瀏覽器重新整理不會保留 Google 寫入憑證；請點擊右側授權按鈕，或在儲存資源時依提示完成授權，資料才會永久寫入「Resources」分頁，不會在重新整理後消失。
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onRequestSheetsAuth}
+                    className="min-h-[40px] px-4 py-2 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                  >
+                    <Layers className="w-4 h-4 shrink-0" />
+                    <span>授權 Google Sheets 寫入權限</span>
+                  </button>
+                </div>
+              )}
           </section>
 
           {/* Filter & Search Toolbar */}
@@ -1395,7 +1419,11 @@ export const TeachingResourcesHubModal: React.FC<
                     : '編輯教學資源內容'}
                 </h2>
                 <p className="text-xs text-stone-500 mt-0.5">
-                  儲存後將寫入 Google 試算表「Resources」分頁（若尚未登入寫入授權則暫存於本機）
+                  {!spreadsheetId
+                    ? '尚未連結雲端試算表，將儲存於本機瀏覽器'
+                    : hasAccessToken
+                      ? '儲存後將即時寫入 Google 試算表「Resources」分頁，重新整理不會遺失'
+                      : '按下「確認發布資源」時將先請您授權 Google 帳號，再永久寫入「Resources」分頁'}
                 </p>
               </div>
               <button
@@ -1414,6 +1442,21 @@ export const TeachingResourcesHubModal: React.FC<
               onSubmit={handleSubmitResource}
               className="flex-1 overflow-y-auto p-5 space-y-4"
             >
+              {Boolean(spreadsheetId) && !hasAccessToken && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-950">
+                  <span>
+                    重新整理後須重新授權 Google Sheets 寫入權限，才能把資源寫入雲端試算表。您可直接點右側先授權，或填妥後按「確認發布資源」自動授權。
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onRequestSheetsAuth}
+                    className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 whitespace-nowrap shrink-0"
+                  >
+                    先授權 Google 寫入權限
+                  </button>
+                </div>
+              )}
+
               {formError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900">
                   {formError}

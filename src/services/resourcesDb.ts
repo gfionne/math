@@ -107,6 +107,83 @@ function resourceToRow(res: TeachingResource): string[] {
   ];
 }
 
+function getColumnLetter(colIndexZeroBased: number): string {
+  let n = colIndexZeroBased + 1;
+  let col = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    col = String.fromCharCode(65 + rem) + col;
+    n = Math.floor((n - 1) / 26);
+  }
+  return col || 'A';
+}
+
+function getResourceFieldForNormalizedHeader(
+  res: TeachingResource,
+  normHeader: string,
+): string | null {
+  if (['id', '代碼', 'slug'].includes(normHeader)) return res.id;
+  if (['title', '資源標題', '標題', '名稱'].includes(normHeader)) return res.title;
+  if (['gradeband', '年段', '適用年段', '年級'].includes(normHeader)) {
+    return res.gradeBand;
+  }
+  if (['resourcetype', '資源類型', '類型', '分類'].includes(normHeader)) {
+    return res.resourceType;
+  }
+  if (['sourceorigin', '資源來源', '來源'].includes(normHeader)) {
+    return res.sourceOrigin;
+  }
+  if (['topictags', '單元標籤', '標籤', '關鍵字'].includes(normHeader)) {
+    return res.topicTags;
+  }
+  if (['summary', '摘要', '簡介', '說明'].includes(normHeader)) {
+    return res.summary;
+  }
+  if (
+    ['content', '詳細心得', '教案內容', '筆記', '內文'].includes(normHeader)
+  ) {
+    return res.content || '';
+  }
+  if (['resourceurl', '資源連結', '網址', '連結', 'url'].includes(normHeader)) {
+    return res.resourceUrl || '';
+  }
+  if (['author', '提供者', '作者', '整理者'].includes(normHeader)) {
+    return res.author;
+  }
+  if (
+    ['publishedat', '發布日期', '更新日期', '日期'].includes(normHeader)
+  ) {
+    return res.publishedAt;
+  }
+  if (['ispublic', '公開', '對外公開'].includes(normHeader)) {
+    return res.isPublic ? 'TRUE' : 'FALSE';
+  }
+  if (['ispinned', '置頂', '精選'].includes(normHeader)) {
+    return res.isPinned ? 'TRUE' : 'FALSE';
+  }
+  return null;
+}
+
+function resourceToAlignedRow(
+  res: TeachingResource,
+  headerRow?: unknown[],
+): string[] {
+  if (!headerRow || headerRow.length === 0) {
+    return resourceToRow(res);
+  }
+  const normalized = headerRow.map((h) => normalizeHeaderKey(String(h ?? '')));
+  const mappedCount = normalized.filter(
+    (k) => k && getResourceFieldForNormalizedHeader(res, k) !== null,
+  ).length;
+  if (mappedCount < 3) {
+    return resourceToRow(res);
+  }
+  return normalized.map((k) => {
+    const val = k ? getResourceFieldForNormalizedHeader(res, k) : null;
+    return val ?? '';
+  });
+}
+
 function buildHeaderMap(headerRow: unknown[]): Record<string, number> {
   const map: Record<string, number> = {};
   headerRow.forEach((cell, idx) => {
@@ -118,6 +195,13 @@ function buildHeaderMap(headerRow: unknown[]): Record<string, number> {
 
 function isResourceHeaderMap(headerMap: Record<string, number>): boolean {
   const keys = Object.keys(headerMap);
+  if (
+    keys.includes('slug') ||
+    keys.includes('academicyear') ||
+    keys.includes('學年度')
+  ) {
+    return false;
+  }
   return keys.some((k) =>
     [
       'gradeband',
@@ -128,7 +212,6 @@ function isResourceHeaderMap(headerMap: Record<string, number>): boolean {
       'sourceorigin',
       '資源來源',
       'resourceurl',
-      '資源連結',
       'topictags',
       '單元標籤',
     ].includes(k),
@@ -219,6 +302,33 @@ export function findResourcesTab(
   );
 }
 
+export async function fetchResourcesHeaderRow(
+  spreadsheetId: string,
+  tabName: string,
+  accessToken: string,
+): Promise<unknown[] | undefined> {
+  try {
+    const range = encodeURIComponent(`${escapeA1SheetName(tabName)}!A1:Z1`);
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
+        spreadsheetId,
+      )}/values/${range}`,
+      {
+        cache: 'no-store',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    );
+    if (!res.ok) return undefined;
+    const data = await res.json();
+    const firstRow = data.values?.[0];
+    return Array.isArray(firstRow) ? firstRow : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Reads the 'Resources' tab via Sheets API v4 when authenticated.
  * Gracefully returns { hasTab: false, resources: [] } if the spreadsheet doesn't have a Resources tab yet.
@@ -227,18 +337,24 @@ export async function fetchResourcesFromSheetsApi(
   spreadsheetId: string,
   tabs: SpreadsheetTabInfo[],
   accessToken: string,
-): Promise<{hasTab: boolean; tabName: string; resources: TeachingResource[]}> {
+): Promise<{
+  hasTab: boolean;
+  tabName: string;
+  resources: TeachingResource[];
+  headerRow?: unknown[];
+}> {
   const targetTab = findResourcesTab(tabs);
   if (!targetTab) {
     return {hasTab: false, tabName: RESOURCES_TAB_NAME, resources: []};
   }
 
-  const range = encodeURIComponent(`${escapeA1SheetName(targetTab.title)}!A1:M1000`);
+  const range = encodeURIComponent(`${escapeA1SheetName(targetTab.title)}!A1:Z1000`);
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
       spreadsheetId,
     )}/values/${range}`,
     {
+      cache: 'no-store',
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -246,13 +362,24 @@ export async function fetchResourcesFromSheetsApi(
   );
 
   if (!res.ok) {
-    return {hasTab: true, tabName: targetTab.title, resources: []};
+    const errBody = await res.json().catch(() => ({}));
+    throw new Error(
+      errBody?.error?.message || `讀取 Resources 教學資源分頁失敗 (${res.status})`,
+    );
   }
 
   const data = await res.json();
   const values: unknown[][] = data.values || [];
-  if (values.length < 2) {
+  if (values.length === 0) {
     return {hasTab: true, tabName: targetTab.title, resources: []};
+  }
+  if (values.length < 2) {
+    return {
+      hasTab: true,
+      tabName: targetTab.title,
+      resources: [],
+      headerRow: values[0],
+    };
   }
 
   const headerMap = buildHeaderMap(values[0]);
@@ -266,72 +393,90 @@ export async function fetchResourcesFromSheetsApi(
     hasTab: true,
     tabName: targetTab.title,
     resources: deduplicateResourceIds(parsed),
+    headerRow: values[0],
+  };
+}
+
+async function fetchResourcesGvizByTabName(
+  spreadsheetId: string,
+  sheetName: string,
+): Promise<{hasTab: boolean; resources: TeachingResource[]}> {
+  const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(
+    spreadsheetId,
+  )}/gviz/tq?tqx=out:json&headers=1&sheet=${encodeURIComponent(sheetName)}`;
+  const res = await fetch(url, {cache: 'no-store'});
+  if (!res.ok) {
+    return {hasTab: false, resources: []};
+  }
+
+  const text = await res.text();
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1) {
+    return {hasTab: false, resources: []};
+  }
+
+  const json = JSON.parse(text.slice(start, end + 1));
+  if (json.status === 'error') {
+    return {hasTab: false, resources: []};
+  }
+
+  const cols: Array<{label?: string; id?: string}> = json.table?.cols || [];
+  const rows: Array<{c: Array<{v: unknown; f?: string} | null>}> =
+    json.table?.rows || [];
+
+  const headerLabels = cols.map((c) => c.label || c.id || '');
+  let headerMap = buildHeaderMap(headerLabels);
+  let dataRows = rows.map((r) =>
+    (r.c || []).map((cell) => (cell ? cell.f ?? cell.v ?? '' : '')),
+  );
+
+  if (!isResourceHeaderMap(headerMap)) {
+    if (dataRows.length > 0) {
+      const firstRowMap = buildHeaderMap(dataRows[0]);
+      if (isResourceHeaderMap(firstRowMap)) {
+        headerMap = firstRowMap;
+        dataRows = dataRows.slice(1);
+      } else {
+        // GViz fell back to another tab (like Posts) because this resources tab does not exist
+        return {hasTab: false, resources: []};
+      }
+    } else {
+      return {hasTab: false, resources: []};
+    }
+  }
+
+  const parsed: TeachingResource[] = [];
+  dataRows.forEach((row, idx) => {
+    const item = rowToResource(row, headerMap, idx + 2);
+    if (item) parsed.push(item);
+  });
+
+  return {
+    hasTab: true,
+    resources: deduplicateResourceIds(parsed),
   };
 }
 
 /**
- * Public unauthenticated read of the 'Resources' tab via GViz.
- * Detects and ignores GViz fallback to the first tab ('Posts') when 'Resources' does not exist yet.
+ * Public unauthenticated read of the 'Resources' (or '教學資源') tab via GViz.
+ * Detects and ignores GViz fallback to the first tab ('Posts') when the tab does not exist yet.
  */
 export async function fetchResourcesFromPublicGviz(
   spreadsheetId: string,
 ): Promise<{hasTab: boolean; resources: TeachingResource[]}> {
   try {
-    const url = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(
+    const primary = await fetchResourcesGvizByTabName(
       spreadsheetId,
-    )}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(RESOURCES_TAB_NAME)}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      return {hasTab: false, resources: []};
-    }
-
-    const text = await res.text();
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start === -1 || end === -1) {
-      return {hasTab: false, resources: []};
-    }
-
-    const json = JSON.parse(text.slice(start, end + 1));
-    if (json.status === 'error') {
-      return {hasTab: false, resources: []};
-    }
-
-    const cols: Array<{label?: string; id?: string}> = json.table?.cols || [];
-    const rows: Array<{c: Array<{v: unknown; f?: string} | null>}> =
-      json.table?.rows || [];
-
-    const headerLabels = cols.map((c) => c.label || c.id || '');
-    let headerMap = buildHeaderMap(headerLabels);
-    let dataRows = rows.map((r) =>
-      (r.c || []).map((cell) => (cell ? cell.f ?? cell.v ?? '' : '')),
+      RESOURCES_TAB_NAME,
     );
+    if (primary.hasTab) return primary;
 
-    if (!isResourceHeaderMap(headerMap)) {
-      if (dataRows.length > 0) {
-        const firstRowMap = buildHeaderMap(dataRows[0]);
-        if (isResourceHeaderMap(firstRowMap)) {
-          headerMap = firstRowMap;
-          dataRows = dataRows.slice(1);
-        } else {
-          // GViz fell back to another tab (like Posts) because 'Resources' tab does not exist yet
-          return {hasTab: false, resources: []};
-        }
-      } else {
-        return {hasTab: false, resources: []};
-      }
-    }
-
-    const parsed: TeachingResource[] = [];
-    dataRows.forEach((row, idx) => {
-      const item = rowToResource(row, headerMap, idx + 2);
-      if (item) parsed.push(item);
-    });
-
-    return {
-      hasTab: true,
-      resources: deduplicateResourceIds(parsed),
-    };
+    const localized = await fetchResourcesGvizByTabName(
+      spreadsheetId,
+      '教學資源',
+    );
+    return localized;
   } catch {
     return {hasTab: false, resources: []};
   }
@@ -423,8 +568,13 @@ export async function appendResourceToSheet(
   tabName: string,
   resource: TeachingResource,
   accessToken: string,
+  headerRow?: unknown[],
 ): Promise<void> {
-  const range = encodeURIComponent(`${escapeA1SheetName(tabName)}!A:M`);
+  const resolvedHeaders =
+    headerRow ?? (await fetchResourcesHeaderRow(spreadsheetId, tabName, accessToken));
+  const row = resourceToAlignedRow(resource, resolvedHeaders);
+  const endCol = getColumnLetter(Math.max(row.length - 1, 12));
+  const range = encodeURIComponent(`${escapeA1SheetName(tabName)}!A:${endCol}`);
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
       spreadsheetId,
@@ -436,7 +586,7 @@ export async function appendResourceToSheet(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        values: [resourceToRow(resource)],
+        values: [row],
       }),
     },
   );
@@ -454,9 +604,14 @@ export async function batchAppendResourcesToSheet(
   tabName: string,
   resources: TeachingResource[],
   accessToken: string,
+  headerRow?: unknown[],
 ): Promise<void> {
   if (resources.length === 0) return;
-  const range = encodeURIComponent(`${escapeA1SheetName(tabName)}!A:M`);
+  const resolvedHeaders =
+    headerRow ?? (await fetchResourcesHeaderRow(spreadsheetId, tabName, accessToken));
+  const rows = resources.map((r) => resourceToAlignedRow(r, resolvedHeaders));
+  const endCol = getColumnLetter(Math.max((rows[0]?.length ?? 13) - 1, 12));
+  const range = encodeURIComponent(`${escapeA1SheetName(tabName)}!A:${endCol}`);
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
       spreadsheetId,
@@ -468,7 +623,7 @@ export async function batchAppendResourcesToSheet(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        values: resources.map(resourceToRow),
+        values: rows,
       }),
     },
   );
@@ -487,9 +642,14 @@ export async function updateResourceInSheet(
   rowIndex: number,
   resource: TeachingResource,
   accessToken: string,
+  headerRow?: unknown[],
 ): Promise<void> {
+  const resolvedHeaders =
+    headerRow ?? (await fetchResourcesHeaderRow(spreadsheetId, tabName, accessToken));
+  const row = resourceToAlignedRow(resource, resolvedHeaders);
+  const endCol = getColumnLetter(Math.max(row.length - 1, 12));
   const range = encodeURIComponent(
-    `${escapeA1SheetName(tabName)}!A${rowIndex}:M${rowIndex}`,
+    `${escapeA1SheetName(tabName)}!A${rowIndex}:${endCol}${rowIndex}`,
   );
   const res = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(
@@ -502,7 +662,7 @@ export async function updateResourceInSheet(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        values: [resourceToRow(resource)],
+        values: [row],
       }),
     },
   );
