@@ -46,6 +46,7 @@ interface ResolvedEbookSource {
   embedUrl: string;
   rawUrl: string;
   formatLabel: string;
+  downloadUrl?: string;
   downloadExt?: string;
 }
 
@@ -100,6 +101,7 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
       embedUrl: trimmed,
       rawUrl: trimmed,
       formatLabel: 'PDF 電子書',
+      downloadUrl: trimmed,
       downloadExt: 'pdf',
     };
   }
@@ -128,7 +130,9 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
           mode: 'iframe',
           embedUrl: `https://drive.google.com/file/d/${fileId}/preview`,
           rawUrl: trimmed,
-          formatLabel: '雲端 PDF 電子書',
+          formatLabel: '雲端 PDF 閱讀器',
+          downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+          downloadExt: 'pdf',
         };
       }
     }
@@ -142,7 +146,7 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
           mode: 'iframe',
           embedUrl: `https://docs.google.com/${docMatch[1]}/d/${docMatch[2]}/preview`,
           rawUrl: trimmed,
-          formatLabel: '線上電子書',
+          formatLabel: '線上文件檢視',
         };
       }
     }
@@ -157,7 +161,8 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
         mode: 'pdf',
         embedUrl: sameOriginUrl,
         rawUrl: sameOriginUrl,
-        formatLabel: 'PDF 電子書',
+        formatLabel: 'PDF 閱讀器',
+        downloadUrl: sameOriginUrl,
         downloadExt: 'pdf',
       };
     }
@@ -168,6 +173,7 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
         embedUrl: sameOriginUrl,
         rawUrl: sameOriginUrl,
         formatLabel: 'EPUB 電子書',
+        downloadUrl: sameOriginUrl,
         downloadExt: 'epub',
       };
     }
@@ -177,7 +183,8 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
         mode: 'markdown',
         embedUrl: sameOriginUrl,
         rawUrl: sameOriginUrl,
-        formatLabel: 'Markdown 電子書',
+        formatLabel: 'Markdown 文件',
+        downloadUrl: sameOriginUrl,
         downloadExt: 'md',
       };
     }
@@ -949,7 +956,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     };
   }, [showSidebar, pdfDoc, activeMode, thumbs]);
 
-  // Track fullscreen state
+  // Track fullscreen state (native Fullscreen API + CSS expanded fallback for restricted iframes)
   useEffect(() => {
     if (!resource) return;
     const onFsChange = () => {
@@ -960,6 +967,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   }, [resource]);
 
   const handleClose = useCallback(() => {
+    setIsFullscreen(false);
     if (document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {});
     }
@@ -971,10 +979,26 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     if (!el) return;
     if (document.fullscreenElement) {
       void document.exitFullscreen().catch(() => {});
-    } else {
-      void el.requestFullscreen?.().catch(() => {});
+      setIsFullscreen(false);
+      return;
     }
-  }, []);
+    if (isFullscreen) {
+      setIsFullscreen(false);
+      return;
+    }
+    if (typeof el.requestFullscreen === 'function') {
+      void el
+        .requestFullscreen()
+        .then(() => {
+          setIsFullscreen(true);
+        })
+        .catch(() => {
+          setIsFullscreen(true);
+        });
+    } else {
+      setIsFullscreen(true);
+    }
+  }, [isFullscreen]);
 
   const stepAmount = spreadMode === 'spread' && stageSize.width >= 768 ? 2 : 1;
 
@@ -1081,7 +1105,9 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-50 bg-[#FBF9F5] flex flex-col overflow-hidden"
+      className={`fixed inset-0 bg-[#FBF9F5] flex flex-col overflow-hidden ${
+        isFullscreen ? 'z-[80]' : 'z-50'
+      }`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="ebook-viewer-title"
@@ -1376,15 +1402,20 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
             <button
               type="button"
               onClick={toggleFullscreen}
-              className="hidden sm:inline-flex min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 items-center gap-1.5 whitespace-nowrap"
+              className={`inline-flex min-h-[38px] px-2.5 py-1.5 text-xs font-medium rounded-lg border items-center gap-1.5 whitespace-nowrap transition-colors ${
+                isFullscreen
+                  ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                  : 'text-stone-700 bg-white border-stone-200 hover:bg-stone-50'
+              }`}
               title={isFullscreen ? '退出全螢幕' : '全螢幕閱讀'}
+              aria-pressed={isFullscreen}
             >
               {isFullscreen ? (
                 <Minimize2 className="w-3.5 h-3.5 shrink-0" />
               ) : (
                 <Maximize2 className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span className="hidden lg:inline">
+              <span className="hidden sm:inline">
                 {isFullscreen ? '退出全螢幕' : '全螢幕'}
               </span>
             </button>
@@ -1397,17 +1428,17 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   onOpenShareQr(source.rawUrl || hubShareUrl, resource.title)
                 }
                 className="min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 inline-flex items-center justify-center"
-                title="分享電子書 QR Code"
-                aria-label="分享電子書 QR Code"
+                title="分享資源 QR Code"
+                aria-label="分享資源 QR Code"
               >
                 <QrCode className="w-3.5 h-3.5" />
               </button>
             )}
 
-            {/* Download file or External Fallback Escape Hatch */}
-            {source.rawUrl && (
+            {/* Direct Download button for PDF / Drive / EPUB / MD */}
+            {source.downloadUrl && (
               <a
-                href={source.rawUrl}
+                href={source.downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 download={
@@ -1415,24 +1446,25 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     ? `${resource.title}.${source.downloadExt}`
                     : undefined
                 }
-                className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 whitespace-nowrap"
-                title={
-                  source.downloadExt
-                    ? `下載原檔 (.${source.downloadExt})`
-                    : '若內嵌網頁無法顯示，可於新分頁開啟'
-                }
+                className="min-h-[38px] px-2.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#1E3A8A]/8 border border-[#1E3A8A]/25 rounded-lg hover:bg-[#1E3A8A]/15 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                title={`下載原檔 (.${source.downloadExt || 'file'})`}
               >
-                {source.downloadExt ? (
-                  <>
-                    <Download className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden md:inline">下載</span>
-                  </>
-                ) : (
-                  <>
-                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                    <span className="hidden md:inline">另開原頁</span>
-                  </>
-                )}
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>下載</span>
+              </a>
+            )}
+
+            {/* External Fallback Escape Hatch when iframe or non-downloadable link */}
+            {source.rawUrl && (!source.downloadUrl || activeMode === 'iframe') && (
+              <a
+                href={source.rawUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                title="於新分頁開啟原始頁面"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden md:inline">另開原頁</span>
               </a>
             )}
 

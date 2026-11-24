@@ -117,9 +117,34 @@ function isInternalInteractiveHtmlUrl(rawUrl?: string): boolean {
   );
 }
 
+function isPdfOrDriveFileUrl(rawUrl?: string): boolean {
+  if (!rawUrl) return false;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return false;
+  if (/^data:application\/pdf/i.test(trimmed)) return true;
+  if (/\.pdf(?:[?#].*)?$/i.test(trimmed)) return true;
+  try {
+    const base =
+      typeof window !== 'undefined' ? window.location.href : 'http://localhost/';
+    const parsed = new URL(trimmed, base);
+    if (/\.pdf$/i.test(parsed.pathname)) return true;
+    if (parsed.hostname.includes('drive.google.com')) {
+      if (parsed.pathname.includes('/folders/')) return false;
+      if (/\/file\/d\/[a-zA-Z0-9_-]+/i.test(parsed.pathname)) return true;
+      const idParam = parsed.searchParams.get('id');
+      if (idParam && /^[a-zA-Z0-9_-]+$/.test(idParam)) return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function isEmbeddedReaderDocumentUrl(rawUrl?: string): boolean {
   if (!rawUrl) return false;
-  return /\.(epub|md|markdown)(?:[?#].*)?$/i.test(rawUrl.trim());
+  const trimmed = rawUrl.trim();
+  if (isPdfOrDriveFileUrl(trimmed)) return true;
+  return /\.(epub|md|markdown)(?:[?#].*)?$/i.test(trimmed);
 }
 
 function parseTopicTags(raw: string): string[] {
@@ -1021,12 +1046,13 @@ export const TeachingResourcesHubModal: React.FC<
                     res.resourceUrl,
                   );
                   const isEbook = res.resourceType === '電子書';
-                  const isEpubOrMdFile = isEmbeddedReaderDocumentUrl(
+                  const isPdfFile = isPdfOrDriveFileUrl(res.resourceUrl);
+                  const isReaderDocument = isEmbeddedReaderDocumentUrl(
                     res.resourceUrl,
                   );
                   const openInEbookReader =
                     (isEbook && (hasValidUrl || Boolean(res.content))) ||
-                    (hasValidUrl && isEpubOrMdFile);
+                    (hasValidUrl && isReaderDocument);
                   const resolvedShareUrl =
                     hasValidUrl && !isInteractive && typeof window !== 'undefined'
                       ? new URL(res.resourceUrl!, window.location.href).toString()
@@ -1067,7 +1093,25 @@ export const TeachingResourcesHubModal: React.FC<
                         </div>
 
                         <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug">
-                          {res.title}
+                          {openInEbookReader ? (
+                            <button
+                              type="button"
+                              onClick={() => setViewingEbook(res)}
+                              className="text-left hover:text-[#1E3A8A] transition-colors"
+                            >
+                              {res.title}
+                            </button>
+                          ) : res.content ? (
+                            <button
+                              type="button"
+                              onClick={() => setReadingResource(res)}
+                              className="text-left hover:text-[#1E3A8A] transition-colors"
+                            >
+                              {res.title}
+                            </button>
+                          ) : (
+                            res.title
+                          )}
                         </h3>
 
                         <p className="text-sm text-stone-600 leading-relaxed line-clamp-3">
@@ -1110,7 +1154,13 @@ export const TeachingResourcesHubModal: React.FC<
                               className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
                             >
                               <BookOpen className="w-3.5 h-3.5 shrink-0" />
-                              <span>{isEbook ? '閱讀電子書' : '站內開啟文件'}</span>
+                              <span>
+                                {isEbook
+                                  ? '閱讀電子書'
+                                  : isPdfFile
+                                    ? '站內閱讀 PDF'
+                                    : '站內開啟文件'}
+                              </span>
                             </button>
                           ) : (
                             hasValidUrl &&
@@ -1263,6 +1313,35 @@ export const TeachingResourcesHubModal: React.FC<
                               <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
                               <span>開啟互動舞台</span>
                             </button>
+                          ) : isEmbeddedReaderDocumentUrl(post.embedUrl) ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setViewingEbook({
+                                  id: post.slug,
+                                  title: post.title,
+                                  gradeBand: '跨年級通用',
+                                  resourceType: '自製教案 / 學習單',
+                                  sourceOrigin: '原創自製',
+                                  topicTags: post.category,
+                                  summary: post.summary,
+                                  content: post.content || '',
+                                  resourceUrl: post.embedUrl || '',
+                                  author: post.author,
+                                  publishedAt: post.publishedAt,
+                                  isPinned: Boolean(post.isFeatured),
+                                  isPublic: post.status === 'Published',
+                                })
+                              }
+                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
+                            >
+                              <FileText className="w-3.5 h-3.5 shrink-0" />
+                              <span>
+                                {isPdfOrDriveFileUrl(post.embedUrl)
+                                  ? '站內閱讀 PDF'
+                                  : '站內閱讀附件'}
+                              </span>
+                            </button>
                           ) : (
                             <a
                               href={post.embedUrl}
@@ -1373,7 +1452,9 @@ export const TeachingResourcesHubModal: React.FC<
                     <span>
                       {readingResource.resourceType === '電子書'
                         ? '開啟內嵌電子書閱讀器'
-                        : '站內閱讀文件'}
+                        : isPdfOrDriveFileUrl(readingResource.resourceUrl)
+                          ? '站內閱讀 PDF'
+                          : '站內閱讀文件'}
                     </span>
                   </button>
                 ) : (
