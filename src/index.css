@@ -441,7 +441,7 @@
     width: 91mm !important;
     height: 96.5mm !important;
     max-height: 96.5mm !important;
-    padding: 4mm 4.5mm !important;
+    padding: 0 !important;
     border: 1.5px solid #000000 !important;
     border-radius: 4px !important;
     box-sizing: border-box !important;
@@ -450,7 +450,6 @@
     background: #ffffff !important;
     display: flex !important;
     flex-direction: column !important;
-    justify-content: space-between !important;
     overflow: hidden !important;
   }
 
@@ -458,7 +457,7 @@
     width: 94mm !important;
     height: 137.5mm !important;
     max-height: 137.5mm !important;
-    padding: 5.5mm 6mm !important;
+    padding: 0 !important;
     border: 1.5px solid #000000 !important;
     border-radius: 6px !important;
     box-sizing: border-box !important;
@@ -467,7 +466,6 @@
     background: #ffffff !important;
     display: flex !important;
     flex-direction: column !important;
-    justify-content: space-between !important;
     overflow: hidden !important;
   }
 
