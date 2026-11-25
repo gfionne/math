@@ -3,6 +3,7 @@ import {marked} from 'marked';
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   CalendarCheck,
   Check,
   Copy,
@@ -15,10 +16,12 @@ import {
   MonitorPlay,
   Presentation,
   QrCode,
+  ScrollText,
   ShieldCheck,
   X,
 } from 'lucide-react';
 import {JournalPost} from '../types/journal';
+import {ArticleFlipBook} from './ArticleFlipBook';
 import {inferEmbedProvider} from '../services/sheetsDb';
 import {SCHOOL_DOMAIN} from '../services/googleAuth';
 import {
@@ -187,10 +190,19 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [showInlineEmbed, setShowInlineEmbed] = useState(false);
+  const [readingMode, setReadingMode] = useState<'scroll' | 'flipbook'>('scroll');
 
   React.useEffect(() => {
     setShowInlineEmbed(false);
-  }, [post?.slug]);
+    if (
+      post &&
+      (post.title.includes('電子書') || post.category.includes('電子書'))
+    ) {
+      setReadingMode('flipbook');
+    } else {
+      setReadingMode('scroll');
+    }
+  }, [post?.slug, post?.title, post?.category]);
 
   const renderedHtml = useMemo(() => {
     if (!post || isLocked) return '';
@@ -265,9 +277,15 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
       aria-labelledby="reader-article-title"
       onClick={onClose}
     >
-      <div className="w-full max-w-4xl min-w-0 my-auto flex justify-center">
+      <div
+        className={`w-full min-w-0 my-auto flex justify-center transition-all ${
+          readingMode === 'flipbook' && !isLocked ? 'max-w-5xl' : 'max-w-4xl'
+        }`}
+      >
         <article
-          className="w-full max-w-4xl min-w-0 bg-[#FBF9F5] border border-stone-200 rounded-xl shadow-2xl overflow-x-hidden overflow-y-auto flex flex-col max-h-[92vh]"
+          className={`w-full min-w-0 bg-[#FBF9F5] border border-stone-200 rounded-xl shadow-2xl overflow-x-hidden overflow-y-auto flex flex-col max-h-[92vh] ${
+            readingMode === 'flipbook' && !isLocked ? 'max-w-5xl' : 'max-w-4xl'
+          }`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Top Reader Utility Bar */}
@@ -293,6 +311,39 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center justify-start sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto min-w-0">
+              {!isLocked && (
+                <div
+                  className="inline-flex items-center gap-0.5 p-0.5 bg-[#F7F4EE] border border-stone-200 rounded-lg shrink-0"
+                  role="group"
+                  aria-label="文章閱讀顯示方式"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setReadingMode('scroll')}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                      readingMode === 'scroll'
+                        ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-950'
+                    }`}
+                  >
+                    <ScrollText className="w-3.5 h-3.5 shrink-0" />
+                    <span>文章捲動</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReadingMode('flipbook')}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                      readingMode === 'flipbook'
+                        ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-950'
+                    }`}
+                  >
+                    <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                    <span>電子書翻頁</span>
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleCopyPermalink}
@@ -400,76 +451,96 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
           )}
 
           {/* Article Header */}
-          <header className="px-4 sm:px-12 pt-6 sm:pt-12 pb-6 sm:pb-8 bg-white border-b border-stone-200 min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-stone-500 mb-4">
-              <span className="font-mono-tabular font-medium text-[#1E3A8A]">
-                {post.academicYear}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>{formatCategoryDisplay(post.category)}</span>
-              <span aria-hidden="true">·</span>
-              <span className="font-mono-tabular">{post.publishedAt}</span>
-              {post.isFeatured && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-semibold text-stone-800">精選專題</span>
-                </>
-              )}
-              {post.status === 'Draft' && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-semibold text-amber-800">草稿預覽</span>
-                </>
-              )}
-              {(post.status === 'Restricted' || isLocked) && (
-                <>
-                  <span aria-hidden="true">·</span>
-                  <span className="inline-flex items-center gap-1 font-semibold text-[#1E3A8A]">
-                    <Lock className="w-3 h-3" />
-                    <span>校內限定（@{SCHOOL_DOMAIN}）</span>
-                  </span>
-                </>
-              )}
-            </div>
-
-            <h1
-              id="reader-article-title"
-              className="font-editorial text-2xl sm:text-4xl font-semibold text-stone-950 leading-tight text-balance"
-            >
-              {post.title}
-            </h1>
-
-            {post.summary && !isLocked && (
-              <p className="mt-4 text-base sm:text-lg text-stone-600 leading-relaxed max-w-2xl">
-                {post.summary}
-              </p>
-            )}
-
-            <dl className="mt-6 pt-6 border-t border-stone-100 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-              <div>
-                <dt className="text-stone-400 mb-0.5">撰稿與彙整</dt>
-                <dd className="font-medium text-stone-800">{post.author}</dd>
-              </div>
-              <div>
-                <dt className="text-stone-400 mb-0.5">所屬學年度</dt>
-                <dd className="font-mono-tabular font-medium text-stone-800">
+          {readingMode === 'flipbook' && !isLocked ? (
+            <header className="px-4 sm:px-8 py-3 bg-white border-b border-stone-200 min-w-0 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <h1
+                id="reader-article-title"
+                className="font-editorial text-base sm:text-lg font-semibold text-stone-950 truncate max-w-full"
+              >
+                {post.title}
+              </h1>
+              <div className="flex items-center gap-2 text-xs text-stone-500 shrink-0">
+                <span className="font-mono-tabular font-medium text-[#1E3A8A]">
                   {post.academicYear}
-                </dd>
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{formatCategoryDisplay(post.category)}</span>
+                <span aria-hidden="true">·</span>
+                <span>{post.author}</span>
               </div>
-              <div>
-                <dt className="text-stone-400 mb-0.5">期刊分類</dt>
-                <dd className="font-medium text-stone-800">
-                  {formatCategoryDisplay(post.category)}
-                </dd>
+            </header>
+          ) : (
+            <header className="px-4 sm:px-12 pt-6 sm:pt-12 pb-6 sm:pb-8 bg-white border-b border-stone-200 min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-stone-500 mb-4">
+                <span className="font-mono-tabular font-medium text-[#1E3A8A]">
+                  {post.academicYear}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>{formatCategoryDisplay(post.category)}</span>
+                <span aria-hidden="true">·</span>
+                <span className="font-mono-tabular">{post.publishedAt}</span>
+                {post.isFeatured && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-semibold text-stone-800">精選專題</span>
+                  </>
+                )}
+                {post.status === 'Draft' && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="font-semibold text-amber-800">草稿預覽</span>
+                  </>
+                )}
+                {(post.status === 'Restricted' || isLocked) && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-[#1E3A8A]">
+                      <Lock className="w-3 h-3" />
+                      <span>校內限定（@{SCHOOL_DOMAIN}）</span>
+                    </span>
+                  </>
+                )}
               </div>
-              <div>
-                <dt className="text-stone-400 mb-0.5">索引代號</dt>
-                <dd className="font-mono-tabular text-stone-700 truncate">
-                  {post.slug}
-                </dd>
-              </div>
-            </dl>
-          </header>
+
+              <h1
+                id="reader-article-title"
+                className="font-editorial text-2xl sm:text-4xl font-semibold text-stone-950 leading-tight text-balance"
+              >
+                {post.title}
+              </h1>
+
+              {post.summary && !isLocked && (
+                <p className="mt-4 text-base sm:text-lg text-stone-600 leading-relaxed max-w-2xl">
+                  {post.summary}
+                </p>
+              )}
+
+              <dl className="mt-6 pt-6 border-t border-stone-100 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                <div>
+                  <dt className="text-stone-400 mb-0.5">撰稿與彙整</dt>
+                  <dd className="font-medium text-stone-800">{post.author}</dd>
+                </div>
+                <div>
+                  <dt className="text-stone-400 mb-0.5">所屬學年度</dt>
+                  <dd className="font-mono-tabular font-medium text-stone-800">
+                    {post.academicYear}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-stone-400 mb-0.5">期刊分類</dt>
+                  <dd className="font-medium text-stone-800">
+                    {formatCategoryDisplay(post.category)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-stone-400 mb-0.5">索引代號</dt>
+                  <dd className="font-mono-tabular text-stone-700 truncate">
+                    {post.slug}
+                  </dd>
+                </div>
+              </dl>
+            </header>
+          )}
 
           {isLocked ? (
             <div className="px-4 sm:px-12 py-10 sm:py-14 bg-white min-w-0">
@@ -507,6 +578,13 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
                 )}
               </div>
             </div>
+          ) : readingMode === 'flipbook' ? (
+            <ArticleFlipBook
+              post={post}
+              sanitizedHtml={renderedHtml}
+              embedMeta={embedMeta}
+              onOpenFullEmbed={onOpenFullEmbed}
+            />
           ) : (
             <>
               {/* Optional Cover Image */}

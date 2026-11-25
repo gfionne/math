@@ -375,6 +375,60 @@
   color: inherit;
 }
 
+/* Compact Book-Page Prose inside ArticleFlipBook */
+.journal-flipbook-prose {
+  font-size: 0.925rem;
+  line-height: 1.72;
+}
+
+.journal-flipbook-prose h1,
+.journal-flipbook-prose h2,
+.journal-flipbook-prose h3 {
+  margin-top: 0.9rem;
+  margin-bottom: 0.45rem;
+  line-height: 1.3;
+}
+
+.journal-flipbook-prose > :first-child {
+  margin-top: 0;
+}
+
+.journal-flipbook-prose h2 {
+  font-size: 1.125rem;
+  padding-bottom: 0.25rem;
+}
+
+.journal-flipbook-prose h3 {
+  font-size: 1rem;
+}
+
+.journal-flipbook-prose p {
+  margin-bottom: 0.75rem;
+}
+
+.journal-flipbook-prose ul,
+.journal-flipbook-prose ol {
+  margin-bottom: 0.8rem;
+  padding-left: 1.25rem;
+}
+
+.journal-flipbook-prose li {
+  margin-bottom: 0.25rem;
+}
+
+.journal-flipbook-prose img {
+  max-height: 220px;
+  width: auto;
+  object-fit: contain;
+  margin: 0.75rem auto;
+}
+
+.journal-flipbook-prose blockquote {
+  margin: 0.85rem 0;
+  padding: 0.6rem 0;
+  font-size: 0.975rem;
+}
+
 @media print {
   @page {
     size: A4 portrait;
