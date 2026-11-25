@@ -125,7 +125,7 @@ async function testConnection() {
       error instanceof Error &&
       error.message.includes('the client is offline')
     ) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
         await probe();
       } catch (retryError) {
@@ -141,7 +141,13 @@ async function testConnection() {
     }
   }
 }
-void testConnection();
+if (typeof window !== 'undefined') {
+  window.setTimeout(() => {
+    void testConnection();
+  }, 500);
+} else {
+  void testConnection();
+}
 
 /**
  * Subscribes in real time to shared site configuration (spreadsheetId, tabName, siteTitle, etc.)

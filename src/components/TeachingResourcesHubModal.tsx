@@ -3,14 +3,19 @@ import {
   ArrowLeft,
   BookOpen,
   Check,
+  ChevronDown,
+  ChevronUp,
   CloudUpload,
   Download,
   Edit3,
   ExternalLink,
   FileText,
+  FileUp,
   FolderOpen,
   Globe,
   Layers,
+  LayoutGrid,
+  List,
   Loader2,
   Lock,
   MonitorPlay,
@@ -75,7 +80,6 @@ interface TeachingResourcesHubModalProps {
   disableEscapeClose?: boolean;
 }
 
-type SourceScopeFilter = 'all' | 'custom' | 'journal';
 type GradeFilter = '全部年段' | ResourceGradeBand;
 type TypeFilter = '全部類型' | ResourceType | '期刊教學資源';
 
@@ -317,6 +321,28 @@ const createEmptyResourceForm = (defaultAuthor = 'PesMath 數學領域社群'): 
   isPinned: false,
 });
 
+type HubViewMode = 'directory' | 'cards';
+
+const CATEGORY_META: Array<{
+  id: Exclude<TypeFilter, '全部類型'>;
+  shortLabel: string;
+  fullLabel: string;
+}> = [
+  {id: '自製教案 / 學習單', shortLabel: '教案學習單', fullLabel: '自製教案 / 學習單'},
+  {id: '電子書', shortLabel: '電子書', fullLabel: '數位電子書'},
+  {id: '數位互動工具', shortLabel: '互動工具', fullLabel: '數位互動工具'},
+  {id: '研習心得筆記', shortLabel: '研習筆記', fullLabel: '研習心得筆記'},
+  {id: '公開好站精選', shortLabel: '公開好站', fullLabel: '公開好站精選'},
+  {id: '期刊教學資源', shortLabel: '期刊專欄', fullLabel: '期刊教學資源專欄'},
+];
+
+function getShortGradeLabel(grade: ResourceGradeBand): string {
+  if (grade === '低年級 (1-2)') return '低年級';
+  if (grade === '中年級 (3-4)') return '中年級';
+  if (grade === '高年級 (5-6)') return '高年級';
+  return '跨年級';
+}
+
 export const TeachingResourcesHubModal: React.FC<
   TeachingResourcesHubModalProps
 > = ({
@@ -343,10 +369,10 @@ export const TeachingResourcesHubModal: React.FC<
   onOpenShareQr,
   disableEscapeClose = false,
 }) => {
-  const [sourceScope, setSourceScope] = useState<SourceScopeFilter>('all');
   const [gradeFilter, setGradeFilter] = useState<GradeFilter>('全部年段');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('全部類型');
   const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<HubViewMode>('directory');
 
   // Reader & Editor Sub-modals
   const [readingResource, setReadingResource] =
@@ -363,12 +389,17 @@ export const TeachingResourcesHubModal: React.FC<
     isNew: true,
     draft: createEmptyResourceForm(defaultAuthorName),
   });
+  const [stagedFile, setStagedFile] = useState<File | null>(null);
+  const [isDraggingQuickDrop, setIsDraggingQuickDrop] = useState(false);
+  const [isDraggingModalDrop, setIsDraggingModalDrop] = useState(false);
+  const [showAdvancedFields, setShowAdvancedFields] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSyncingSeedBatch, setIsSyncingSeedBatch] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
   const resourceFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const quickDropFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -417,12 +448,29 @@ export const TeachingResourcesHubModal: React.FC<
     return resources.filter((r) => isTeacherAdmin || r.isPublic);
   }, [resources, isTeacherAdmin]);
 
+  // Per-category counts for single-click category tabs
+  const typeCounts = useMemo(() => {
+    const counts: Record<TypeFilter, number> = {
+      全部類型: visibleCustomResources.length + journalTeachingPosts.length,
+      '自製教案 / 學習單': 0,
+      數位互動工具: 0,
+      電子書: 0,
+      研習心得筆記: 0,
+      公開好站精選: 0,
+      期刊教學資源: journalTeachingPosts.length,
+    };
+    for (const r of visibleCustomResources) {
+      counts[r.resourceType] = (counts[r.resourceType] ?? 0) + 1;
+    }
+    return counts;
+  }, [visibleCustomResources, journalTeachingPosts.length]);
+
   // Build unified filtered entries
   const filteredEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     const list: UnifiedResourceEntry[] = [];
 
-    if (sourceScope !== 'journal' && typeFilter !== '期刊教學資源') {
+    if (typeFilter !== '期刊教學資源') {
       for (const r of visibleCustomResources) {
         if (gradeFilter !== '全部年段' && r.gradeBand !== gradeFilter) continue;
         if (typeFilter !== '全部類型' && r.resourceType !== typeFilter) continue;
@@ -451,10 +499,7 @@ export const TeachingResourcesHubModal: React.FC<
       }
     }
 
-    if (
-      sourceScope !== 'custom' &&
-      (typeFilter === '全部類型' || typeFilter === '期刊教學資源')
-    ) {
+    if (typeFilter === '全部類型' || typeFilter === '期刊教學資源') {
       for (const post of journalTeachingPosts) {
         // If user selected a specific grade band, match keywords heuristically in title/summary or include if cross-grade
         if (gradeFilter !== '全部年段') {
@@ -502,7 +547,6 @@ export const TeachingResourcesHubModal: React.FC<
       return b.sortDate.localeCompare(a.sortDate);
     });
   }, [
-    sourceScope,
     gradeFilter,
     typeFilter,
     searchQuery,
@@ -511,34 +555,128 @@ export const TeachingResourcesHubModal: React.FC<
     checkPostLocked,
   ]);
 
+  // Group filtered entries by category for the at-a-glance directory view
+  const groupedDirectorySections = useMemo(() => {
+    const bucketMap = new Map<
+      Exclude<TypeFilter, '全部類型'>,
+      UnifiedResourceEntry[]
+    >();
+    for (const meta of CATEGORY_META) {
+      bucketMap.set(meta.id, []);
+    }
+    for (const entry of filteredEntries) {
+      const catId: Exclude<TypeFilter, '全部類型'> =
+        entry.kind === 'journal'
+          ? '期刊教學資源'
+          : entry.resource.resourceType;
+      const list = bucketMap.get(catId);
+      if (list) {
+        list.push(entry);
+      } else {
+        bucketMap.set(catId, [entry]);
+      }
+    }
+    return CATEGORY_META.map((meta) => ({
+      ...meta,
+      entries: bucketMap.get(meta.id) || [],
+    })).filter((sec) => sec.entries.length > 0);
+  }, [filteredEntries]);
+
   if (!isOpen) return null;
 
   const hubShareUrl =
     typeof window !== 'undefined'
       ? `${window.location.origin}${window.location.pathname}${
-          spreadsheetId ? `?sheet=${encodeURIComponent(spreadsheetId)}&tab=resources` : '?tab=resources'
+          spreadsheetId
+            ? `?sheet=${encodeURIComponent(spreadsheetId)}&tab=resources`
+            : '?tab=resources'
         }`
       : '';
 
   const hasActiveFilters =
-    sourceScope !== 'all' ||
     gradeFilter !== '全部年段' ||
     typeFilter !== '全部類型' ||
     searchQuery.trim() !== '';
 
-  const handleOpenCreateModal = () => {
+  const stageSelectedFileIntoDraft = (file: File) => {
+    const maxBytes = 50 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setFormError('檔案超過 50MB 上限，請壓縮後再上傳或改用 Google Drive 分享連結。');
+      return false;
+    }
+    const lower = file.name.toLowerCase();
+    const cleanNameWithoutExt = file.name.replace(/\.[^.]+$/, '');
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    const inferredType: ResourceType = lower.endsWith('.epub')
+      ? '電子書'
+      : lower.endsWith('.html') || lower.endsWith('.htm')
+        ? '數位互動工具'
+        : lower.endsWith('.md') || lower.endsWith('.markdown')
+          ? '研習心得筆記'
+          : '自製教案 / 學習單';
+
+    setFormError(null);
+    setStagedFile(file);
+    setUploadNotice(
+      `已選取「${file.name}」（${sizeMb} MB）— 選好分類與年段後按「一鍵上傳並發布」即可完成！`,
+    );
+    setEditorState((prev) => ({
+      ...prev,
+      draft: {
+        ...prev.draft,
+        title: prev.draft.title.trim() ? prev.draft.title : cleanNameWithoutExt,
+        resourceType: prev.isNew ? inferredType : prev.draft.resourceType,
+      },
+    }));
+    return true;
+  };
+
+  const handleOpenCreateModal = (initialFile?: File) => {
     setFormError(null);
     setUploadNotice(null);
+    setStagedFile(null);
+    setShowAdvancedFields(false);
+    const baseDraft = createEmptyResourceForm(
+      defaultAuthorName || '黃佩詩 老師',
+    );
+    if (initialFile) {
+      const maxBytes = 50 * 1024 * 1024;
+      if (initialFile.size > maxBytes) {
+        setFormError(
+          '檔案超過 50MB 上限，請壓縮後再上傳或改用 Google Drive 分享連結。',
+        );
+      } else {
+        const lower = initialFile.name.toLowerCase();
+        const cleanNameWithoutExt = initialFile.name.replace(/\.[^.]+$/, '');
+        const sizeMb = (initialFile.size / (1024 * 1024)).toFixed(1);
+        baseDraft.title = cleanNameWithoutExt;
+        baseDraft.resourceType = lower.endsWith('.epub')
+          ? '電子書'
+          : lower.endsWith('.html') || lower.endsWith('.htm')
+            ? '數位互動工具'
+            : lower.endsWith('.md') || lower.endsWith('.markdown')
+              ? '研習心得筆記'
+              : '自製教案 / 學習單';
+        setStagedFile(initialFile);
+        setUploadNotice(
+          `已選取「${initialFile.name}」（${sizeMb} MB）— 請點選下方分類與年段，再按「一鍵上傳並發布」。`,
+        );
+      }
+    }
     setEditorState({
       isOpen: true,
       isNew: true,
-      draft: createEmptyResourceForm(defaultAuthorName || '黃佩詩 老師'),
+      draft: baseDraft,
     });
   };
 
   const handleOpenEditModal = (res: TeachingResource) => {
     setFormError(null);
     setUploadNotice(null);
+    setStagedFile(null);
+    setShowAdvancedFields(
+      Boolean(res.content?.trim() || res.topicTags?.trim()),
+    );
     setEditorState({
       isOpen: true,
       isNew: false,
@@ -546,43 +684,22 @@ export const TeachingResourcesHubModal: React.FC<
     });
   };
 
-  const handleResourceFileChange = async (
+  const handleQuickDropFileChange = (
     e: React.ChangeEvent<HTMLInputElement>,
   ) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !onUploadResourceFile) return;
+    if (!file) return;
+    handleOpenCreateModal(file);
+  };
 
-    const maxBytes = 50 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      setFormError('檔案超過 50MB 上限，請壓縮後再上傳或改用 Google Drive 分享連結。');
-      return;
-    }
-
-    setFormError(null);
-    setUploadNotice(null);
-    setIsUploadingFile(true);
-    try {
-      const folderLabel = editorState.draft.gradeBand || '教學資源';
-      const uploaded = await onUploadResourceFile(file, folderLabel);
-      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
-      const cleanNameWithoutExt = file.name.replace(/\.[^.]+$/, '');
-      setEditorState((prev) => ({
-        ...prev,
-        draft: {
-          ...prev.draft,
-          title: prev.draft.title.trim() ? prev.draft.title : cleanNameWithoutExt,
-          resourceUrl: uploaded.webViewLink,
-        },
-      }));
-      setUploadNotice(
-        `已上傳「${file.name}」（${sizeMb} MB）至 Google Drive「TeachingResources/${folderLabel}」資料夾並設為公開檢視，連結已自動填入！`,
-      );
-    } catch (err: any) {
-      setFormError(err?.message || '上傳檔案至 Google Drive 失敗，請再試一次。');
-    } finally {
-      setIsUploadingFile(false);
-    }
+  const handleResourceFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    stageSelectedFileIntoDraft(file);
   };
 
   const handleToggleTagInDraft = (tag: string) => {
@@ -602,39 +719,51 @@ export const TeachingResourcesHubModal: React.FC<
     setFormError(null);
 
     const cleanTitle = editorState.draft.title.trim();
-    const cleanSummary = editorState.draft.summary.trim();
-    const cleanUrl = (editorState.draft.resourceUrl || '').trim();
-
     if (!cleanTitle) {
-      setFormError('請填寫資源標題。');
+      setFormError('請填寫資源標題（或直接選取 PDF 檔案自動帶入檔名）。');
       return;
     }
-    if (!cleanSummary) {
-      setFormError('請填寫資源簡介說明。');
-      return;
-    }
+
+    let cleanUrl = (editorState.draft.resourceUrl || '').trim();
     if (cleanUrl && !isSafeExternalOrLocalUrl(cleanUrl)) {
       setFormError('資源連結網址須以 https://、http:// 或站內相對路徑（./）開頭。');
       return;
     }
 
-    const cleanId =
-      editorState.draft.id.trim() || `res-${Date.now().toString(36)}`;
-
-    const payload: TeachingResource = {
-      ...editorState.draft,
-      id: cleanId,
-      title: cleanTitle,
-      summary: cleanSummary,
-      content: editorState.draft.content?.trim() || '',
-      resourceUrl: cleanUrl || '',
-      author: editorState.draft.author.trim() || 'PesMath 數學領域社群',
-      topicTags: parseTopicTags(editorState.draft.topicTags).join(', '),
-    };
-
     setIsSavingDraft(true);
     try {
+      if (stagedFile && onUploadResourceFile) {
+        setIsUploadingFile(true);
+        try {
+          const folderLabel = editorState.draft.gradeBand || '教學資源';
+          const uploaded = await onUploadResourceFile(stagedFile, folderLabel);
+          cleanUrl = uploaded.webViewLink;
+        } finally {
+          setIsUploadingFile(false);
+        }
+      }
+
+      const fallbackSummary = `${editorState.draft.gradeBand}｜${editorState.draft.resourceType}：${cleanTitle}`;
+      const cleanSummary =
+        editorState.draft.summary.trim() || fallbackSummary;
+
+      const cleanId =
+        editorState.draft.id.trim() || `res-${Date.now().toString(36)}`;
+
+      const payload: TeachingResource = {
+        ...editorState.draft,
+        id: cleanId,
+        title: cleanTitle,
+        summary: cleanSummary,
+        content: editorState.draft.content?.trim() || '',
+        resourceUrl: cleanUrl || '',
+        author: editorState.draft.author.trim() || 'PesMath 數學領域社群',
+        topicTags: parseTopicTags(editorState.draft.topicTags).join(', '),
+      };
+
       await onSaveResource(payload, editorState.isNew);
+      setStagedFile(null);
+      setUploadNotice(null);
       setEditorState((prev) => ({...prev, isOpen: false}));
       if (readingResource && readingResource.id === payload.id) {
         setReadingResource(payload);
@@ -669,6 +798,303 @@ export const TeachingResourcesHubModal: React.FC<
     } finally {
       setIsSyncingSeedBatch(false);
     }
+  };
+
+  const renderDirectoryRow = (entry: UnifiedResourceEntry) => {
+    if (entry.kind === 'resource') {
+      const res = entry.resource;
+      const hasValidUrl = isSafeExternalOrLocalUrl(res.resourceUrl);
+      const isInteractive = isInternalInteractiveHtmlUrl(res.resourceUrl);
+      const isEbook = res.resourceType === '電子書';
+      const isPdfFile = isPdfOrDriveFileUrl(res.resourceUrl);
+      const isReaderDocument = isEmbeddedReaderDocumentUrl(res.resourceUrl);
+      const openInEbookReader =
+        (isEbook && (hasValidUrl || Boolean(res.content))) ||
+        (hasValidUrl && isReaderDocument);
+      const resolvedShareUrl =
+        hasValidUrl && !isInteractive && typeof window !== 'undefined'
+          ? new URL(res.resourceUrl!, window.location.href).toString()
+          : hubShareUrl;
+      const formatTag = isPdfFile
+        ? 'PDF'
+        : isEbook
+          ? '電子書'
+          : isInteractive
+            ? '互動'
+            : res.resourceType === '公開好站精選'
+              ? '網站'
+              : res.resourceType === '研習心得筆記'
+                ? '筆記'
+                : '教案';
+
+      const handlePrimaryTitleClick = () => {
+        if (openInEbookReader) {
+          setViewingEbook(res);
+        } else if (isInteractive && hasValidUrl) {
+          onOpenEmbedStage(res.resourceUrl!, res.title);
+        } else if (res.content) {
+          setReadingResource(res);
+        } else if (hasValidUrl && typeof window !== 'undefined') {
+          window.open(res.resourceUrl, '_blank', 'noopener,noreferrer');
+        }
+      };
+
+      return (
+        <div
+          key={entry.key}
+          className="px-4 py-3.5 hover:bg-[#FBF9F5] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`px-2 py-0.5 text-[11px] font-bold rounded border shrink-0 ${
+                  isPdfFile || isEbook
+                    ? 'bg-[#1E3A8A]/8 text-[#1E3A8A] border-[#1E3A8A]/25'
+                    : isInteractive
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-stone-100 text-stone-700 border-stone-200'
+                }`}
+              >
+                {formatTag}
+              </span>
+              <span className="text-xs font-semibold text-stone-700 shrink-0">
+                {getShortGradeLabel(res.gradeBand)}
+              </span>
+              {res.isPinned && (
+                <span className="text-xs font-semibold text-[#9A3412] inline-flex items-center gap-0.5 shrink-0">
+                  <Sparkles className="w-3 h-3" />
+                  精選
+                </span>
+              )}
+              {!res.isPublic && (
+                <span className="text-xs font-semibold text-amber-800 shrink-0">
+                  草稿
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handlePrimaryTitleClick}
+                className="text-left font-editorial text-base sm:text-[17px] font-bold text-stone-950 hover:text-[#1E3A8A] transition-colors leading-snug"
+              >
+                {res.title}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-stone-500">
+              <span className="line-clamp-1 text-stone-600">{res.summary}</span>
+              <span className="hidden md:inline text-stone-300">|</span>
+              <span className="hidden md:inline shrink-0">{res.author}</span>
+              <span className="hidden md:inline font-mono-tabular shrink-0">
+                {res.publishedAt}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+            {openInEbookReader ? (
+              <button
+                type="button"
+                onClick={() => setViewingEbook(res)}
+                className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              >
+                <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {isEbook
+                    ? '閱讀電子書'
+                    : isPdfFile
+                      ? '站內閱讀 PDF'
+                      : '開啟文件'}
+                </span>
+              </button>
+            ) : (
+              hasValidUrl &&
+              (isInteractive ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenEmbedStage(res.resourceUrl!, res.title)
+                  }
+                  className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                >
+                  <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
+                  <span>進入互動工具</span>
+                </button>
+              ) : (
+                <a
+                  href={res.resourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                >
+                  <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                  <span>開啟連結</span>
+                </a>
+              ))
+            )}
+
+            {res.content && (
+              <button
+                type="button"
+                onClick={() => setReadingResource(res)}
+                className="min-h-[36px] px-2.5 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span>說明</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => onOpenShareQr(resolvedShareUrl, res.title)}
+              className="min-h-[36px] min-w-[36px] p-1.5 text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 inline-flex items-center justify-center transition-colors"
+              title="分享此資源 QR Code"
+              aria-label={`分享 ${res.title} QR Code`}
+            >
+              <QrCode className="w-3.5 h-3.5" />
+            </button>
+
+            {isTeacherAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditModal(res)}
+                  className="min-h-[36px] min-w-[36px] p-1.5 text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center justify-center transition-colors"
+                  title="編輯此資源"
+                  aria-label={`編輯 ${res.title}`}
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteResource(res)}
+                  className="min-h-[36px] min-w-[36px] p-1.5 text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 inline-flex items-center justify-center transition-colors"
+                  title="刪除此資源"
+                  aria-label={`刪除 ${res.title}`}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const post = entry.post;
+    const locked = checkPostLocked(post);
+    const hasEmbed = isSafeExternalOrLocalUrl(post.embedUrl);
+    const isInteractivePost = isInternalInteractiveHtmlUrl(post.embedUrl);
+
+    return (
+      <div
+        key={entry.key}
+        className="px-4 py-3.5 hover:bg-[#FBF9F5] transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+      >
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2 py-0.5 text-[11px] font-bold rounded border bg-[#14532D]/8 text-[#14532D] border-[#14532D]/25 shrink-0">
+              期刊
+            </span>
+            <span className="text-xs font-semibold text-stone-700 shrink-0">
+              {post.academicYear}
+            </span>
+            {post.isFeatured && (
+              <span className="text-xs font-semibold text-[#9A3412] shrink-0">
+                精選
+              </span>
+            )}
+            {locked && (
+              <span className="text-xs font-semibold text-amber-800 inline-flex items-center gap-1 shrink-0">
+                <Lock className="w-3 h-3" />
+                校內限定
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => onOpenPost(post)}
+              className="text-left font-editorial text-base sm:text-[17px] font-bold text-stone-950 hover:text-[#1E3A8A] transition-colors leading-snug"
+            >
+              {post.title}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-stone-500">
+            <span className="line-clamp-1 text-stone-600">
+              {locked
+                ? '登入校內帳號後即可檢視完整內容。'
+                : post.summary}
+            </span>
+            <span className="hidden md:inline text-stone-300">|</span>
+            <span className="hidden md:inline shrink-0">{post.author}</span>
+            <span className="hidden md:inline font-mono-tabular shrink-0">
+              {post.publishedAt}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => onOpenPost(post)}
+            className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          >
+            <BookOpen className="w-3.5 h-3.5 shrink-0" />
+            <span>閱讀全文</span>
+          </button>
+
+          {!locked &&
+            hasEmbed &&
+            (isInteractivePost ? (
+              <button
+                type="button"
+                onClick={() => onOpenEmbedStage(post.embedUrl!, post.title)}
+                className="min-h-[36px] px-2.5 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
+                <span>互動舞台</span>
+              </button>
+            ) : isEmbeddedReaderDocumentUrl(post.embedUrl) ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setViewingEbook({
+                    id: post.slug,
+                    title: post.title,
+                    gradeBand: '跨年級通用',
+                    resourceType: '自製教案 / 學習單',
+                    sourceOrigin: '原創自製',
+                    topicTags: post.category,
+                    summary: post.summary,
+                    content: post.content || '',
+                    resourceUrl: post.embedUrl || '',
+                    author: post.author,
+                    publishedAt: post.publishedAt,
+                    isPinned: Boolean(post.isFeatured),
+                    isPublic: post.status === 'Published',
+                  })
+                }
+                className="min-h-[36px] px-2.5 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  {isPdfOrDriveFileUrl(post.embedUrl)
+                    ? '閱讀 PDF'
+                    : '閱讀附件'}
+                </span>
+              </button>
+            ) : (
+              <a
+                href={post.embedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[36px] px-2.5 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+              >
+                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                <span>附件</span>
+              </a>
+            ))}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -709,7 +1135,7 @@ export const TeachingResourcesHubModal: React.FC<
               onClick={() =>
                 onOpenShareQr(hubShareUrl, '國小數學教學資源平台')
               }
-              className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
               title="產生本平台專屬 QR Code 供老師掃碼使用"
             >
               <QrCode className="w-4 h-4 shrink-0" />
@@ -720,7 +1146,7 @@ export const TeachingResourcesHubModal: React.FC<
               type="button"
               onClick={onRefreshSync}
               disabled={isSyncing}
-              className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-50"
+              className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap disabled:opacity-50"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 shrink-0 ${
@@ -735,7 +1161,7 @@ export const TeachingResourcesHubModal: React.FC<
                 <button
                   type="button"
                   onClick={handleExportCsv}
-                  className="min-h-[40px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   title="下載目前公開教學資源清單 CSV"
                 >
                   <Download className="w-3.5 h-3.5 shrink-0" />
@@ -744,11 +1170,11 @@ export const TeachingResourcesHubModal: React.FC<
 
                 <button
                   type="button"
-                  onClick={handleOpenCreateModal}
-                  className="min-h-[40px] px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap"
+                  onClick={() => handleOpenCreateModal()}
+                  className="min-h-[38px] px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors shadow-2xs whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4 shrink-0" />
-                  <span>新增資源</span>
+                  <span>新增 / 傳 PDF</span>
                 </button>
               </>
             )}
@@ -756,7 +1182,7 @@ export const TeachingResourcesHubModal: React.FC<
             <button
               type="button"
               onClick={onClose}
-              className="min-h-[40px] min-w-[40px] p-2 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg inline-flex items-center justify-center transition-colors"
+              className="min-h-[38px] min-w-[38px] p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg inline-flex items-center justify-center transition-colors"
               aria-label="關閉教學資源平台"
             >
               <X className="w-5 h-5" />
@@ -767,171 +1193,129 @@ export const TeachingResourcesHubModal: React.FC<
 
       {/* Main Scrollable Area */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-          {/* Overview Strip + Admin Sync Callout */}
-          <section className="bg-white border border-stone-200 rounded-2xl p-5 sm:p-6 space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="space-y-1.5 max-w-3xl">
-                <div className="text-xs font-semibold tracking-wider text-[#1E3A8A] uppercase">
-                  OPEN ELEMENTARY MATH RESOURCES · 國小教師共備與教學百寶箱
-                </div>
-                <h2 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 leading-snug">
-                  獨立教學資源庫 × 期刊分類自動匯流
-                </h2>
-                <p className="text-sm text-stone-600 leading-relaxed">
-                  專為國小教師打造的公開資源園地：完整收錄原創教案學習單、數位互動操作工具、研習實務筆記與精選公開好站，並即時同步主站「教學資源」分類文章。所有公開內容無需登入即可自由瀏覽與分享。
-                </p>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 sm:gap-4 shrink-0 border-t lg:border-t-0 lg:border-l border-stone-200 pt-4 lg:pt-0 lg:pl-6">
-                <div>
-                  <div className="text-xs text-stone-500">公開資源總數</div>
-                  <div className="font-mono-tabular text-2xl font-bold text-stone-950 mt-0.5">
-                    {visibleCustomResources.length + journalTeachingPosts.length}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-stone-500">教案 / 研習</div>
-                  <div className="font-mono-tabular text-2xl font-bold text-[#1E3A8A] mt-0.5">
-                    {visibleCustomResources.length}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-stone-500">期刊彙整</div>
-                  <div className="font-mono-tabular text-2xl font-bold text-stone-800 mt-0.5">
-                    {journalTeachingPosts.length}
-                  </div>
-                </div>
-              </div>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 space-y-4">
+          {/* Compact Admin Notices & Errors */}
+          {syncError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900">
+              {syncError}
             </div>
+          )}
 
-            {syncError && (
-              <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900">
-                {syncError}
-              </div>
-            )}
-
-            {isTeacherAdmin && !hasRemoteResourcesTab && (
-              <div className="p-4 bg-[#F7F4EE] border border-stone-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="space-y-0.5 text-xs text-stone-700 leading-relaxed">
-                  <div className="font-semibold text-stone-950">
-                    尚未於 Google 試算表偵測到「Resources」專屬分頁
-                  </div>
-                  <div>
-                    目前顯示為精選初始資源與本機暫存。點擊右側按鈕即可直接在您連結的試算表自動建立{' '}
-                    <code className="font-mono-tabular bg-white px-1.5 py-0.5 rounded border border-stone-200">
-                      Resources
-                    </code>{' '}
-                    分頁，並寫入現有資料，完全不消耗 Firestore 每日讀取額度。
-                  </div>
-                </div>
-                {hasAccessToken && spreadsheetId ? (
-                  <button
-                    type="button"
-                    onClick={handleTriggerSeedSync}
-                    disabled={isSyncingSeedBatch || isSyncing}
-                    className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    <CloudUpload className="w-4 h-4 shrink-0" />
-                    <span>
-                      {isSyncingSeedBatch
-                        ? '建立並寫入中...'
-                        : '建立 Resources 分頁並同步資料'}
-                    </span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={onRequestSheetsAuth}
-                    className="min-h-[40px] px-4 py-2 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    <Layers className="w-4 h-4 shrink-0" />
-                    <span>授權 Google Sheets 寫入權限</span>
-                  </button>
-                )}
-              </div>
-            )}
-
-            {isTeacherAdmin &&
-              hasRemoteResourcesTab &&
-              !hasAccessToken &&
-              Boolean(spreadsheetId) && (
-                <div className="p-4 bg-amber-50/90 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="space-y-0.5 text-xs text-amber-950 leading-relaxed">
-                    <div className="font-semibold">
-                      目前尚未啟用 Google Sheets 寫入授權（重新整理網頁後需重新驗證）
-                    </div>
-                    <div className="text-amber-900">
-                      瀏覽器重新整理不會保留 Google 寫入憑證；請點擊右側授權按鈕，或在儲存資源時依提示完成授權，資料才會永久寫入「Resources」分頁，不會在重新整理後消失。
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onRequestSheetsAuth}
-                    className="min-h-[40px] px-4 py-2 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
-                  >
-                    <Layers className="w-4 h-4 shrink-0" />
-                    <span>授權 Google Sheets 寫入權限</span>
-                  </button>
-                </div>
+          {isTeacherAdmin && !hasRemoteResourcesTab && (
+            <div className="px-4 py-2.5 bg-[#F7F4EE] border border-stone-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-stone-700">
+              <span>
+                尚未建立試算表 <code className="font-mono-tabular bg-white px-1 py-0.5 rounded border border-stone-200">Resources</code> 分頁，目前使用精選與本機資料。
+              </span>
+              {hasAccessToken && spreadsheetId ? (
+                <button
+                  type="button"
+                  onClick={handleTriggerSeedSync}
+                  disabled={isSyncingSeedBatch || isSyncing}
+                  className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  <CloudUpload className="w-3.5 h-3.5 shrink-0" />
+                  <span>
+                    {isSyncingSeedBatch ? '建立同步中...' : '一鍵建立並同步'}
+                  </span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onRequestSheetsAuth}
+                  className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  <Layers className="w-3.5 h-3.5 shrink-0" />
+                  <span>授權 Google 試算表</span>
+                </button>
               )}
-          </section>
+            </div>
+          )}
 
-          {/* Filter & Search Toolbar */}
-          <section className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-              {/* Source Scope Tabs */}
-              <div
-                className="flex flex-wrap items-center gap-1.5"
-                role="tablist"
-                aria-label="資源來源篩選"
-              >
-                {(
-                  [
-                    {
-                      id: 'all',
-                      label: `全部資源 (${
-                        visibleCustomResources.length +
-                        journalTeachingPosts.length
-                      })`,
-                    },
-                    {
-                      id: 'custom',
-                      label: `教案・電子書・工具・筆記 (${visibleCustomResources.length})`,
-                    },
-                    {
-                      id: 'journal',
-                      label: `期刊教學資源專欄 (${journalTeachingPosts.length})`,
-                    },
-                  ] as Array<{id: SourceScopeFilter; label: string}>
-                ).map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={sourceScope === tab.id}
-                    onClick={() => setSourceScope(tab.id)}
-                    className={`min-h-[40px] px-3.5 py-2 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                      sourceScope === tab.id
-                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                        : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:text-stone-950 hover:border-stone-300'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+          {isTeacherAdmin &&
+            hasRemoteResourcesTab &&
+            !hasAccessToken &&
+            Boolean(spreadsheetId) && (
+              <div className="px-4 py-2.5 bg-amber-50/90 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-950">
+                <span>
+                  重新整理後需重新授權 Google 寫入權限，才可上傳或發布新資源。
+                </span>
+                <button
+                  type="button"
+                  onClick={onRequestSheetsAuth}
+                  className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
+                >
+                  <Layers className="w-3.5 h-3.5 shrink-0" />
+                  <span>立即授權寫入</span>
+                </button>
               </div>
+            )}
 
-              {/* Search Box */}
-              <div className="relative w-full lg:w-80">
+          {/* Admin 1-Step Quick PDF Drop & Categorize Strip */}
+          {isTeacherAdmin && onUploadResourceFile && (
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDraggingQuickDrop(true);
+              }}
+              onDragLeave={() => setIsDraggingQuickDrop(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDraggingQuickDrop(false);
+                const droppedFile = e.dataTransfer.files?.[0];
+                if (droppedFile) {
+                  handleOpenCreateModal(droppedFile);
+                }
+              }}
+              className={`rounded-xl border border-dashed px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                isDraggingQuickDrop
+                  ? 'bg-[#1E3A8A]/8 border-[#1E3A8A]'
+                  : 'bg-white border-stone-300 hover:border-[#1E3A8A]/50'
+              }`}
+            >
+              <input
+                ref={quickDropFileInputRef}
+                type="file"
+                accept=".pdf,.epub,.md,.markdown,.html,.htm"
+                onChange={handleQuickDropFileChange}
+                className="hidden"
+              />
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-lg bg-[#1E3A8A]/10 text-[#1E3A8A] flex items-center justify-center shrink-0">
+                  <FileUp className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs sm:text-sm font-bold text-stone-900">
+                    快速放入 PDF／電子書檔案並分類（支援 10MB+ 大檔）
+                  </div>
+                  <div className="text-xs text-stone-500 truncate">
+                    拖曳檔案到這裡，或點右側按鈕選取檔案 → 自動帶入標題 → 點選分類與年段即可發布
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => quickDropFileInputRef.current?.click()}
+                className="min-h-[36px] px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5 shrink-0" />
+                <span>選取檔案快速上架</span>
+              </button>
+            </div>
+          )}
+
+          {/* Compact Search, Filter & View-Mode Bar */}
+          <section className="bg-white border border-stone-200 rounded-2xl p-3.5 sm:p-4 space-y-3">
+            {/* Top Row: Search + View Mode Switcher */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="relative flex-1">
                 <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜尋單元、教案、研習關鍵字或作者..."
+                  placeholder="搜尋資源標題、單元關鍵字或作者..."
                   aria-label="搜尋教學資源"
-                  className="w-full min-h-[40px] pl-10 pr-9 py-2 text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                  className="w-full min-h-[38px] pl-10 pr-9 py-1.5 text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                 />
                 {searchQuery && (
                   <button
@@ -944,73 +1328,143 @@ export const TeachingResourcesHubModal: React.FC<
                   </button>
                 )}
               </div>
+
+              <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                <span className="text-xs font-mono-tabular text-stone-500 px-1">
+                  共 {filteredEntries.length} 筆
+                </span>
+
+                <div
+                  className="inline-flex bg-[#F7F4EE] border border-stone-200 rounded-lg p-0.5"
+                  role="group"
+                  aria-label="切換瀏覽檢視模式"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('directory')}
+                    className={`min-h-[32px] px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 transition-colors ${
+                      viewMode === 'directory'
+                        ? 'bg-white text-[#1E3A8A] shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-950'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>一目了然目錄</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('cards')}
+                    className={`min-h-[32px] px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 transition-colors ${
+                      viewMode === 'cards'
+                        ? 'bg-white text-[#1E3A8A] shadow-2xs'
+                        : 'text-stone-600 hover:text-stone-950'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>圖文卡片</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Grade Band & Type Filters */}
-            <div className="pt-3 border-t border-stone-100 flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-xs font-medium text-stone-500 mr-1">
-                  適用年段：
-                </span>
+            {/* Second Row: Non-empty Category Chips + Compact Grade Filter */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pt-2.5 border-t border-stone-100">
+              <div
+                className="flex flex-wrap items-center gap-1.5"
+                role="tablist"
+                aria-label="資源分類篩選"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={typeFilter === '全部類型'}
+                  onClick={() => setTypeFilter('全部類型')}
+                  className={`min-h-[34px] px-3 py-1 text-xs font-semibold rounded-lg border inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    typeFilter === '全部類型'
+                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                      : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:text-stone-950'
+                  }`}
+                >
+                  <span>全部分類</span>
+                  <span
+                    className={`font-mono-tabular text-[11px] ${
+                      typeFilter === '全部類型'
+                        ? 'text-blue-100'
+                        : 'text-stone-500'
+                    }`}
+                  >
+                    ({typeCounts['全部類型']})
+                  </span>
+                </button>
+
+                {CATEGORY_META.filter(
+                  (meta) => (typeCounts[meta.id] ?? 0) > 0 || typeFilter === meta.id,
+                ).map((meta) => {
+                  const count = typeCounts[meta.id] ?? 0;
+                  const isActive = typeFilter === meta.id;
+                  return (
+                    <button
+                      key={meta.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setTypeFilter(meta.id)}
+                      className={`min-h-[34px] px-3 py-1 text-xs font-medium rounded-lg border inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                        isActive
+                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
+                      }`}
+                    >
+                      <span>{meta.shortLabel}</span>
+                      <span
+                        className={`font-mono-tabular text-[11px] ${
+                          isActive ? 'text-blue-100' : 'text-stone-500'
+                        }`}
+                      >
+                        ({count})
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                <span className="text-xs text-stone-500">年段：</span>
                 {(['全部年段', ...RESOURCE_GRADE_BANDS] as GradeFilter[]).map(
                   (grade) => (
                     <button
                       key={grade}
                       type="button"
                       onClick={() => setGradeFilter(grade)}
-                      className={`min-h-[36px] px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                      className={`min-h-[32px] px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
                         gradeFilter === grade
                           ? 'bg-stone-900 text-white border-stone-900'
                           : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
                       }`}
                     >
-                      {grade}
+                      {grade === '全部年段' ? '全部' : getShortGradeLabel(grade)}
                     </button>
                   ),
                 )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <label
-                  htmlFor="resource-type-select"
-                  className="text-xs font-medium text-stone-500 whitespace-nowrap"
-                >
-                  資源類型：
-                </label>
-                <select
-                  id="resource-type-select"
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
-                  className="min-h-[36px] px-3 py-1.5 text-xs font-medium bg-white border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                >
-                  <option value="全部類型">全部類型</option>
-                  {RESOURCE_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                  <option value="期刊教學資源">期刊教學資源文章</option>
-                </select>
 
                 {hasActiveFilters && (
                   <button
                     type="button"
                     onClick={() => {
-                      setSourceScope('all');
                       setGradeFilter('全部年段');
                       setTypeFilter('全部類型');
                       setSearchQuery('');
                     }}
-                    className="min-h-[36px] px-2.5 py-1.5 text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap"
+                    className="min-h-[32px] px-2 py-1 text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap"
                   >
-                    重設篩選
+                    重設
                   </button>
                 )}
               </div>
             </div>
           </section>
 
-          {/* Resource Cards Grid */}
+          {/* Resources Listing: Grouped Directory (Default) or Cards */}
           {filteredEntries.length === 0 ? (
             <div className="bg-white border border-stone-200 rounded-2xl p-10 text-center space-y-3">
               <FolderOpen className="w-8 h-8 text-stone-400 mx-auto" />
@@ -1024,7 +1478,6 @@ export const TeachingResourcesHubModal: React.FC<
                 <button
                   type="button"
                   onClick={() => {
-                    setSourceScope('all');
                     setGradeFilter('全部年段');
                     setTypeFilter('全部類型');
                     setSearchQuery('');
@@ -1034,6 +1487,27 @@ export const TeachingResourcesHubModal: React.FC<
                   顯示全部教學資源
                 </button>
               )}
+            </div>
+          ) : viewMode === 'directory' ? (
+            <div className="space-y-4">
+              {groupedDirectorySections.map((section) => (
+                <section
+                  key={section.id}
+                  className="bg-white border border-stone-200 rounded-2xl overflow-hidden"
+                >
+                  <div className="px-4 py-2.5 bg-[#F7F4EE] border-b border-stone-200 flex items-center justify-between gap-2">
+                    <h2 className="font-editorial text-sm sm:text-base font-bold text-stone-950">
+                      {section.fullLabel}
+                    </h2>
+                    <span className="text-xs font-mono-tabular font-semibold text-stone-600">
+                      {section.entries.length} 筆
+                    </span>
+                  </div>
+                  <div className="divide-y divide-stone-100">
+                    {section.entries.map((entry) => renderDirectoryRow(entry))}
+                  </div>
+                </section>
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -1528,7 +2002,7 @@ export const TeachingResourcesHubModal: React.FC<
         </div>
       )}
 
-      {/* Sub-Modal: Admin Add / Edit Resource Form */}
+      {/* Sub-Modal: Streamlined Admin Add / Edit Resource & Quick PDF Upload */}
       {editorState.isOpen && isTeacherAdmin && (
         <div
           className="fixed inset-0 z-50 bg-stone-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6"
@@ -1538,7 +2012,7 @@ export const TeachingResourcesHubModal: React.FC<
           onClick={() => setEditorState((prev) => ({...prev, isOpen: false}))}
         >
           <div
-            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden"
+            className="bg-white border border-stone-200 rounded-2xl shadow-2xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between gap-3 shrink-0">
@@ -1548,15 +2022,15 @@ export const TeachingResourcesHubModal: React.FC<
                   className="font-editorial text-lg font-bold text-stone-950"
                 >
                   {editorState.isNew
-                    ? '新增國小數學教學資源'
+                    ? '快速上架教學資源 / PDF'
                     : '編輯教學資源內容'}
                 </h2>
                 <p className="text-xs text-stone-500 mt-0.5">
                   {!spreadsheetId
-                    ? '尚未連結雲端試算表，將儲存於本機瀏覽器'
+                    ? '尚未連結試算表，將儲存於本機瀏覽器'
                     : hasAccessToken
-                      ? '儲存後將即時寫入 Google 試算表「Resources」分頁，重新整理不會遺失'
-                      : '按下「確認發布資源」時將先請您授權 Google 帳號，再永久寫入「Resources」分頁'}
+                      ? '發布後將自動上傳檔案（若有）並寫入雲端「Resources」分頁'
+                      : '按下「發布」時將先引導您授權 Google 帳號，一次完成上傳與寫入'}
                 </p>
               </div>
               <button
@@ -1575,335 +2049,385 @@ export const TeachingResourcesHubModal: React.FC<
               onSubmit={handleSubmitResource}
               className="flex-1 overflow-y-auto p-5 space-y-4"
             >
-              {Boolean(spreadsheetId) && !hasAccessToken && (
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-amber-950">
-                  <span>
-                    重新整理後須重新授權 Google Sheets 寫入權限，才能把資源寫入雲端試算表。您可直接點右側先授權，或填妥後按「確認發布資源」自動授權。
-                  </span>
-                  <button
-                    type="button"
-                    onClick={onRequestSheetsAuth}
-                    className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 whitespace-nowrap shrink-0"
-                  >
-                    先授權 Google 寫入權限
-                  </button>
-                </div>
-              )}
-
               {formError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-900">
                   {formError}
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">
-                  資源標題 *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editorState.draft.title}
-                  onChange={(e) =>
-                    setEditorState((prev) => ({
-                      ...prev,
-                      draft: {...prev.draft, title: e.target.value},
-                    }))
-                  }
-                  placeholder="例如：五年級異分母分數加減視覺化學習單／研習筆記"
-                  className="w-full min-h-[40px] px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">
-                    適用年段
-                  </label>
-                  <select
-                    value={editorState.draft.gradeBand}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {
-                          ...prev.draft,
-                          gradeBand: e.target.value as ResourceGradeBand,
-                        },
-                      }))
-                    }
-                    className="w-full min-h-[40px] px-3 py-2 text-sm border border-stone-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                  >
-                    {RESOURCE_GRADE_BANDS.map((g) => (
-                      <option key={g} value={g}>
-                        {g}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">
-                    資源類型
-                  </label>
-                  <select
-                    value={editorState.draft.resourceType}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {
-                          ...prev.draft,
-                          resourceType: e.target.value as ResourceType,
-                        },
-                      }))
-                    }
-                    className="w-full min-h-[40px] px-3 py-2 text-sm border border-stone-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                  >
-                    {RESOURCE_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">
-                    資源來源屬性
-                  </label>
-                  <select
-                    value={editorState.draft.sourceOrigin}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {
-                          ...prev.draft,
-                          sourceOrigin: e.target.value as ResourceSourceOrigin,
-                        },
-                      }))
-                    }
-                    className="w-full min-h-[40px] px-3 py-2 text-sm border border-stone-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                  >
-                    {RESOURCE_SOURCE_ORIGINS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">
-                    作者／分享整理者
-                  </label>
+              {/* Step 1: Drop / Select File or Paste URL */}
+              {onUploadResourceFile && (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDraggingModalDrop(true);
+                  }}
+                  onDragLeave={() => setIsDraggingModalDrop(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDraggingModalDrop(false);
+                    const f = e.dataTransfer.files?.[0];
+                    if (f) stageSelectedFileIntoDraft(f);
+                  }}
+                  className={`p-3.5 rounded-xl border-2 border-dashed transition-colors space-y-2 ${
+                    isDraggingModalDrop
+                      ? 'bg-[#1E3A8A]/8 border-[#1E3A8A]'
+                      : stagedFile
+                        ? 'bg-emerald-50/70 border-emerald-400'
+                        : 'bg-[#F7F4EE] border-stone-300'
+                  }`}
+                >
                   <input
-                    type="text"
-                    value={editorState.draft.author}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {...prev.draft, author: e.target.value},
-                      }))
-                    }
-                    className="w-full min-h-[40px] px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                    ref={resourceFileInputRef}
+                    type="file"
+                    accept=".pdf,.epub,.md,.markdown,.html,.htm"
+                    onChange={handleResourceFileChange}
+                    className="hidden"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-stone-700 mb-1">
-                    發布／更新日期
-                  </label>
-                  <input
-                    type="date"
-                    value={editorState.draft.publishedAt}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {...prev.draft, publishedAt: e.target.value},
-                      }))
-                    }
-                    className="w-full min-h-[40px] px-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">
-                  {editorState.draft.resourceType === '電子書'
-                    ? '電子書檔案或網頁連結（支援 PDF .pdf、EPUB .epub、Markdown .md、HTML5 .html 或 Google 雲端硬碟連結，將內嵌於平台閱讀）'
-                    : '資源連結網址（選填：可直接上傳 10MB+ PDF 至 Google Drive，或貼上雲端硬碟、GeoGebra、.epub/.md 連結）'}
-                </label>
-                <div className="relative">
-                  <Globe className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                  <input
-                    type="text"
-                    value={editorState.draft.resourceUrl || ''}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {...prev.draft, resourceUrl: e.target.value},
-                      }))
-                    }
-                    placeholder={
-                      editorState.draft.resourceType === '電子書'
-                        ? './assets/.../book.epub 或 .pdf / .md / .html 或 Google Drive 連結'
-                        : 'https://drive.google.com/... 或 ./docs/lesson.md'
-                    }
-                    className="w-full min-h-[40px] pl-10 pr-3.5 py-2 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                  />
-                </div>
-
-                {onUploadResourceFile && (
-                  <div className="mt-2 p-3 bg-[#F7F4EE] border border-stone-200 rounded-xl space-y-2">
-                    <input
-                      ref={resourceFileInputRef}
-                      type="file"
-                      accept=".pdf,.epub,.md,.markdown,.html,.htm"
-                      onChange={handleResourceFileChange}
-                      className="hidden"
-                    />
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="text-xs text-stone-600 leading-relaxed">
-                        檔案較大（如 10MB PDF）建議直接上傳至您的 Google 雲端硬碟，系統會依上方「適用年段」自動建立分類資料夾並取得公開檢視連結，不佔用網站與 GitHub 容量。
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-stone-900">
+                        {stagedFile
+                          ? `已選檔案：${stagedFile.name}`
+                          : '第 1 步：選取或拖曳 PDF / EPUB 檔案（支援 10MB+）'}
                       </div>
+                      <div className="text-[11px] text-stone-600 mt-0.5">
+                        {stagedFile
+                          ? `${(stagedFile.size / (1024 * 1024)).toFixed(1)} MB · 發布時自動依「適用年段」歸檔至 Google 雲端硬碟`
+                          : '選好檔案即自動帶入標題；若要貼外部網址亦可直接在下方輸入'}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {stagedFile && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStagedFile(null);
+                            setUploadNotice(null);
+                          }}
+                          className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-600 bg-white border border-stone-300 rounded-lg hover:bg-stone-50"
+                        >
+                          取消選檔
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => resourceFileInputRef.current?.click()}
                         disabled={isUploadingFile || isSavingDraft}
-                        className="min-h-[38px] px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/30 rounded-lg hover:bg-[#1E3A8A]/5 disabled:opacity-50 inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0 transition-colors"
+                        className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap"
                       >
-                        {isUploadingFile ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                            <span>檔案上傳中...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-3.5 h-3.5 shrink-0" />
-                            <span>上傳 PDF / EPUB / MD 至雲端</span>
-                          </>
-                        )}
+                        <Upload className="w-3.5 h-3.5 shrink-0" />
+                        <span>{stagedFile ? '更換檔案' : '選擇 PDF'}</span>
                       </button>
                     </div>
-                    {uploadNotice && (
-                      <div className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-                        {uploadNotice}
+                  </div>
+                  {uploadNotice && (
+                    <div className="text-[11px] text-emerald-900 font-medium">
+                      {uploadNotice}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2: One-Tap Category & Grade Chips */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-800 mb-1.5">
+                    第 2 步：選擇分類 *
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {RESOURCE_TYPES.map((t) => {
+                      const active = editorState.draft.resourceType === t;
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {...prev.draft, resourceType: t},
+                            }))
+                          }
+                          className={`min-h-[36px] px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                            active
+                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                              : 'bg-white text-stone-700 border-stone-300 hover:border-stone-500'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-stone-800 mb-1.5">
+                    適用年段 *
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {RESOURCE_GRADE_BANDS.map((g) => {
+                      const active = editorState.draft.gradeBand === g;
+                      return (
+                        <button
+                          key={g}
+                          type="button"
+                          onClick={() =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {...prev.draft, gradeBand: g},
+                            }))
+                          }
+                          className={`min-h-[36px] px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                            active
+                              ? 'bg-stone-900 text-white border-stone-900'
+                              : 'bg-white text-stone-700 border-stone-300 hover:border-stone-500'
+                          }`}
+                        >
+                          {g}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3: Title & Link */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-stone-800 mb-1">
+                    第 3 步：資源標題 *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editorState.draft.title}
+                    onChange={(e) =>
+                      setEditorState((prev) => ({
+                        ...prev,
+                        draft: {...prev.draft, title: e.target.value},
+                      }))
+                    }
+                    placeholder="選檔後自動帶入檔名，亦可自行修改"
+                    className="w-full min-h-[40px] px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                  />
+                </div>
+
+                {!stagedFile && (
+                  <div>
+                    <label className="block text-xs font-medium text-stone-700 mb-1">
+                      外部網址或雲端連結（若未選擇上方本地檔案，可貼網址）
+                    </label>
+                    <div className="relative">
+                      <Globe className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={editorState.draft.resourceUrl || ''}
+                        onChange={(e) =>
+                          setEditorState((prev) => ({
+                            ...prev,
+                            draft: {...prev.draft, resourceUrl: e.target.value},
+                          }))
+                        }
+                        placeholder="https://drive.google.com/... 或 GeoGebra / .epub 連結"
+                        className="w-full min-h-[38px] pl-10 pr-3.5 py-1.5 text-sm font-mono-tabular border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-stone-700 mb-1">
+                    一句話簡介（選填，留白將自動由分類與標題產生）
+                  </label>
+                  <input
+                    type="text"
+                    value={editorState.draft.summary}
+                    onChange={(e) =>
+                      setEditorState((prev) => ({
+                        ...prev,
+                        draft: {...prev.draft, summary: e.target.value},
+                      }))
+                    }
+                    placeholder="例如：四年級分數大小比較課堂學習單與解答"
+                    className="w-full min-h-[38px] px-3.5 py-1.5 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                  />
+                </div>
+              </div>
+
+              {/* Collapsible Advanced Options */}
+              <div className="border-t border-stone-200 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedFields((v) => !v)}
+                  className="text-xs font-semibold text-stone-600 hover:text-stone-950 inline-flex items-center gap-1"
+                >
+                  {showAdvancedFields ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                  <span>更多進階設定（主題標籤、詳細筆記、來源、置頂）</span>
+                </button>
+
+                {showAdvancedFields && (
+                  <div className="mt-3 space-y-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-700 mb-1">
+                          資源來源屬性
+                        </label>
+                        <select
+                          value={editorState.draft.sourceOrigin}
+                          onChange={(e) =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {
+                                ...prev.draft,
+                                sourceOrigin: e.target
+                                  .value as ResourceSourceOrigin,
+                              },
+                            }))
+                          }
+                          className="w-full min-h-[38px] px-2.5 py-1.5 text-xs border border-stone-300 rounded-lg bg-white"
+                        >
+                          {RESOURCE_SOURCE_ORIGINS.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                    )}
+                      <div>
+                        <label className="block text-xs font-medium text-stone-700 mb-1">
+                          作者／整理者
+                        </label>
+                        <input
+                          type="text"
+                          value={editorState.draft.author}
+                          onChange={(e) =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {...prev.draft, author: e.target.value},
+                            }))
+                          }
+                          className="w-full min-h-[38px] px-3 py-1.5 text-xs border border-stone-300 rounded-lg"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-700 mb-1">
+                          發布日期
+                        </label>
+                        <input
+                          type="date"
+                          value={editorState.draft.publishedAt}
+                          onChange={(e) =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {
+                                ...prev.draft,
+                                publishedAt: e.target.value,
+                              },
+                            }))
+                          }
+                          className="w-full min-h-[38px] px-2.5 py-1.5 text-xs font-mono-tabular border border-stone-300 rounded-lg"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-stone-700 mb-1">
+                        數學單元標籤
+                      </label>
+                      <input
+                        type="text"
+                        value={editorState.draft.topicTags}
+                        onChange={(e) =>
+                          setEditorState((prev) => ({
+                            ...prev,
+                            draft: {...prev.draft, topicTags: e.target.value},
+                          }))
+                        }
+                        placeholder="逗號分隔，例如：分數與小數, 學習單"
+                        className="w-full min-h-[38px] px-3 py-1.5 text-xs border border-stone-300 rounded-lg"
+                      />
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {SUGGESTED_TOPIC_TAGS.map((tag) => {
+                          const selected = parseTopicTags(
+                            editorState.draft.topicTags,
+                          ).includes(tag);
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => handleToggleTagInDraft(tag)}
+                              className={`px-2 py-1 text-[11px] rounded border transition-colors ${
+                                selected
+                                  ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                                  : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:border-stone-400'
+                              }`}
+                            >
+                              {selected ? '✓ ' : '+ '}
+                              {tag}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-stone-700 mb-1">
+                        詳細教學說明／筆記（支援簡易 Markdown）
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={editorState.draft.content || ''}
+                        onChange={(e) =>
+                          setEditorState((prev) => ({
+                            ...prev,
+                            draft: {...prev.draft, content: e.target.value},
+                          }))
+                        }
+                        placeholder="## 課堂應用建議..."
+                        className="w-full px-3 py-2 text-xs border border-stone-300 rounded-lg leading-relaxed"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-5 text-xs text-stone-700">
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editorState.draft.isPublic}
+                          onChange={(e) =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {...prev.draft, isPublic: e.target.checked},
+                            }))
+                          }
+                          className="w-4 h-4 accent-[#1E3A8A]"
+                        />
+                        <span>公開免登入瀏覽</span>
+                      </label>
+                      <label className="inline-flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={editorState.draft.isPinned}
+                          onChange={(e) =>
+                            setEditorState((prev) => ({
+                              ...prev,
+                              draft: {...prev.draft, isPinned: e.target.checked},
+                            }))
+                          }
+                          className="w-4 h-4 accent-[#1E3A8A]"
+                        />
+                        <span>置頂精選</span>
+                      </label>
+                    </div>
                   </div>
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">
-                  數學單元與主題標籤（逗號分隔）
-                </label>
-                <input
-                  type="text"
-                  value={editorState.draft.topicTags}
-                  onChange={(e) =>
-                    setEditorState((prev) => ({
-                      ...prev,
-                      draft: {...prev.draft, topicTags: e.target.value},
-                    }))
-                  }
-                  placeholder="例如：分數與小數, 幾何與空間, 學習單"
-                  className="w-full min-h-[40px] px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                />
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {SUGGESTED_TOPIC_TAGS.map((tag) => {
-                    const selected = parseTopicTags(
-                      editorState.draft.topicTags,
-                    ).includes(tag);
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => handleToggleTagInDraft(tag)}
-                        className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
-                          selected
-                            ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                            : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:border-stone-400'
-                        }`}
-                      >
-                        {selected ? '✓ ' : '+ '}
-                        {tag}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">
-                  卡片簡介說明 *
-                </label>
-                <textarea
-                  required
-                  rows={2}
-                  value={editorState.draft.summary}
-                  onChange={(e) =>
-                    setEditorState((prev) => ({
-                      ...prev,
-                      draft: {...prev.draft, summary: e.target.value},
-                    }))
-                  }
-                  placeholder="簡要說明此教案、工具或研習筆記的教學亮點與適用情境（顯示於資源卡片上）"
-                  className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-stone-700 mb-1">
-                  詳細教學實施說明／研習心得筆記（選填，支援簡易 Markdown：## 標題、- 條列、**粗體**）
-                </label>
-                <textarea
-                  rows={6}
-                  value={editorState.draft.content || ''}
-                  onChange={(e) =>
-                    setEditorState((prev) => ({
-                      ...prev,
-                      draft: {...prev.draft, content: e.target.value},
-                    }))
-                  }
-                  placeholder={`## 課堂應用建議\n1. 先引導學生觀察...\n2. 分組操作重點...`}
-                  className="w-full px-3.5 py-2 text-sm border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] leading-relaxed"
-                />
-              </div>
-
-              <div className="pt-2 flex flex-wrap items-center gap-6 text-xs sm:text-sm text-stone-700">
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editorState.draft.isPublic}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {...prev.draft, isPublic: e.target.checked},
-                      }))
-                    }
-                    className="w-4 h-4 accent-[#1E3A8A]"
-                  />
-                  <span>公開提供給所有國小教師瀏覽（免登入）</span>
-                </label>
-
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={editorState.draft.isPinned}
-                    onChange={(e) =>
-                      setEditorState((prev) => ({
-                        ...prev,
-                        draft: {...prev.draft, isPinned: e.target.checked},
-                      }))
-                    }
-                    className="w-4 h-4 accent-[#1E3A8A]"
-                  />
-                  <span>置頂為平台精選推薦</span>
-                </label>
-              </div>
-
-              <div className="pt-4 border-t border-stone-200 flex items-center justify-end gap-2">
+              <div className="pt-3 border-t border-stone-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() =>
@@ -1918,14 +2442,28 @@ export const TeachingResourcesHubModal: React.FC<
                   disabled={isSavingDraft}
                   className="min-h-[40px] px-5 py-2 text-xs sm:text-sm font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:bg-stone-400 inline-flex items-center gap-1.5 transition-colors"
                 >
-                  <Check className="w-4 h-4" />
-                  <span>
-                    {isSavingDraft
-                      ? '儲存同步中...'
-                      : editorState.isNew
-                        ? '確認發布資源'
-                        : '儲存變更'}
-                  </span>
+                  {isUploadingFile ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>檔案上傳雲端中...</span>
+                    </>
+                  ) : isSavingDraft ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>寫入目錄中...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>
+                        {stagedFile
+                          ? '一鍵上傳並發布'
+                          : editorState.isNew
+                            ? '立即發布資源'
+                            : '儲存變更'}
+                      </span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
