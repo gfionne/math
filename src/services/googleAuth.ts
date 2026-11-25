@@ -6,13 +6,34 @@ import {
   onAuthStateChanged,
   User,
 } from 'firebase/auth';
-import {doc, getDoc, getFirestore} from 'firebase/firestore';
+import {
+  doc,
+  Firestore,
+  getDoc,
+  getFirestore,
+  initializeFirestore,
+} from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 export const app =
   getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+function createFirestoreDb(): Firestore {
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+      },
+      firebaseConfig.firestoreDatabaseId,
+    );
+  } catch {
+    return getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  }
+}
+
+export const db = createFirestoreDb();
 
 export const OWNER_ADMIN_EMAIL = 'g.fionne@gmail.com';
 export const SCHOOL_DOMAIN = 'hmes.tp.edu.tw';

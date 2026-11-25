@@ -112,14 +112,32 @@ function writeCachedSharedSiteConfig(config: SharedCloudSiteConfig): void {
 }
 
 async function testConnection() {
-  try {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return;
+  }
+  const probe = async () => {
     await getDocFromServer(doc(db, 'test', 'connection'));
+  };
+  try {
+    await probe();
   } catch (error) {
     if (
       error instanceof Error &&
       error.message.includes('the client is offline')
     ) {
-      console.error('Please check your Firebase configuration.');
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        await probe();
+      } catch (retryError) {
+        if (
+          retryError instanceof Error &&
+          retryError.message.includes('the client is offline')
+        ) {
+          console.warn(
+            'Firestore temporarily unreachable (offline/network timeout); retrying automatically when network stabilizes.',
+          );
+        }
+      }
     }
   }
 }
