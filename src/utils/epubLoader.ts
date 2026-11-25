@@ -7,11 +7,23 @@ export interface EpubChapter {
   title: string;
 }
 
+export type EbookReadingTheme = 'paper' | 'sepia' | 'dark';
+
+export interface EpubRenderOptions {
+  theme?: EbookReadingTheme;
+  highlightQuery?: string;
+}
+
 export interface LoadedEbookEpub {
   title: string;
   creator: string;
   chapters: EpubChapter[];
-  renderChapterSrcDoc: (chapterHref: string, fontSizePx: number) => Promise<string>;
+  getChapterPlainText: (chapterHref: string) => Promise<string>;
+  renderChapterSrcDoc: (
+    chapterHref: string,
+    fontSizePx: number,
+    options?: EpubRenderOptions,
+  ) => Promise<string>;
 }
 
 function stripFragmentAndQuery(raw: string): string {
@@ -239,14 +251,35 @@ export async function parseEpubBuffer(buffer: ArrayBuffer): Promise<LoadedEbookE
     return dataUrl;
   };
 
+  const chapterPlainTextCache = new Map<string, string>();
+
+  const getChapterPlainText = async (chapterHref: string): Promise<string> => {
+    const cached = chapterPlainTextCache.get(chapterHref);
+    if (cached !== undefined) return cached;
+    const entry = findZipEntry(zip, chapterHref);
+    if (!entry) return '';
+    const rawText = await entry.async('text');
+    const cleaned = rawText
+      .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, ' ');
+    const doc = parser.parseFromString(cleaned, 'text/html');
+    const text = (doc.body?.textContent || '').replace(/\s+/g, ' ').trim();
+    chapterPlainTextCache.set(chapterHref, text);
+    return text;
+  };
+
   const renderChapterSrcDoc = async (
     chapterHref: string,
     fontSizePx: number,
+    options: EpubRenderOptions = {},
   ): Promise<string> => {
     const entry = findZipEntry(zip, chapterHref);
     if (!entry) {
       return '<!doctype html><html><body><p>找不到此章節內容。</p></body></html>';
     }
+
+    const theme: EbookReadingTheme = options.theme || 'paper';
+    const highlightQuery = (options.highlightQuery || '').trim();
 
     const rawText = await entry.async('text');
     const chapterDir = getDirName(chapterHref);
@@ -338,7 +371,7 @@ export async function parseEpubBuffer(buffer: ArrayBuffer): Promise<LoadedEbookE
       }
     }
 
-    // Make external links open safely if clicked, or neutralize broken internal links
+    // Make external links open safely if clicked
     doc.querySelectorAll('a[href]').forEach((a) => {
       const href = a.getAttribute('href') || '';
       if (/^https?:\/\//i.test(href)) {
@@ -347,7 +380,82 @@ export async function parseEpubBuffer(buffer: ArrayBuffer): Promise<LoadedEbookE
       }
     });
 
+    // Safe DOM TextNode highlighting for keyword search
+    if (highlightQuery && doc.body) {
+      const lowerNeedle = highlightQuery.toLowerCase();
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      const textNodes: Text[] = [];
+      let currentNode = walker.nextNode();
+      while (currentNode) {
+        const parentTag = currentNode.parentElement?.tagName;
+        if (parentTag !== 'STYLE' && parentTag !== 'SCRIPT' && parentTag !== 'MARK') {
+          textNodes.push(currentNode as Text);
+        }
+        currentNode = walker.nextNode();
+      }
+      for (const node of textNodes) {
+        const val = node.nodeValue || '';
+        const lowerVal = val.toLowerCase();
+        if (!lowerVal.includes(lowerNeedle)) continue;
+        const frag = doc.createDocumentFragment();
+        let cursor = 0;
+        let matchIdx = lowerVal.indexOf(lowerNeedle, cursor);
+        while (matchIdx !== -1) {
+          if (matchIdx > cursor) {
+            frag.appendChild(doc.createTextNode(val.slice(cursor, matchIdx)));
+          }
+          const mark = doc.createElement('mark');
+          mark.className = 'pesmath-search-hit';
+          mark.textContent = val.slice(matchIdx, matchIdx + highlightQuery.length);
+          frag.appendChild(mark);
+          cursor = matchIdx + highlightQuery.length;
+          matchIdx = lowerVal.indexOf(lowerNeedle, cursor);
+        }
+        if (cursor < val.length) {
+          frag.appendChild(doc.createTextNode(val.slice(cursor)));
+        }
+        node.parentNode?.replaceChild(frag, node);
+      }
+    }
+
     const bodyHtml = doc.body?.innerHTML || escapeHtmlText(rawText);
+
+    const palette =
+      theme === 'dark'
+        ? {
+            scheme: 'dark',
+            bg: '#18191D',
+            text: '#E7E5E4',
+            heading: '#93C5FD',
+            border: '#3F3F46',
+            quoteText: '#D6D3D1',
+            codeBg: '#27272A',
+            markBg: '#FACC15',
+            markText: '#1C1917',
+          }
+        : theme === 'sepia'
+          ? {
+              scheme: 'light',
+              bg: '#FBF5E6',
+              text: '#3F3122',
+              heading: '#7C2D12',
+              border: '#E2D4B7',
+              quoteText: '#5C4934',
+              codeBg: '#F1E6CE',
+              markBg: '#FDE047',
+              markText: '#1C1917',
+            }
+          : {
+              scheme: 'light',
+              bg: '#FFFFFF',
+              text: '#1C1917',
+              heading: '#0C1D47',
+              border: '#E7E5E4',
+              quoteText: '#44403C',
+              codeBg: '#F5F2EB',
+              markBg: '#FEF08A',
+              markText: '#1C1917',
+            };
 
     return `<!doctype html>
 <html lang="zh-Hant">
@@ -356,12 +464,12 @@ export async function parseEpubBuffer(buffer: ArrayBuffer): Promise<LoadedEbookE
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
 ${cssBlocks.join('\n')}
-:root { color-scheme: light; }
+:root { color-scheme: ${palette.scheme}; }
 html, body {
   margin: 0;
   padding: 0;
-  background-color: #FFFFFF;
-  color: #1C1917;
+  background-color: ${palette.bg} !important;
+  color: ${palette.text} !important;
   font-family: "Noto Serif TC", "PingFang TC", "Microsoft JhengHei", Georgia, serif;
   font-size: ${fontSizePx}px;
   line-height: 1.85;
@@ -380,7 +488,7 @@ img, svg {
   margin: 1rem auto;
 }
 h1, h2, h3, h4 {
-  color: #0C1D47;
+  color: ${palette.heading} !important;
   line-height: 1.35;
   margin-top: 1.5em;
   margin-bottom: 0.6em;
@@ -393,12 +501,12 @@ table {
   font-size: 0.92em;
 }
 th, td {
-  border: 1px solid #E7E5E4;
+  border: 1px solid ${palette.border};
   padding: 6px 10px;
 }
 pre, code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: #F5F2EB;
+  background: ${palette.codeBg};
   border-radius: 4px;
 }
 pre {
@@ -408,9 +516,15 @@ pre {
 blockquote {
   margin: 1rem 0;
   padding: 0.5rem 1rem;
-  border-top: 1px solid #E7E5E4;
-  border-bottom: 1px solid #E7E5E4;
-  color: #44403C;
+  border-top: 1px solid ${palette.border};
+  border-bottom: 1px solid ${palette.border};
+  color: ${palette.quoteText};
+}
+mark.pesmath-search-hit {
+  background: ${palette.markBg};
+  color: ${palette.markText};
+  padding: 0 2px;
+  border-radius: 2px;
 }
 </style>
 </head>
@@ -422,6 +536,7 @@ blockquote {
     title: bookTitle,
     creator: bookCreator,
     chapters,
+    getChapterPlainText,
     renderChapterSrcDoc,
   };
 }

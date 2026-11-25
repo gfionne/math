@@ -4,9 +4,12 @@ import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   AlertCircle,
   ArrowLeft,
+  Bookmark,
   BookOpen,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Columns2,
   Download,
   ExternalLink,
@@ -15,19 +18,27 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  Moon,
   PanelLeft,
   QrCode,
   RefreshCw,
   RotateCcw,
+  Rows3,
+  Search,
   Square,
   StickyNote,
+  Sun,
   Type,
   X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
 import {TeachingResource} from '../types/journal';
-import {LoadedEbookEpub, parseEpubBuffer} from '../utils/epubLoader';
+import {
+  EbookReadingTheme,
+  LoadedEbookEpub,
+  parseEpubBuffer,
+} from '../utils/epubLoader';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -40,6 +51,8 @@ interface EbookViewerModalProps {
 }
 
 type ViewerMode = 'pdf' | 'epub' | 'markdown' | 'iframe' | 'notes-only';
+type PdfViewLayout = 'single' | 'spread' | 'scroll';
+type SidebarTab = 'toc' | 'thumbs' | 'bookmarks';
 
 interface ResolvedEbookSource {
   mode: ViewerMode;
@@ -48,6 +61,22 @@ interface ResolvedEbookSource {
   formatLabel: string;
   downloadUrl?: string;
   downloadExt?: string;
+}
+
+interface PdfOutlineNode {
+  id: string;
+  title: string;
+  pageNumber: number | null;
+  level: number;
+}
+
+interface SearchHitItem {
+  id: string;
+  targetType: 'pdf-page' | 'epub-chapter' | 'md-block' | 'notes';
+  pageOrIndex: number;
+  label: string;
+  snippet: string;
+  blockAnchorId?: string;
 }
 
 function extractDriveFileId(url: string): string | null {
@@ -234,9 +263,55 @@ function extractMarkdownHeadings(content: string): MarkdownHeadingItem[] {
   return headings;
 }
 
+function renderHighlightedSegment(
+  text: string,
+  highlightQuery?: string,
+): React.ReactNode {
+  const needle = (highlightQuery || '').trim();
+  if (!needle) return text;
+  const lowerText = text.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  if (!lowerText.includes(lowerNeedle)) return text;
+
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  let hitIdx = lowerText.indexOf(lowerNeedle, cursor);
+  let k = 0;
+  while (hitIdx !== -1) {
+    if (hitIdx > cursor) {
+      nodes.push(text.slice(cursor, hitIdx));
+    }
+    nodes.push(
+      <mark
+        key={`hl-${k++}`}
+        className="bg-amber-200 text-stone-950 px-0.5 rounded-xs"
+      >
+        {text.slice(hitIdx, hitIdx + needle.length)}
+      </mark>,
+    );
+    cursor = hitIdx + needle.length;
+    hitIdx = lowerText.indexOf(lowerNeedle, cursor);
+  }
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+  return <>{nodes}</>;
+}
+
+function buildSnippet(text: string, query: string, radius = 36): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const idx = clean.toLowerCase().indexOf(query.trim().toLowerCase());
+  if (idx === -1) return clean.slice(0, radius * 2);
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(clean.length, idx + query.length + radius);
+  return `${start > 0 ? '…' : ''}${clean.slice(start, end)}${end < clean.length ? '…' : ''}`;
+}
+
 function renderInlineMarkdown(
   text: string,
   baseUrl?: string,
+  highlightQuery?: string,
+  isDark = false,
 ): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   const regex =
@@ -247,7 +322,14 @@ function renderInlineMarkdown(
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
+      parts.push(
+        <React.Fragment key={`t-${keyCounter++}`}>
+          {renderHighlightedSegment(
+            text.slice(lastIndex, match.index),
+            highlightQuery,
+          )}
+        </React.Fragment>,
+      );
     }
     const token = match[0];
     if (token.startsWith('![')) {
@@ -277,9 +359,13 @@ function renderInlineMarkdown(
               href={safeHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#1E3A8A] underline underline-offset-2 hover:text-[#172554]"
+              className={`underline underline-offset-2 ${
+                isDark
+                  ? 'text-blue-300 hover:text-blue-200'
+                  : 'text-[#1E3A8A] hover:text-[#172554]'
+              }`}
             >
-              {linkMatch[1]}
+              {renderHighlightedSegment(linkMatch[1], highlightQuery)}
             </a>,
           );
         } else {
@@ -290,24 +376,28 @@ function renderInlineMarkdown(
       parts.push(
         <code
           key={`c-${keyCounter++}`}
-          className="px-1.5 py-0.5 mx-0.5 rounded bg-[#F7F4EE] border border-stone-200 font-mono-tabular text-[0.88em] text-[#1E3A8A]"
+          className={`px-1.5 py-0.5 mx-0.5 rounded border font-mono-tabular text-[0.88em] ${
+            isDark
+              ? 'bg-zinc-800 border-zinc-700 text-blue-300'
+              : 'bg-[#F7F4EE] border-stone-200 text-[#1E3A8A]'
+          }`}
         >
-          {token.slice(1, -1)}
+          {renderHighlightedSegment(token.slice(1, -1), highlightQuery)}
         </code>,
       );
     } else if (token.startsWith('**') && token.endsWith('**')) {
       parts.push(
         <strong
           key={`b-${keyCounter++}`}
-          className="font-semibold text-stone-950"
+          className={`font-semibold ${isDark ? 'text-white' : 'text-stone-950'}`}
         >
-          {token.slice(2, -2)}
+          {renderHighlightedSegment(token.slice(2, -2), highlightQuery)}
         </strong>,
       );
     } else if (token.startsWith('*') && token.endsWith('*')) {
       parts.push(
         <em key={`i-${keyCounter++}`} className="italic">
-          {token.slice(1, -1)}
+          {renderHighlightedSegment(token.slice(1, -1), highlightQuery)}
         </em>,
       );
     }
@@ -315,7 +405,11 @@ function renderInlineMarkdown(
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
+    parts.push(
+      <React.Fragment key={`t-${keyCounter++}`}>
+        {renderHighlightedSegment(text.slice(lastIndex), highlightQuery)}
+      </React.Fragment>,
+    );
   }
   return parts;
 }
@@ -324,28 +418,40 @@ const MarkdownBookView: React.FC<{
   content: string;
   baseUrl?: string;
   fontSizePx: number;
-}> = ({content, baseUrl, fontSizePx}) => {
+  theme: EbookReadingTheme;
+  highlightQuery?: string;
+}> = ({content, baseUrl, fontSizePx, theme, highlightQuery}) => {
+  const isDark = theme === 'dark';
   const lines = content.split(/\r?\n/);
   const blocks: React.ReactNode[] = [];
-  let listState: {ordered: boolean; items: string[]} | null = null;
-  let quoteLines: string[] = [];
-  let codeFence: {lang: string; lines: string[]} | null = null;
-  let tableRows: string[][] = [];
+  let listState: {ordered: boolean; items: Array<{text: string; lineIdx: number}>} | null = null;
+  let quoteLines: Array<{text: string; lineIdx: number}> = [];
+  let codeFence: {lang: string; lines: string[]; startLineIdx: number} | null = null;
+  let tableRows: {rows: string[][]; startLineIdx: number} | null = null;
   let keyIdx = 0;
   let headingCounter = 0;
+
+  const textBodyClass = isDark ? 'text-stone-200' : 'text-stone-800';
+  const borderClass = isDark ? 'border-zinc-700' : 'border-stone-200';
+  const headingClass = isDark ? 'text-stone-100' : 'text-stone-950';
+  const h3Class = isDark ? 'text-blue-300' : 'text-[#1E3A8A]';
 
   const flushList = () => {
     if (!listState) return;
     const Tag = listState.ordered ? 'ol' : 'ul';
+    const firstLine = listState.items[0]?.lineIdx ?? 0;
     blocks.push(
       <Tag
         key={`list-${keyIdx++}`}
-        className={`my-3.5 pl-6 space-y-1.5 text-stone-800 leading-relaxed ${
+        id={`md-line-${firstLine}`}
+        className={`my-3.5 pl-6 space-y-1.5 leading-relaxed scroll-mt-6 ${textBodyClass} ${
           listState.ordered ? 'list-decimal' : 'list-disc'
         }`}
       >
         {listState.items.map((item, idx) => (
-          <li key={idx}>{renderInlineMarkdown(item, baseUrl)}</li>
+          <li key={idx} id={`md-line-${item.lineIdx}`} className="scroll-mt-6">
+            {renderInlineMarkdown(item.text, baseUrl, highlightQuery, isDark)}
+          </li>
         ))}
       </Tag>,
     );
@@ -354,13 +460,21 @@ const MarkdownBookView: React.FC<{
 
   const flushQuote = () => {
     if (quoteLines.length === 0) return;
+    const firstLine = quoteLines[0].lineIdx;
     blocks.push(
       <blockquote
         key={`q-${keyIdx++}`}
-        className="my-4 py-3 px-4 border-y border-stone-200 bg-[#FBF9F5] text-stone-700 italic space-y-1.5"
+        id={`md-line-${firstLine}`}
+        className={`my-4 py-3 px-4 border-y italic space-y-1.5 scroll-mt-6 ${
+          isDark
+            ? 'border-zinc-700 bg-zinc-800/60 text-stone-300'
+            : 'border-stone-200 bg-[#FBF9F5] text-stone-700'
+        }`}
       >
         {quoteLines.map((q, idx) => (
-          <p key={idx}>{renderInlineMarkdown(q, baseUrl)}</p>
+          <p key={idx} id={`md-line-${q.lineIdx}`} className="scroll-mt-6">
+            {renderInlineMarkdown(q.text, baseUrl, highlightQuery, isDark)}
+          </p>
         ))}
       </blockquote>,
     );
@@ -368,38 +482,49 @@ const MarkdownBookView: React.FC<{
   };
 
   const flushTable = () => {
-    if (tableRows.length === 0) return;
-    const header = tableRows[0];
+    if (!tableRows || tableRows.rows.length === 0) return;
+    const header = tableRows.rows[0];
     const bodyStart =
-      tableRows.length > 1 &&
-      tableRows[1].every((cell) => /^:?-{2,}:?$/.test(cell.trim()))
+      tableRows.rows.length > 1 &&
+      tableRows.rows[1].every((cell) => /^:?-{2,}:?$/.test(cell.trim()))
         ? 2
         : 1;
-    const body = tableRows.slice(bodyStart);
+    const body = tableRows.rows.slice(bodyStart);
     blocks.push(
       <div
         key={`tbl-${keyIdx++}`}
-        className="my-4 overflow-x-auto border border-stone-200 rounded-lg"
+        id={`md-line-${tableRows.startLineIdx}`}
+        className={`my-4 overflow-x-auto border rounded-lg scroll-mt-6 ${borderClass}`}
       >
         <table className="w-full border-collapse text-sm font-mono-tabular">
-          <thead className="bg-[#F7F4EE]">
+          <thead className={isDark ? 'bg-zinc-800' : 'bg-[#F7F4EE]'}>
             <tr>
               {header.map((cell, idx) => (
                 <th
                   key={idx}
-                  className="text-left font-semibold text-stone-900 px-3 py-2 border-b border-stone-200"
+                  className={`text-left font-semibold px-3 py-2 border-b ${borderClass} ${headingClass}`}
                 >
-                  {renderInlineMarkdown(cell.trim(), baseUrl)}
+                  {renderInlineMarkdown(cell.trim(), baseUrl, highlightQuery, isDark)}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {body.map((row, rIdx) => (
-              <tr key={rIdx} className="border-b border-stone-100 last:border-0">
+              <tr
+                key={rIdx}
+                className={`border-b last:border-0 ${
+                  isDark ? 'border-zinc-800' : 'border-stone-100'
+                }`}
+              >
                 {header.map((_, cIdx) => (
-                  <td key={cIdx} className="px-3 py-2 text-stone-700">
-                    {renderInlineMarkdown((row[cIdx] || '').trim(), baseUrl)}
+                  <td key={cIdx} className={`px-3 py-2 ${textBodyClass}`}>
+                    {renderInlineMarkdown(
+                      (row[cIdx] || '').trim(),
+                      baseUrl,
+                      highlightQuery,
+                      isDark,
+                    )}
                   </td>
                 ))}
               </tr>
@@ -408,10 +533,11 @@ const MarkdownBookView: React.FC<{
         </table>
       </div>,
     );
-    tableRows = [];
+    tableRows = null;
   };
 
-  for (const rawLine of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const rawLine = lines[lineIdx];
     const trimmed = rawLine.trim();
 
     if (trimmed.startsWith('```')) {
@@ -422,14 +548,15 @@ const MarkdownBookView: React.FC<{
         blocks.push(
           <pre
             key={`code-${keyIdx++}`}
-            className="my-4 p-4 rounded-xl bg-stone-900 text-stone-100 overflow-x-auto text-[0.85em] font-mono-tabular leading-relaxed"
+            id={`md-line-${codeFence.startLineIdx}`}
+            className="my-4 p-4 rounded-xl bg-stone-900 text-stone-100 overflow-x-auto text-[0.85em] font-mono-tabular leading-relaxed scroll-mt-6"
           >
             <code>{codeFence.lines.join('\n')}</code>
           </pre>,
         );
         codeFence = null;
       } else {
-        codeFence = {lang: trimmed.slice(3).trim(), lines: []};
+        codeFence = {lang: trimmed.slice(3).trim(), lines: [], startLineIdx: lineIdx};
       }
       continue;
     }
@@ -450,7 +577,7 @@ const MarkdownBookView: React.FC<{
       flushList();
       flushQuote();
       flushTable();
-      blocks.push(<hr key={`hr-${keyIdx++}`} className="my-6 border-stone-200" />);
+      blocks.push(<hr key={`hr-${keyIdx++}`} className={`my-6 ${borderClass}`} />);
       continue;
     }
 
@@ -458,14 +585,15 @@ const MarkdownBookView: React.FC<{
       flushList();
       flushQuote();
       const cells = trimmed.slice(1, -1).split('|');
-      tableRows.push(cells);
+      if (!tableRows) tableRows = {rows: [], startLineIdx: lineIdx};
+      tableRows.rows.push(cells);
       continue;
     }
     flushTable();
 
     if (trimmed.startsWith('>')) {
       flushList();
-      quoteLines.push(trimmed.replace(/^>\s?/, ''));
+      quoteLines.push({text: trimmed.replace(/^>\s?/, ''), lineIdx});
       continue;
     }
     flushQuote();
@@ -481,9 +609,10 @@ const MarkdownBookView: React.FC<{
           <h1
             key={id}
             id={id}
-            className="font-editorial text-[1.6em] font-bold text-stone-950 mt-8 mb-4 pb-2 border-b border-stone-200 scroll-mt-6"
+            data-line={lineIdx}
+            className={`font-editorial text-[1.6em] font-bold mt-8 mb-4 pb-2 border-b scroll-mt-6 ${headingClass} ${borderClass}`}
           >
-            {renderInlineMarkdown(headingText, baseUrl)}
+            {renderInlineMarkdown(headingText, baseUrl, highlightQuery, isDark)}
           </h1>,
         );
       } else if (level === 2) {
@@ -491,9 +620,10 @@ const MarkdownBookView: React.FC<{
           <h2
             key={id}
             id={id}
-            className="font-editorial text-[1.3em] font-bold text-stone-950 mt-7 mb-3 pb-1.5 border-b border-stone-200 scroll-mt-6"
+            data-line={lineIdx}
+            className={`font-editorial text-[1.3em] font-bold mt-7 mb-3 pb-1.5 border-b scroll-mt-6 ${headingClass} ${borderClass}`}
           >
-            {renderInlineMarkdown(headingText, baseUrl)}
+            {renderInlineMarkdown(headingText, baseUrl, highlightQuery, isDark)}
           </h2>,
         );
       } else {
@@ -501,9 +631,10 @@ const MarkdownBookView: React.FC<{
           <h3
             key={id}
             id={id}
-            className="font-editorial text-[1.12em] font-bold text-[#1E3A8A] mt-5 mb-2 scroll-mt-6"
+            data-line={lineIdx}
+            className={`font-editorial text-[1.12em] font-bold mt-5 mb-2 scroll-mt-6 ${h3Class}`}
           >
-            {renderInlineMarkdown(headingText, baseUrl)}
+            {renderInlineMarkdown(headingText, baseUrl, highlightQuery, isDark)}
           </h3>,
         );
       }
@@ -514,7 +645,7 @@ const MarkdownBookView: React.FC<{
     if (ulMatch) {
       if (listState && listState.ordered) flushList();
       if (!listState) listState = {ordered: false, items: []};
-      listState.items.push(ulMatch[1]);
+      listState.items.push({text: ulMatch[1], lineIdx});
       continue;
     }
 
@@ -522,14 +653,18 @@ const MarkdownBookView: React.FC<{
     if (olMatch) {
       if (listState && !listState.ordered) flushList();
       if (!listState) listState = {ordered: true, items: []};
-      listState.items.push(olMatch[1]);
+      listState.items.push({text: olMatch[1], lineIdx});
       continue;
     }
 
     flushList();
     blocks.push(
-      <p key={`p-${keyIdx++}`} className="my-3 text-stone-800 leading-[1.85]">
-        {renderInlineMarkdown(trimmed, baseUrl)}
+      <p
+        key={`p-${keyIdx++}`}
+        id={`md-line-${lineIdx}`}
+        className={`my-3 leading-[1.85] scroll-mt-6 ${textBodyClass}`}
+      >
+        {renderInlineMarkdown(trimmed, baseUrl, highlightQuery, isDark)}
       </p>,
     );
   }
@@ -541,7 +676,8 @@ const MarkdownBookView: React.FC<{
     blocks.push(
       <pre
         key={`code-${keyIdx++}`}
-        className="my-4 p-4 rounded-xl bg-stone-900 text-stone-100 overflow-x-auto text-[0.85em] font-mono-tabular leading-relaxed"
+        id={`md-line-${codeFence.startLineIdx}`}
+        className="my-4 p-4 rounded-xl bg-stone-900 text-stone-100 overflow-x-auto text-[0.85em] font-mono-tabular leading-relaxed scroll-mt-6"
       >
         <code>{codeFence.lines.join('\n')}</code>
       </pre>,
@@ -561,6 +697,9 @@ interface PdfPageCanvasProps {
   targetWidth: number;
   targetHeight: number;
   zoomFactor: number;
+  theme?: EbookReadingTheme;
+  spineEdge?: 'none' | 'left-page' | 'right-page';
+  lazyVisibleOnly?: boolean;
 }
 
 const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
@@ -569,11 +708,37 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
   targetWidth,
   targetHeight,
   zoomFactor,
+  theme = 'paper',
+  spineEdge = 'none',
+  lazyVisibleOnly = false,
 }) => {
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [rendering, setRendering] = useState(true);
+  const [shouldRender, setShouldRender] = useState(!lazyVisibleOnly);
 
   useEffect(() => {
+    if (!lazyVisibleOnly) {
+      setShouldRender(true);
+      return;
+    }
+    const el = wrapperRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setShouldRender(true);
+          obs.disconnect();
+        }
+      },
+      {rootMargin: '420px 0px'},
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [lazyVisibleOnly]);
+
+  useEffect(() => {
+    if (!shouldRender) return;
     let cancelled = false;
     let renderTask: ReturnType<pdfjsLib.PDFPageProxy['render']> | null = null;
     setRendering(true);
@@ -632,11 +797,49 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         // ignore cancel failure
       }
     };
-  }, [pdfDoc, pageNumber, targetWidth, targetHeight, zoomFactor]);
+  }, [pdfDoc, pageNumber, targetWidth, targetHeight, zoomFactor, shouldRender]);
+
+  const filterStyle: React.CSSProperties =
+    theme === 'sepia'
+      ? {filter: 'sepia(0.18) brightness(0.98)'}
+      : theme === 'dark'
+        ? {filter: 'brightness(0.88) contrast(1.04)'}
+        : {};
+
+  const roundedClass =
+    spineEdge === 'left-page'
+      ? 'rounded-l-md rounded-r-none border-r-0'
+      : spineEdge === 'right-page'
+        ? 'rounded-r-md rounded-l-none border-l-0'
+        : 'rounded-lg';
 
   return (
-    <div className="relative bg-white border border-stone-200 rounded-lg shadow-md overflow-hidden flex items-center justify-center shrink-0">
-      <canvas ref={canvasRef} className="block" />
+    <div
+      ref={wrapperRef}
+      style={{
+        minHeight: lazyVisibleOnly && !shouldRender ? Math.min(targetHeight, 540) : undefined,
+        minWidth: lazyVisibleOnly && !shouldRender ? Math.min(targetWidth, 400) : undefined,
+      }}
+      className={`relative bg-white border overflow-hidden flex items-center justify-center shrink-0 ${roundedClass} ${
+        theme === 'dark'
+          ? 'border-zinc-700 shadow-2xl'
+          : 'border-stone-300 shadow-[0_8px_24px_rgba(28,25,23,0.12)]'
+      }`}
+    >
+      <canvas ref={canvasRef} style={filterStyle} className="block" />
+      {/* Book Spine Gutter Shadow for Facing Spread */}
+      {spineEdge === 'left-page' && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-7 bg-gradient-to-l from-black/15 via-black/5 to-transparent"
+        />
+      )}
+      {spineEdge === 'right-page' && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-0 w-7 bg-gradient-to-r from-black/15 via-black/5 to-transparent"
+        />
+      )}
       {rendering && (
         <div className="absolute inset-0 bg-white/75 flex items-center justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-[#1E3A8A]" />
@@ -645,6 +848,61 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
     </div>
   );
 };
+
+async function flattenPdfOutline(
+  pdfDoc: pdfjsLib.PDFDocumentProxy,
+): Promise<PdfOutlineNode[]> {
+  try {
+    const rawOutline = await pdfDoc.getOutline();
+    if (!rawOutline || rawOutline.length === 0) return [];
+    const results: PdfOutlineNode[] = [];
+    let counter = 0;
+
+    const resolvePage = async (dest: unknown): Promise<number | null> => {
+      try {
+        let destArr: unknown[] | null = null;
+        if (typeof dest === 'string') {
+          destArr = await pdfDoc.getDestination(dest);
+        } else if (Array.isArray(dest)) {
+          destArr = dest;
+        }
+        if (destArr && destArr[0]) {
+          const idx = await pdfDoc.getPageIndex(
+            destArr[0] as Parameters<pdfjsLib.PDFDocumentProxy['getPageIndex']>[0],
+          );
+          return idx + 1;
+        }
+      } catch {
+        // ignore unresolvable outline destination
+      }
+      return null;
+    };
+
+    const walk = async (
+      nodes: typeof rawOutline,
+      level: number,
+    ): Promise<void> => {
+      for (const node of nodes) {
+        if (results.length >= 120) break;
+        const pageNumber = node.dest ? await resolvePage(node.dest) : null;
+        results.push({
+          id: `outline-${counter++}`,
+          title: (node.title || '未命名章節').trim(),
+          pageNumber,
+          level,
+        });
+        if (node.items && node.items.length > 0 && level < 3) {
+          await walk(node.items, level + 1);
+        }
+      }
+    };
+
+    await walk(rawOutline, 0);
+    return results;
+  } catch {
+    return [];
+  }
+}
 
 export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   resource,
@@ -655,14 +913,31 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const touchStartRef = useRef<{x: number; y: number} | null>(null);
+  const pdfTextCacheRef = useRef<Map<number, string>>(new Map());
+  const epubTextCacheRef = useRef<Map<number, string>>(new Map());
 
   const source = useMemo(
     () => resolveEbookSource(resource?.resourceUrl),
     [resource?.resourceUrl],
   );
 
+  // Reading Theme & Layout states
+  const [readingTheme, setReadingTheme] = useState<EbookReadingTheme>('paper');
+  const [pdfLayout, setPdfLayout] = useState<PdfViewLayout>(() =>
+    typeof window !== 'undefined' && window.innerWidth >= 1024
+      ? 'spread'
+      : 'single',
+  );
+  const [flipState, setFlipState] = useState<{
+    dir: 'next' | 'prev' | 'none';
+    key: number;
+  }>({dir: 'none', key: 0});
+
   // PDF states
   const [pdfDoc, setPdfDoc] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+  const [pdfOutline, setPdfOutline] = useState<PdfOutlineNode[]>([]);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
@@ -670,8 +945,8 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const [pdfCorsFallback, setPdfCorsFallback] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [zoomFactor, setZoomFactor] = useState(1);
-  const [spreadMode, setSpreadMode] = useState<'single' | 'spread'>('single');
   const [showSidebar, setShowSidebar] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('thumbs');
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [stageSize, setStageSize] = useState({width: 960, height: 640});
 
@@ -695,7 +970,16 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const [iframeKey, setIframeKey] = useState(0);
   const [iframeLoading, setIframeLoading] = useState(true);
 
-  // Shared UI states
+  // Search & Bookmarks & Drawers
+  const [showSearchDrawer, setShowSearchDrawer] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchProgress, setSearchProgress] = useState('');
+  const [searchHits, setSearchHits] = useState<SearchHitItem[]>([]);
+  const [activeHitIdx, setActiveHitIdx] = useState(-1);
+
+  const [bookmarks, setBookmarks] = useState<number[]>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showNotesDrawer, setShowNotesDrawer] = useState(false);
 
@@ -707,6 +991,45 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     [activeMode, mdText],
   );
 
+  // Load saved bookmarks for this resource
+  useEffect(() => {
+    if (!resource?.id || typeof window === 'undefined') {
+      setBookmarks([]);
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(`pesmath_ebook_bookmarks_${resource.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          setBookmarks(
+            parsed.filter((n): n is number => typeof n === 'number' && n > 0),
+          );
+          return;
+        }
+      }
+    } catch {
+      // ignore localStorage read errors
+    }
+    setBookmarks([]);
+  }, [resource?.id]);
+
+  const persistBookmarks = useCallback(
+    (next: number[]) => {
+      setBookmarks(next);
+      if (!resource?.id || typeof window === 'undefined') return;
+      try {
+        window.localStorage.setItem(
+          `pesmath_ebook_bookmarks_${resource.id}`,
+          JSON.stringify(next),
+        );
+      } catch {
+        // ignore storage quota errors
+      }
+    },
+    [resource?.id],
+  );
+
   // Reset state when opening a new ebook resource
   useEffect(() => {
     if (!resource) return;
@@ -715,9 +1038,20 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     setZoomFactor(1);
     setPdfCorsFallback(false);
     setPdfError(null);
+    setPdfOutline([]);
     setThumbs({});
     setShowSidebar(false);
+    setSidebarTab('thumbs');
     setShowNotesDrawer(false);
+    setShowSearchDrawer(false);
+    setSearchQuery('');
+    setSubmittedSearchQuery('');
+    setSearchHits([]);
+    setActiveHitIdx(-1);
+    setSearchProgress('');
+    setFlipState({dir: 'none', key: 0});
+    pdfTextCacheRef.current.clear();
+    epubTextCacheRef.current.clear();
     setEpubBook(null);
     setEpubError(null);
     setEpubChapterIdx(0);
@@ -757,12 +1091,13 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     const observer = new ResizeObserver(updateSize);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [resource, showSidebar, showNotesDrawer, activeMode]);
+  }, [resource, showSidebar, showNotesDrawer, showSearchDrawer, activeMode]);
 
   // Load PDF document when in PDF mode
   useEffect(() => {
     if (!resource || source.mode !== 'pdf' || pdfCorsFallback) {
       setPdfDoc(null);
+      setPdfOutline([]);
       setNumPages(0);
       setPdfLoading(false);
       return;
@@ -772,12 +1107,14 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     setPdfLoading(true);
     setPdfError(null);
     setPdfDoc(null);
+    setPdfOutline([]);
     setNumPages(0);
+    pdfTextCacheRef.current.clear();
 
     const loadingTask = pdfjsLib.getDocument({url: source.embedUrl});
 
     void loadingTask.promise
-      .then((doc) => {
+      .then(async (doc) => {
         if (cancelled) {
           void doc.cleanup().catch(() => {});
           return;
@@ -785,6 +1122,16 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
         setPdfDoc(doc);
         setNumPages(doc.numPages);
         setPdfLoading(false);
+
+        const outline = await flattenPdfOutline(doc);
+        if (!cancelled) {
+          setPdfOutline(outline);
+          if (outline.length > 0) {
+            setSidebarTab('toc');
+          } else {
+            setSidebarTab('thumbs');
+          }
+        }
       })
       .catch((err) => {
         if (cancelled) return;
@@ -823,6 +1170,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     const controller = new AbortController();
     setEpubLoading(true);
     setEpubError(null);
+    epubTextCacheRef.current.clear();
 
     void (async () => {
       try {
@@ -837,6 +1185,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
         setEpubBook(parsed);
         setEpubChapterIdx(0);
         setShowSidebar(parsed.chapters.length > 1);
+        setSidebarTab('toc');
         setEpubLoading(false);
       } catch (err: unknown) {
         if (cancelled || (err as {name?: string})?.name === 'AbortError') return;
@@ -855,7 +1204,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     };
   }, [resource, source.mode, source.embedUrl]);
 
-  // Render active EPUB chapter HTML
+  // Render active EPUB chapter HTML with theme + search highlights
   useEffect(() => {
     if (!epubBook || activeMode !== 'epub') return;
     const chapter = epubBook.chapters[epubChapterIdx];
@@ -865,7 +1214,10 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     setEpubChapterRendering(true);
 
     void epubBook
-      .renderChapterSrcDoc(chapter.href, readerFontSize)
+      .renderChapterSrcDoc(chapter.href, readerFontSize, {
+        theme: readingTheme,
+        highlightQuery: submittedSearchQuery,
+      })
       .then((srcDoc) => {
         if (cancelled) return;
         setEpubChapterSrcDoc(srcDoc);
@@ -880,7 +1232,14 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [epubBook, activeMode, epubChapterIdx, readerFontSize]);
+  }, [
+    epubBook,
+    activeMode,
+    epubChapterIdx,
+    readerFontSize,
+    readingTheme,
+    submittedSearchQuery,
+  ]);
 
   // Load Markdown file when in Markdown mode
   useEffect(() => {
@@ -922,9 +1281,16 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     };
   }, [resource, source.mode, source.embedUrl]);
 
-  // Lazy-render thumbnails only when sidebar is opened in PDF mode
+  // Lazy-render thumbnails only when thumbs sidebar tab is open in PDF mode
   useEffect(() => {
-    if (!showSidebar || !pdfDoc || activeMode !== 'pdf') return;
+    if (
+      !showSidebar ||
+      sidebarTab !== 'thumbs' ||
+      !pdfDoc ||
+      activeMode !== 'pdf'
+    ) {
+      return;
+    }
     let cancelled = false;
 
     void (async () => {
@@ -954,9 +1320,9 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [showSidebar, pdfDoc, activeMode, thumbs]);
+  }, [showSidebar, sidebarTab, pdfDoc, activeMode, thumbs]);
 
-  // Track fullscreen state (native Fullscreen API + CSS expanded fallback for restricted iframes)
+  // Track fullscreen state (native Fullscreen API + CSS expanded fallback)
   useEffect(() => {
     if (!resource) return;
     const onFsChange = () => {
@@ -1000,15 +1366,32 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     }
   }, [isFullscreen]);
 
-  const stepAmount = spreadMode === 'spread' && stageSize.width >= 768 ? 2 : 1;
+  const canSpread =
+    activeMode === 'pdf' && stageSize.width >= 768 && numPages > 1;
+  const effectivePdfLayout: PdfViewLayout =
+    pdfLayout === 'spread' && !canSpread ? 'single' : pdfLayout;
+  const isSpreadActive = effectivePdfLayout === 'spread';
+  const stepAmount = isSpreadActive ? 2 : 1;
 
   const goToPage = useCallback(
     (target: number) => {
       if (numPages <= 0) return;
       const clamped = Math.max(1, Math.min(numPages, target));
+      if (effectivePdfLayout === 'scroll') {
+        setCurrentPage(clamped);
+        const targetEl = document.getElementById(`pdf-scroll-page-${clamped}`);
+        targetEl?.scrollIntoView({behavior: 'smooth', block: 'start'});
+        return;
+      }
+      if (clamped !== currentPage) {
+        setFlipState((prev) => ({
+          dir: clamped > currentPage ? 'next' : 'prev',
+          key: prev.key + 1,
+        }));
+      }
       setCurrentPage(clamped);
     },
-    [numPages],
+    [numPages, currentPage, effectivePdfLayout],
   );
 
   const goToEpubChapter = useCallback(
@@ -1018,15 +1401,180 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
         0,
         Math.min(epubBook.chapters.length - 1, targetIdx),
       );
+      if (clamped !== epubChapterIdx) {
+        setFlipState((prev) => ({
+          dir: clamped > epubChapterIdx ? 'next' : 'prev',
+          key: prev.key + 1,
+        }));
+      }
       setEpubChapterIdx(clamped);
     },
-    [epubBook],
+    [epubBook, epubChapterIdx],
   );
 
-  // Keyboard navigation for PDF pages & EPUB chapters
+  const toggleCurrentBookmark = useCallback(() => {
+    const unit =
+      activeMode === 'pdf'
+        ? currentPage
+        : activeMode === 'epub'
+          ? epubChapterIdx + 1
+          : 0;
+    if (unit <= 0) return;
+    const exists = bookmarks.includes(unit);
+    const next = exists
+      ? bookmarks.filter((b) => b !== unit)
+      : [...bookmarks, unit].sort((a, b) => a - b);
+    persistBookmarks(next);
+  }, [activeMode, currentPage, epubChapterIdx, bookmarks, persistBookmarks]);
+
+  const jumpToSearchHit = useCallback(
+    (hit: SearchHitItem, hitIndex: number) => {
+      setActiveHitIdx(hitIndex);
+      if (hit.targetType === 'pdf-page') {
+        goToPage(hit.pageOrIndex);
+      } else if (hit.targetType === 'epub-chapter') {
+        goToEpubChapter(hit.pageOrIndex);
+      } else if (hit.targetType === 'md-block' && hit.blockAnchorId) {
+        const el = document.getElementById(hit.blockAnchorId);
+        el?.scrollIntoView({behavior: 'smooth', block: 'center'});
+      } else if (hit.targetType === 'notes') {
+        setShowNotesDrawer(true);
+      }
+    },
+    [goToPage, goToEpubChapter],
+  );
+
+  const runBookSearch = useCallback(
+    async (rawQuery: string) => {
+      const q = rawQuery.trim();
+      setSubmittedSearchQuery(q);
+      setActiveHitIdx(-1);
+      if (!q) {
+        setSearchHits([]);
+        setSearchProgress('');
+        return;
+      }
+
+      const lowerQ = q.toLowerCase();
+      setIsSearching(true);
+      setSearchHits([]);
+
+      try {
+        const hits: SearchHitItem[] = [];
+
+        if (activeMode === 'pdf' && pdfDoc) {
+          for (let p = 1; p <= pdfDoc.numPages; p++) {
+            setSearchProgress(`正在搜尋第 ${p} / ${pdfDoc.numPages} 頁…`);
+            let pageText = pdfTextCacheRef.current.get(p);
+            if (pageText === undefined) {
+              const page = await pdfDoc.getPage(p);
+              const tc = await page.getTextContent();
+              pageText = tc.items
+                .map((item) => ('str' in item ? item.str : ''))
+                .join(' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+              pdfTextCacheRef.current.set(p, pageText);
+            }
+            if (pageText.toLowerCase().includes(lowerQ)) {
+              hits.push({
+                id: `pdf-hit-${p}`,
+                targetType: 'pdf-page',
+                pageOrIndex: p,
+                label: `第 ${p} 頁`,
+                snippet: buildSnippet(pageText, q),
+              });
+            }
+          }
+        } else if (activeMode === 'epub' && epubBook) {
+          for (let idx = 0; idx < epubBook.chapters.length; idx++) {
+            const chap = epubBook.chapters[idx];
+            setSearchProgress(
+              `正在搜尋第 ${idx + 1} / ${epubBook.chapters.length} 章…`,
+            );
+            let chapText = epubTextCacheRef.current.get(idx);
+            if (chapText === undefined) {
+              chapText = await epubBook.getChapterPlainText(chap.href);
+              epubTextCacheRef.current.set(idx, chapText);
+            }
+            if (chapText.toLowerCase().includes(lowerQ)) {
+              hits.push({
+                id: `epub-hit-${idx}`,
+                targetType: 'epub-chapter',
+                pageOrIndex: idx,
+                label: `${chap.index + 1}. ${chap.title}`,
+                snippet: buildSnippet(chapText, q),
+              });
+            }
+          }
+        } else if (activeMode === 'markdown' && mdText) {
+          const lines = mdText.split(/\r?\n/);
+          let currentHeading = '文件開頭';
+          let headingCounter = 0;
+          lines.forEach((rawLine, lineIdx) => {
+            const trimmed = rawLine.trim();
+            const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)$/);
+            if (headingMatch) {
+              currentHeading = headingMatch[2].replace(/\s*#+\s*$/, '').trim();
+              const headingAnchor = `md-heading-${headingCounter++}`;
+              if (trimmed.toLowerCase().includes(lowerQ)) {
+                hits.push({
+                  id: `md-hit-${lineIdx}`,
+                  targetType: 'md-block',
+                  pageOrIndex: lineIdx,
+                  label: currentHeading,
+                  snippet: buildSnippet(currentHeading, q),
+                  blockAnchorId: headingAnchor,
+                });
+              }
+              return;
+            }
+            if (trimmed && trimmed.toLowerCase().includes(lowerQ)) {
+              hits.push({
+                id: `md-hit-${lineIdx}`,
+                targetType: 'md-block',
+                pageOrIndex: lineIdx,
+                label: currentHeading,
+                snippet: buildSnippet(trimmed, q),
+                blockAnchorId: `md-line-${lineIdx}`,
+              });
+            }
+          });
+        }
+
+        if (resource?.content && resource.content.toLowerCase().includes(lowerQ)) {
+          hits.push({
+            id: 'notes-hit',
+            targetType: 'notes',
+            pageOrIndex: 0,
+            label: '教學導讀筆記',
+            snippet: buildSnippet(resource.content, q),
+          });
+        }
+
+        setSearchHits(hits);
+        setSearchProgress('');
+        if (hits.length > 0) {
+          jumpToSearchHit(hits[0], 0);
+        }
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [activeMode, pdfDoc, epubBook, mdText, resource?.content, jumpToSearchHit],
+  );
+
+  // Keyboard navigation + Ctrl/Cmd+F search shortcut
   useEffect(() => {
     if (!resource) return;
     const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        setShowSearchDrawer(true);
+        window.setTimeout(() => searchInputRef.current?.focus(), 40);
+        return;
+      }
+
       const target = e.target as HTMLElement | null;
       if (
         target?.tagName === 'INPUT' ||
@@ -1035,7 +1583,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
       ) {
         return;
       }
-      if (activeMode === 'pdf' && numPages > 0) {
+      if (activeMode === 'pdf' && numPages > 0 && effectivePdfLayout !== 'scroll') {
         if (e.key === 'ArrowRight' || e.key === 'PageDown') {
           e.preventDefault();
           goToPage(currentPage + stepAmount);
@@ -1058,6 +1606,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   }, [
     resource,
     activeMode,
+    effectivePdfLayout,
     numPages,
     currentPage,
     stepAmount,
@@ -1069,18 +1618,19 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
   if (!resource) return null;
 
-  const canSpread =
-    activeMode === 'pdf' && stageSize.width >= 768 && numPages > 1;
-  const isSpreadActive = canSpread && spreadMode === 'spread';
+  const isDark = readingTheme === 'dark';
   const secondPage =
     isSpreadActive && currentPage + 1 <= numPages ? currentPage + 1 : null;
 
-  const horizontalPadding = isSpreadActive ? 64 : 40;
+  const horizontalPadding = isSpreadActive ? 88 : 56;
   const verticalPadding = 40;
   const pageTargetWidth = isSpreadActive
-    ? Math.max(220, (stageSize.width - horizontalPadding - 16) / 2)
+    ? Math.max(220, (stageSize.width - horizontalPadding - 12) / 2)
     : Math.max(240, stageSize.width - horizontalPadding);
-  const pageTargetHeight = Math.max(280, stageSize.height - verticalPadding);
+  const pageTargetHeight =
+    effectivePdfLayout === 'scroll'
+      ? Math.max(360, stageSize.height - 24)
+      : Math.max(280, stageSize.height - verticalPadding);
 
   const handlePageInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1102,42 +1652,146 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     (activeMode === 'epub' && Boolean(epubBook && epubBook.chapters.length > 0)) ||
     (activeMode === 'markdown' && mdHeadings.length > 0);
 
+  const canBookmark =
+    (activeMode === 'pdf' && numPages > 0) ||
+    (activeMode === 'epub' && Boolean(epubBook && epubBook.chapters.length > 0));
+  const currentUnitNumber =
+    activeMode === 'pdf'
+      ? currentPage
+      : activeMode === 'epub'
+        ? epubChapterIdx + 1
+        : 0;
+  const isCurrentBookmarked =
+    canBookmark && bookmarks.includes(currentUnitNumber);
+
+  const canSearchContent =
+    (activeMode === 'pdf' && numPages > 0) ||
+    (activeMode === 'epub' && Boolean(epubBook)) ||
+    (activeMode === 'markdown' && Boolean(mdText)) ||
+    Boolean(resource.content);
+
+  const totalUnits =
+    activeMode === 'pdf'
+      ? numPages
+      : activeMode === 'epub' && epubBook
+        ? epubBook.chapters.length
+        : 0;
+  const progressPercent =
+    totalUnits > 0 ? Math.round((currentUnitNumber / totalUnits) * 100) : 0;
+
+  const isPrevDisabled =
+    activeMode === 'pdf' ? currentPage <= 1 : epubChapterIdx <= 0;
+  const isNextDisabled =
+    activeMode === 'pdf'
+      ? isSpreadActive
+        ? currentPage + 1 >= numPages
+        : currentPage >= numPages
+      : !epubBook || epubChapterIdx >= epubBook.chapters.length - 1;
+
+  const flipAnimationClass =
+    flipState.dir === 'next'
+      ? 'animate-book-flip-next'
+      : flipState.dir === 'prev'
+        ? 'animate-book-flip-prev'
+        : '';
+
+  const stageBgClass =
+    readingTheme === 'dark'
+      ? 'bg-[#141417]'
+      : readingTheme === 'sepia'
+        ? 'bg-[#EAE0CC]'
+        : 'bg-[#EFECE6]';
+
+  const chromeBgClass = isDark
+    ? 'bg-zinc-900 border-zinc-800 text-stone-100'
+    : readingTheme === 'sepia'
+      ? 'bg-[#FBF5E6] border-[#DFD2B5] text-stone-900'
+      : 'bg-white border-stone-200 text-stone-900';
+
+  const subtlePanelClass = isDark
+    ? 'bg-zinc-800 border-zinc-700 text-stone-200'
+    : 'bg-[#F7F4EE] border-stone-200 text-stone-700';
+
+  const btnNeutralClass = isDark
+    ? 'bg-zinc-800 border-zinc-700 text-stone-200 hover:bg-zinc-700'
+    : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50';
+
+  const handleStageTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleStageTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || e.changedTouches.length !== 1) return;
+    if (effectivePdfLayout === 'scroll' && activeMode === 'pdf') return;
+    const dx = e.changedTouches[0].clientX - start.x;
+    const dy = e.changedTouches[0].clientY - start.y;
+    if (Math.abs(dx) < 52 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+    if (dx < 0 && !isNextDisabled) {
+      if (activeMode === 'pdf') goToPage(currentPage + stepAmount);
+      else if (activeMode === 'epub') goToEpubChapter(epubChapterIdx + 1);
+    } else if (dx > 0 && !isPrevDisabled) {
+      if (activeMode === 'pdf') goToPage(currentPage - stepAmount);
+      else if (activeMode === 'epub') goToEpubChapter(epubChapterIdx - 1);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
-      className={`fixed inset-0 bg-[#FBF9F5] flex flex-col overflow-hidden ${
-        isFullscreen ? 'z-[80]' : 'z-50'
-      }`}
+      className={`fixed inset-0 flex flex-col overflow-hidden ${
+        isDark ? 'bg-zinc-950' : 'bg-[#FBF9F5]'
+      } ${isFullscreen ? 'z-[80]' : 'z-50'}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="ebook-viewer-title"
     >
       {/* Top Reader Control Bar */}
-      <header className="bg-white border-b border-stone-200 px-3 sm:px-5 py-2.5 shrink-0">
-        <div className="max-w-[1440px] mx-auto flex flex-wrap items-center justify-between gap-2.5">
+      <header className={`border-b px-3 sm:px-5 py-2 shrink-0 ${chromeBgClass}`}>
+        <div className="max-w-[1440px] mx-auto flex flex-wrap items-center justify-between gap-2">
           {/* Left: Back + Title + Clean Unboxed Metadata */}
           <div className="flex items-center gap-2.5 min-w-0">
             <button
               type="button"
               onClick={handleClose}
-              className="min-h-[40px] px-3 py-1.5 text-xs sm:text-sm font-medium text-stone-700 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 hover:text-stone-950 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className={`min-h-[38px] px-3 py-1.5 text-xs sm:text-sm font-medium border rounded-lg inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${subtlePanelClass}`}
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>返回資源列表</span>
+              <span className="hidden sm:inline">返回資源列表</span>
+              <span className="sm:hidden">返回</span>
             </button>
 
             <div className="min-w-0">
               <div className="flex items-center gap-2 min-w-0">
-                <BookOpen className="w-4 h-4 text-[#1E3A8A] shrink-0 hidden sm:block" />
+                <BookOpen
+                  className={`w-4 h-4 shrink-0 hidden sm:block ${
+                    isDark ? 'text-blue-400' : 'text-[#1E3A8A]'
+                  }`}
+                />
                 <h2
                   id="ebook-viewer-title"
-                  className="font-editorial text-sm sm:text-base font-bold text-stone-950 truncate max-w-[200px] sm:max-w-[360px] lg:max-w-[460px]"
+                  className={`font-editorial text-sm sm:text-base font-bold truncate max-w-[160px] sm:max-w-[280px] lg:max-w-[360px] ${
+                    isDark ? 'text-white' : 'text-stone-950'
+                  }`}
                 >
                   {resource.title}
                 </h2>
               </div>
-              <div className="hidden sm:flex items-center gap-1.5 text-xs text-stone-500">
-                <span className="text-[#1E3A8A] font-semibold">
+              <div
+                className={`hidden md:flex items-center gap-1.5 text-xs ${
+                  isDark ? 'text-stone-400' : 'text-stone-500'
+                }`}
+              >
+                <span
+                  className={`font-semibold ${
+                    isDark ? 'text-blue-400' : 'text-[#1E3A8A]'
+                  }`}
+                >
                   {source.formatLabel}
                 </span>
                 <span aria-hidden="true">·</span>
@@ -1161,8 +1815,8 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
           </div>
 
           {/* Center / Right Controls */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {/* TOC / Sidebar toggle (PDF thumbs, EPUB chapters, Markdown outline) */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* TOC / Sidebar toggle */}
             {showTocButton && (
               <button
                 type="button"
@@ -1170,101 +1824,111 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                 className={`min-h-[38px] px-2.5 py-1.5 text-xs font-medium rounded-lg border inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
                   showSidebar
                     ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                    : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                    : btnNeutralClass
                 }`}
-                title="開啟或關閉章節目錄"
+                title="開啟或關閉目錄 / 縮圖 / 書籤"
               >
                 {activeMode === 'pdf' ? (
                   <PanelLeft className="w-3.5 h-3.5 shrink-0" />
                 ) : (
                   <List className="w-3.5 h-3.5 shrink-0" />
                 )}
-                <span className="hidden md:inline">目錄</span>
+                <span className="hidden lg:inline">目錄</span>
               </button>
             )}
 
-            {/* PDF-specific lightweight reader controls */}
+            {/* Full-Text Search Button */}
+            {canSearchContent && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSearchDrawer((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      window.setTimeout(() => searchInputRef.current?.focus(), 40);
+                    }
+                    return next;
+                  });
+                }}
+                className={`min-h-[38px] px-2.5 py-1.5 text-xs font-medium rounded-lg border inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                  showSearchDrawer
+                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
+                    : btnNeutralClass
+                }`}
+                title="全文關鍵字查詢 (Ctrl+F)"
+              >
+                <Search className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">查詢</span>
+              </button>
+            )}
+
+            {/* PDF Reading Style (Single / Spread Book / Continuous Scroll) + Zoom */}
             {activeMode === 'pdf' && numPages > 0 && (
               <>
-                <div className="flex items-center gap-1 bg-[#F7F4EE] border border-stone-200 rounded-lg p-0.5">
+                <div
+                  className={`flex items-center gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
+                  role="group"
+                  aria-label="電子書展示樣式"
+                >
                   <button
                     type="button"
-                    disabled={currentPage <= 1}
-                    onClick={() => goToPage(currentPage - stepAmount)}
-                    aria-label="上一頁"
-                    className="min-h-[34px] min-w-[34px] px-2 rounded-md text-stone-700 hover:bg-white disabled:opacity-35 inline-flex items-center justify-center transition-colors"
+                    onClick={() => setPdfLayout('single')}
+                    className={`min-h-[32px] px-2 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                      effectivePdfLayout === 'single'
+                        ? isDark
+                          ? 'bg-zinc-950 text-blue-300 font-semibold'
+                          : 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                        : isDark
+                          ? 'text-stone-300 hover:text-white'
+                          : 'text-stone-600 hover:text-stone-950'
+                    }`}
+                    title="單頁翻頁閱讀"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <Square className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">單頁</span>
                   </button>
-
-                  <form
-                    onSubmit={handlePageInputSubmit}
-                    className="flex items-center gap-1 px-1 text-xs font-mono-tabular text-stone-700"
-                  >
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      aria-label="頁碼"
-                      value={pageInput}
-                      onChange={(e) => setPageInput(e.target.value)}
-                      onBlur={handlePageInputSubmit}
-                      className="w-9 text-center py-0.5 bg-white border border-stone-200 rounded text-xs font-semibold text-stone-950 focus:outline-none focus:ring-1 focus:ring-[#1E3A8A]"
-                    />
-                    <span className="text-stone-400">/</span>
-                    <span>{numPages}</span>
-                  </form>
-
+                  {canSpread && (
+                    <button
+                      type="button"
+                      onClick={() => setPdfLayout('spread')}
+                      className={`min-h-[32px] px-2 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                        effectivePdfLayout === 'spread'
+                          ? isDark
+                            ? 'bg-zinc-950 text-blue-300 font-semibold'
+                            : 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                          : isDark
+                            ? 'text-stone-300 hover:text-white'
+                            : 'text-stone-600 hover:text-stone-950'
+                      }`}
+                      title="雙頁書本翻頁模式"
+                    >
+                      <Columns2 className="w-3.5 h-3.5" />
+                      <span className="hidden md:inline">雙頁</span>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    disabled={
-                      isSpreadActive
-                        ? currentPage + 1 >= numPages
-                        : currentPage >= numPages
-                    }
-                    onClick={() => goToPage(currentPage + stepAmount)}
-                    aria-label="下一頁"
-                    className="min-h-[34px] min-w-[34px] px-2 rounded-md text-stone-700 hover:bg-white disabled:opacity-35 inline-flex items-center justify-center transition-colors"
+                    onClick={() => setPdfLayout('scroll')}
+                    className={`min-h-[32px] px-2 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                      effectivePdfLayout === 'scroll'
+                        ? isDark
+                          ? 'bg-zinc-950 text-blue-300 font-semibold'
+                          : 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                        : isDark
+                          ? 'text-stone-300 hover:text-white'
+                          : 'text-stone-600 hover:text-stone-950'
+                    }`}
+                    title="連續直向捲動閱讀"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <Rows3 className="w-3.5 h-3.5" />
+                    <span className="hidden md:inline">捲動</span>
                   </button>
                 </div>
 
-                {canSpread && (
-                  <div
-                    className="hidden md:flex items-center gap-0.5 p-0.5 bg-[#F7F4EE] border border-stone-200 rounded-lg"
-                    role="group"
-                    aria-label="閱讀排版模式"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSpreadMode('single')}
-                      className={`min-h-[34px] px-2.5 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
-                        spreadMode === 'single'
-                          ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                          : 'text-stone-600 hover:text-stone-950'
-                      }`}
-                      title="單頁檢視"
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                      <span>單頁</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSpreadMode('spread')}
-                      className={`min-h-[34px] px-2.5 py-1 text-xs font-medium rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
-                        spreadMode === 'spread'
-                          ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                          : 'text-stone-600 hover:text-stone-950'
-                      }`}
-                      title="雙頁跨頁閱讀"
-                    >
-                      <Columns2 className="w-3.5 h-3.5" />
-                      <span>雙頁</span>
-                    </button>
-                  </div>
-                )}
-
-                <div className="hidden sm:flex items-center gap-0.5 p-0.5 bg-[#F7F4EE] border border-stone-200 rounded-lg">
+                {/* Zoom controls */}
+                <div
+                  className={`hidden sm:flex items-center gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
+                >
                   <button
                     type="button"
                     disabled={zoomFactor <= 0.75}
@@ -1274,7 +1938,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                       )
                     }
                     aria-label="縮小"
-                    className="min-h-[34px] min-w-[34px] rounded-md text-stone-700 hover:bg-white disabled:opacity-35 inline-flex items-center justify-center"
+                    className="min-h-[32px] min-w-[32px] rounded-md hover:bg-black/5 disabled:opacity-35 inline-flex items-center justify-center"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
                   </button>
@@ -1282,7 +1946,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     type="button"
                     onClick={() => setZoomFactor(1)}
                     title="重設為自動適應視窗大小"
-                    className="min-h-[34px] px-2 text-xs font-mono-tabular font-medium text-stone-700 hover:bg-white rounded-md whitespace-nowrap"
+                    className="min-h-[32px] px-2 text-xs font-mono-tabular font-medium hover:bg-black/5 rounded-md whitespace-nowrap"
                   >
                     {Math.round(zoomFactor * 100)}%
                   </button>
@@ -1295,7 +1959,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                       )
                     }
                     aria-label="放大"
-                    className="min-h-[34px] min-w-[34px] rounded-md text-stone-700 hover:bg-white disabled:opacity-35 inline-flex items-center justify-center"
+                    className="min-h-[32px] min-w-[32px] rounded-md hover:bg-black/5 disabled:opacity-35 inline-flex items-center justify-center"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
                   </button>
@@ -1303,44 +1967,15 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
               </>
             )}
 
-            {/* EPUB chapter navigation */}
-            {activeMode === 'epub' && epubBook && (
-              <div className="flex items-center gap-1 bg-[#F7F4EE] border border-stone-200 rounded-lg p-0.5">
-                <button
-                  type="button"
-                  disabled={epubChapterIdx <= 0}
-                  onClick={() => goToEpubChapter(epubChapterIdx - 1)}
-                  aria-label="上一章"
-                  className="min-h-[34px] px-2 rounded-md text-xs font-medium text-stone-700 hover:bg-white disabled:opacity-35 inline-flex items-center gap-1"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  <span className="hidden sm:inline">上一章</span>
-                </button>
-                <span className="px-2 text-xs font-mono-tabular text-stone-700 whitespace-nowrap">
-                  {epubChapterIdx + 1} / {epubBook.chapters.length}
-                </span>
-                <button
-                  type="button"
-                  disabled={epubChapterIdx >= epubBook.chapters.length - 1}
-                  onClick={() => goToEpubChapter(epubChapterIdx + 1)}
-                  aria-label="下一章"
-                  className="min-h-[34px] px-2 rounded-md text-xs font-medium text-stone-700 hover:bg-white disabled:opacity-35 inline-flex items-center gap-1"
-                >
-                  <span className="hidden sm:inline">下一章</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
             {/* Font size selector for EPUB and Markdown books */}
             {((activeMode === 'epub' && epubBook) ||
               (activeMode === 'markdown' && mdText)) && (
               <div
-                className="hidden sm:flex items-center gap-0.5 p-0.5 bg-[#F7F4EE] border border-stone-200 rounded-lg"
+                className={`hidden sm:flex items-center gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
                 role="group"
                 aria-label="閱讀字級調整"
               >
-                <span className="px-1.5 text-stone-400">
+                <span className="px-1.5 opacity-60">
                   <Type className="w-3.5 h-3.5" />
                 </span>
                 {(
@@ -1356,14 +1991,90 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     onClick={() => setReaderFontSize(opt.size)}
                     className={`min-h-[32px] px-2 text-xs rounded-md transition-colors ${
                       readerFontSize === opt.size
-                        ? 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
-                        : 'text-stone-600 hover:text-stone-950'
+                        ? isDark
+                          ? 'bg-zinc-950 text-blue-300 font-semibold'
+                          : 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                        : ''
                     }`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
+            )}
+
+            {/* Reading Theme Switcher (Paper / Sepia / Night) */}
+            {activeMode !== 'notes-only' && (
+              <div
+                className={`flex items-center gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
+                role="group"
+                aria-label="閱讀色調主題"
+              >
+                <button
+                  type="button"
+                  onClick={() => setReadingTheme('paper')}
+                  title="米白紙本樣式"
+                  aria-label="米白紙本樣式"
+                  className={`min-h-[32px] px-2 py-1 text-xs rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    readingTheme === 'paper'
+                      ? isDark
+                        ? 'bg-zinc-950 text-blue-300 font-semibold'
+                        : 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                      : ''
+                  }`}
+                >
+                  <Sun className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">紙本</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReadingTheme('sepia')}
+                  title="暖黃護眼樣式"
+                  aria-label="暖黃護眼樣式"
+                  className={`min-h-[32px] px-2 py-1 text-xs rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    readingTheme === 'sepia'
+                      ? 'bg-[#FBF5E6] text-[#7C2D12] font-semibold shadow-2xs'
+                      : ''
+                  }`}
+                >
+                  <span className="w-3 h-3 rounded-full bg-[#E6D3A7] border border-amber-700/40 shrink-0" />
+                  <span className="hidden xl:inline">護眼</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReadingTheme('dark')}
+                  title="夜間深色樣式"
+                  aria-label="夜間深色樣式"
+                  className={`min-h-[32px] px-2 py-1 text-xs rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    readingTheme === 'dark'
+                      ? 'bg-zinc-950 text-blue-300 font-semibold shadow-2xs'
+                      : ''
+                  }`}
+                >
+                  <Moon className="w-3.5 h-3.5" />
+                  <span className="hidden xl:inline">夜間</span>
+                </button>
+              </div>
+            )}
+
+            {/* Bookmark Toggle */}
+            {canBookmark && (
+              <button
+                type="button"
+                onClick={toggleCurrentBookmark}
+                className={`min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium rounded-lg border inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap ${
+                  isCurrentBookmarked
+                    ? 'bg-amber-600 text-white border-amber-600'
+                    : btnNeutralClass
+                }`}
+                title={isCurrentBookmarked ? '移除此頁書籤' : '將目前頁面加入書籤'}
+                aria-label={isCurrentBookmarked ? '移除書籤' : '加入書籤'}
+              >
+                <Bookmark
+                  className="w-3.5 h-3.5 shrink-0"
+                  fill={isCurrentBookmarked ? 'currentColor' : 'none'}
+                />
+              </button>
             )}
 
             {/* HTML5 / iframe reload button */}
@@ -1374,15 +2085,15 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   setIframeLoading(true);
                   setIframeKey((k) => k + 1);
                 }}
-                className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                className={`min-h-[38px] px-2.5 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap ${btnNeutralClass}`}
                 title="重新載入電子書頁面"
               >
                 <RotateCcw className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden sm:inline">重載</span>
+                <span className="hidden lg:inline">重載</span>
               </button>
             )}
 
-            {/* Teaching Notes Toggle when markdown notes exist */}
+            {/* Teaching Notes Toggle */}
             {resource.content && activeMode !== 'notes-only' && (
               <button
                 type="button"
@@ -1390,11 +2101,11 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                 className={`min-h-[38px] px-2.5 py-1.5 text-xs font-medium rounded-lg border inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
                   showNotesDrawer
                     ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                    : 'bg-white text-stone-700 border-stone-200 hover:bg-stone-50'
+                    : btnNeutralClass
                 }`}
               >
                 <StickyNote className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden md:inline">教學導讀</span>
+                <span className="hidden xl:inline">教學導讀</span>
               </button>
             )}
 
@@ -1405,7 +2116,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
               className={`inline-flex min-h-[38px] px-2.5 py-1.5 text-xs font-medium rounded-lg border items-center gap-1.5 whitespace-nowrap transition-colors ${
                 isFullscreen
                   ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                  : 'text-stone-700 bg-white border-stone-200 hover:bg-stone-50'
+                  : btnNeutralClass
               }`}
               title={isFullscreen ? '退出全螢幕' : '全螢幕閱讀'}
               aria-pressed={isFullscreen}
@@ -1415,8 +2126,8 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
               ) : (
                 <Maximize2 className="w-3.5 h-3.5 shrink-0" />
               )}
-              <span className="hidden sm:inline">
-                {isFullscreen ? '退出全螢幕' : '全螢幕'}
+              <span className="hidden xl:inline">
+                {isFullscreen ? '退出' : '全螢幕'}
               </span>
             </button>
 
@@ -1427,7 +2138,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                 onClick={() =>
                   onOpenShareQr(source.rawUrl || hubShareUrl, resource.title)
                 }
-                className="min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 inline-flex items-center justify-center"
+                className={`min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center justify-center ${btnNeutralClass}`}
                 title="分享資源 QR Code"
                 aria-label="分享資源 QR Code"
               >
@@ -1435,7 +2146,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
               </button>
             )}
 
-            {/* Direct Download button for PDF / Drive / EPUB / MD */}
+            {/* Direct Download button */}
             {source.downloadUrl && (
               <a
                 href={source.downloadUrl}
@@ -1446,32 +2157,36 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     ? `${resource.title}.${source.downloadExt}`
                     : undefined
                 }
-                className="min-h-[38px] px-2.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#1E3A8A]/8 border border-[#1E3A8A]/25 rounded-lg hover:bg-[#1E3A8A]/15 inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                className="min-h-[38px] px-2.5 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
                 title={`下載原檔 (.${source.downloadExt || 'file'})`}
               >
                 <Download className="w-3.5 h-3.5 shrink-0" />
-                <span>下載</span>
+                <span className="hidden sm:inline">下載</span>
               </a>
             )}
 
-            {/* External Fallback Escape Hatch when iframe or non-downloadable link */}
+            {/* External Fallback */}
             {source.rawUrl && (!source.downloadUrl || activeMode === 'iframe') && (
               <a
                 href={source.rawUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                className={`min-h-[38px] px-2.5 py-1.5 text-xs font-medium border rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap ${btnNeutralClass}`}
                 title="於新分頁開啟原始頁面"
               >
                 <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                <span className="hidden md:inline">另開原頁</span>
+                <span className="hidden lg:inline">另開</span>
               </a>
             )}
 
             <button
               type="button"
               onClick={handleClose}
-              className="min-h-[38px] min-w-[38px] p-1.5 text-stone-500 hover:text-stone-900 hover:bg-stone-100 rounded-lg inline-flex items-center justify-center"
+              className={`min-h-[38px] min-w-[38px] p-1.5 rounded-lg inline-flex items-center justify-center ${
+                isDark
+                  ? 'text-stone-400 hover:text-white hover:bg-zinc-800'
+                  : 'text-stone-500 hover:text-stone-900 hover:bg-stone-100'
+              }`}
               aria-label="關閉電子書檢視器"
             >
               <X className="w-5 h-5" />
@@ -1482,130 +2197,347 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
       {/* Main Reader Body */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
-        {/* Sidebar: PDF Thumbnails */}
-        {activeMode === 'pdf' && showSidebar && numPages > 0 && (
+        {/* Left Sidebar: Outline / Thumbnails / Bookmarks */}
+        {showSidebar && showTocButton && (
           <aside
-            aria-label="電子書頁面縮圖"
-            className="w-44 sm:w-52 shrink-0 bg-white border-r border-stone-200 p-3 overflow-y-auto space-y-2.5"
+            aria-label="電子書導覽側欄"
+            className={`w-56 sm:w-64 shrink-0 border-r flex flex-col overflow-hidden ${chromeBgClass}`}
           >
-            {Array.from({length: numPages}, (_, i) => i + 1).map((pageNum) => {
-              const isSelected =
-                pageNum === currentPage ||
-                (secondPage !== null && pageNum === secondPage);
-              const thumb = thumbs[pageNum];
-              return (
-                <button
-                  key={pageNum}
-                  type="button"
-                  onClick={() => goToPage(pageNum)}
-                  className={`w-full text-left p-1.5 rounded-lg border transition-colors space-y-1.5 ${
-                    isSelected
-                      ? 'bg-[#1E3A8A]/8 border-[#1E3A8A]'
-                      : 'bg-[#FBF9F5] border-stone-200 hover:border-stone-300'
-                  }`}
-                >
-                  <div className="aspect-[3/4] w-full rounded bg-stone-100 overflow-hidden flex items-center justify-center border border-stone-200/70">
-                    {thumb ? (
-                      <img
-                        src={thumb}
-                        alt={`第 ${pageNum} 頁縮圖`}
-                        className="w-full h-full object-contain bg-white"
-                      />
-                    ) : (
-                      <FileText className="w-5 h-5 text-stone-300" />
-                    )}
-                  </div>
-                  <div
-                    className={`text-xs font-mono-tabular text-center ${
-                      isSelected
-                        ? 'text-[#1E3A8A] font-bold'
-                        : 'text-stone-500'
-                    }`}
-                  >
-                    第 {pageNum} 頁
-                  </div>
-                </button>
-              );
-            })}
-          </aside>
-        )}
-
-        {/* Sidebar: EPUB Chapters */}
-        {activeMode === 'epub' && showSidebar && epubBook && (
-          <aside
-            aria-label="EPUB 章節目錄"
-            className="w-56 sm:w-64 shrink-0 bg-white border-r border-stone-200 flex flex-col overflow-hidden"
-          >
-            <div className="px-4 py-3 border-b border-stone-100 shrink-0">
-              <div className="text-xs font-semibold text-stone-900 truncate">
-                {epubBook.title}
-              </div>
-              {epubBook.creator && (
-                <div className="text-[11px] text-stone-500 truncate mt-0.5">
-                  {epubBook.creator}
-                </div>
-              )}
-            </div>
-            <nav className="flex-1 overflow-y-auto p-2 space-y-1">
-              {epubBook.chapters.map((chap) => {
-                const isActive = chap.index === epubChapterIdx;
-                return (
-                  <button
-                    key={`${chap.id}-${chap.index}`}
-                    type="button"
-                    onClick={() => goToEpubChapter(chap.index)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-xs leading-snug transition-colors ${
-                      isActive
-                        ? 'bg-[#1E3A8A]/10 text-[#1E3A8A] font-semibold'
-                        : 'text-stone-700 hover:bg-[#F7F4EE]'
-                    }`}
-                  >
-                    <span className="font-mono-tabular text-[11px] text-stone-400 mr-1.5">
-                      {String(chap.index + 1).padStart(2, '0')}
-                    </span>
-                    <span>{chap.title}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </aside>
-        )}
-
-        {/* Sidebar: Markdown Headings Outline */}
-        {activeMode === 'markdown' && showSidebar && mdHeadings.length > 0 && (
-          <aside
-            aria-label="Markdown 章節大綱"
-            className="w-56 sm:w-64 shrink-0 bg-white border-r border-stone-200 p-3 overflow-y-auto space-y-1"
-          >
-            <div className="px-2 pb-2 mb-1 border-b border-stone-100 text-xs font-semibold text-stone-500">
-              章節導覽
-            </div>
-            {mdHeadings.map((h) => (
+            {/* Sidebar Tab Switcher */}
+            <div
+              className={`p-2 border-b flex items-center gap-1 shrink-0 ${
+                isDark ? 'border-zinc-800' : 'border-stone-200'
+              }`}
+            >
               <button
-                key={h.id}
                 type="button"
-                onClick={() => {
-                  const targetEl = document.getElementById(h.id);
-                  targetEl?.scrollIntoView({behavior: 'smooth', block: 'start'});
-                }}
-                className={`w-full text-left py-1.5 pr-2 rounded-md text-xs text-stone-700 hover:bg-[#F7F4EE] hover:text-[#1E3A8A] transition-colors line-clamp-2 ${
-                  h.level === 1
-                    ? 'pl-2 font-semibold'
-                    : h.level === 2
-                      ? 'pl-4'
-                      : 'pl-6 text-stone-500'
+                onClick={() => setSidebarTab('toc')}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  sidebarTab === 'toc'
+                    ? 'bg-[#1E3A8A] text-white'
+                    : isDark
+                      ? 'text-stone-300 hover:bg-zinc-800'
+                      : 'text-stone-600 hover:bg-[#F7F4EE]'
                 }`}
               >
-                {h.text}
+                {activeMode === 'pdf' ? '目錄' : activeMode === 'epub' ? '章節' : '大綱'}
               </button>
-            ))}
+              {activeMode === 'pdf' && (
+                <button
+                  type="button"
+                  onClick={() => setSidebarTab('thumbs')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    sidebarTab === 'thumbs'
+                      ? 'bg-[#1E3A8A] text-white'
+                      : isDark
+                        ? 'text-stone-300 hover:bg-zinc-800'
+                        : 'text-stone-600 hover:bg-[#F7F4EE]'
+                  }`}
+                >
+                  縮圖
+                </button>
+              )}
+              {canBookmark && (
+                <button
+                  type="button"
+                  onClick={() => setSidebarTab('bookmarks')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    sidebarTab === 'bookmarks'
+                      ? 'bg-[#1E3A8A] text-white'
+                      : isDark
+                        ? 'text-stone-300 hover:bg-zinc-800'
+                        : 'text-stone-600 hover:bg-[#F7F4EE]'
+                  }`}
+                >
+                  書籤 ({bookmarks.length})
+                </button>
+              )}
+            </div>
+
+            {/* Sidebar Tab Body */}
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
+              {/* PDF: Outline TOC */}
+              {activeMode === 'pdf' && sidebarTab === 'toc' && (
+                <>
+                  {pdfOutline.length > 0 ? (
+                    pdfOutline.map((item) => {
+                      const isActive =
+                        item.pageNumber !== null &&
+                        (item.pageNumber === currentPage ||
+                          item.pageNumber === secondPage);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          disabled={item.pageNumber === null}
+                          onClick={() => {
+                            if (item.pageNumber !== null) {
+                              goToPage(item.pageNumber);
+                            }
+                          }}
+                          style={{paddingLeft: `${8 + item.level * 12}px`}}
+                          className={`w-full text-left py-2 pr-2.5 rounded-lg text-xs leading-snug flex items-center justify-between gap-2 transition-colors ${
+                            isActive
+                              ? isDark
+                                ? 'bg-blue-500/20 text-blue-300 font-semibold'
+                                : 'bg-[#1E3A8A]/12 text-[#1E3A8A] font-semibold'
+                              : isDark
+                                ? 'text-stone-200 hover:bg-zinc-800'
+                                : 'text-stone-700 hover:bg-[#F7F4EE]'
+                          }`}
+                        >
+                          <span className="line-clamp-2">{item.title}</span>
+                          {item.pageNumber !== null && (
+                            <span className="font-mono-tabular text-[11px] opacity-60 shrink-0">
+                              P.{item.pageNumber}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="py-6 px-3 text-center space-y-3">
+                      <p
+                        className={`text-xs leading-relaxed ${
+                          isDark ? 'text-stone-400' : 'text-stone-500'
+                        }`}
+                      >
+                        此 PDF 未內建書籤大綱，可直接瀏覽頁面縮圖或使用頁碼跳轉。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSidebarTab('thumbs')}
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
+                      >
+                        切換至頁面縮圖
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* PDF: Page Thumbnails */}
+              {activeMode === 'pdf' && sidebarTab === 'thumbs' && (
+                <div className="space-y-2.5">
+                  {Array.from({length: numPages}, (_, i) => i + 1).map(
+                    (pageNum) => {
+                      const isSelected =
+                        pageNum === currentPage ||
+                        (secondPage !== null && pageNum === secondPage);
+                      const isMarked = bookmarks.includes(pageNum);
+                      const thumb = thumbs[pageNum];
+                      return (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => goToPage(pageNum)}
+                          className={`w-full text-left p-1.5 rounded-lg border transition-colors space-y-1.5 relative ${
+                            isSelected
+                              ? 'bg-[#1E3A8A]/10 border-[#1E3A8A]'
+                              : isDark
+                                ? 'bg-zinc-800/70 border-zinc-700 hover:border-zinc-500'
+                                : 'bg-[#FBF9F5] border-stone-200 hover:border-stone-300'
+                          }`}
+                        >
+                          {isMarked && (
+                            <span
+                              title="已加書籤"
+                              className="absolute top-2.5 right-2.5 text-amber-600"
+                            >
+                              <Bookmark className="w-3.5 h-3.5" fill="currentColor" />
+                            </span>
+                          )}
+                          <div className="aspect-[3/4] w-full rounded bg-stone-100 overflow-hidden flex items-center justify-center border border-stone-200/70">
+                            {thumb ? (
+                              <img
+                                src={thumb}
+                                alt={`第 ${pageNum} 頁縮圖`}
+                                className="w-full h-full object-contain bg-white"
+                              />
+                            ) : (
+                              <FileText className="w-5 h-5 text-stone-300" />
+                            )}
+                          </div>
+                          <div
+                            className={`text-xs font-mono-tabular text-center ${
+                              isSelected
+                                ? isDark
+                                  ? 'text-blue-300 font-bold'
+                                  : 'text-[#1E3A8A] font-bold'
+                                : isDark
+                                  ? 'text-stone-400'
+                                  : 'text-stone-500'
+                            }`}
+                          >
+                            第 {pageNum} 頁
+                          </div>
+                        </button>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+
+              {/* EPUB: Chapters */}
+              {activeMode === 'epub' && epubBook && sidebarTab === 'toc' && (
+                <>
+                  <div
+                    className={`px-2 pb-2 mb-1 border-b ${
+                      isDark ? 'border-zinc-800' : 'border-stone-100'
+                    }`}
+                  >
+                    <div className="text-xs font-semibold truncate">
+                      {epubBook.title}
+                    </div>
+                    {epubBook.creator && (
+                      <div className="text-[11px] opacity-65 truncate mt-0.5">
+                        {epubBook.creator}
+                      </div>
+                    )}
+                  </div>
+                  {epubBook.chapters.map((chap) => {
+                    const isActive = chap.index === epubChapterIdx;
+                    const isMarked = bookmarks.includes(chap.index + 1);
+                    return (
+                      <button
+                        key={`${chap.id}-${chap.index}`}
+                        type="button"
+                        onClick={() => goToEpubChapter(chap.index)}
+                        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs leading-snug flex items-start justify-between gap-2 transition-colors ${
+                          isActive
+                            ? isDark
+                              ? 'bg-blue-500/20 text-blue-300 font-semibold'
+                              : 'bg-[#1E3A8A]/12 text-[#1E3A8A] font-semibold'
+                            : isDark
+                              ? 'text-stone-200 hover:bg-zinc-800'
+                              : 'text-stone-700 hover:bg-[#F7F4EE]'
+                        }`}
+                      >
+                        <span className="min-w-0">
+                          <span className="font-mono-tabular text-[11px] opacity-55 mr-1.5">
+                            {String(chap.index + 1).padStart(2, '0')}
+                          </span>
+                          <span>{chap.title}</span>
+                        </span>
+                        {isMarked && (
+                          <Bookmark
+                            className="w-3 h-3 text-amber-600 shrink-0 mt-0.5"
+                            fill="currentColor"
+                          />
+                        )}
+                      </button>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* Markdown: Headings Outline */}
+              {activeMode === 'markdown' && sidebarTab === 'toc' && (
+                <>
+                  {mdHeadings.map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      onClick={() => {
+                        const targetEl = document.getElementById(h.id);
+                        targetEl?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'start',
+                        });
+                      }}
+                      className={`w-full text-left py-1.5 pr-2 rounded-md text-xs transition-colors line-clamp-2 ${
+                        isDark
+                          ? 'text-stone-200 hover:bg-zinc-800'
+                          : 'text-stone-700 hover:bg-[#F7F4EE] hover:text-[#1E3A8A]'
+                      } ${
+                        h.level === 1
+                          ? 'pl-2 font-semibold'
+                          : h.level === 2
+                            ? 'pl-4'
+                            : 'pl-6 opacity-75'
+                      }`}
+                    >
+                      {h.text}
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {/* Bookmarks List */}
+              {canBookmark && sidebarTab === 'bookmarks' && (
+                <>
+                  {bookmarks.length === 0 ? (
+                    <div className="py-8 px-3 text-center space-y-2">
+                      <Bookmark className="w-6 h-6 mx-auto opacity-30" />
+                      <p
+                        className={`text-xs leading-relaxed ${
+                          isDark ? 'text-stone-400' : 'text-stone-500'
+                        }`}
+                      >
+                        尚未加入任何書籤。閱讀時點擊上方「書籤」圖示，即可儲存重點頁碼。
+                      </p>
+                    </div>
+                  ) : (
+                    bookmarks.map((unit) => {
+                      const isCurrent = unit === currentUnitNumber;
+                      const label =
+                        activeMode === 'epub' && epubBook
+                          ? epubBook.chapters[unit - 1]?.title || `第 ${unit} 章`
+                          : `第 ${unit} 頁`;
+                      return (
+                        <div
+                          key={unit}
+                          className={`flex items-center justify-between gap-1 rounded-lg border px-2.5 py-2 ${
+                            isCurrent
+                              ? isDark
+                                ? 'border-blue-400 bg-blue-500/15'
+                                : 'border-[#1E3A8A] bg-[#1E3A8A]/10'
+                              : isDark
+                                ? 'border-zinc-700 bg-zinc-800/50'
+                                : 'border-stone-200 bg-[#FBF9F5]'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (activeMode === 'pdf') goToPage(unit);
+                              else if (activeMode === 'epub')
+                                goToEpubChapter(unit - 1);
+                            }}
+                            className="flex-1 text-left text-xs font-semibold truncate"
+                          >
+                            {activeMode === 'epub'
+                              ? `第 ${unit} 章 · ${label}`
+                              : label}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              persistBookmarks(
+                                bookmarks.filter((b) => b !== unit),
+                              )
+                            }
+                            aria-label={`移除書籤 ${label}`}
+                            className="p-1 opacity-60 hover:opacity-100 rounded"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </>
+              )}
+            </div>
           </aside>
         )}
 
         {/* Center Ebook Stage */}
         <main
           ref={stageRef}
-          className="flex-1 min-w-0 min-h-0 bg-[#EFECE6] relative flex flex-col overflow-hidden"
+          onTouchStart={handleStageTouchStart}
+          onTouchEnd={handleStageTouchEnd}
+          className={`flex-1 min-w-0 min-h-0 relative flex flex-col overflow-hidden transition-colors ${stageBgClass}`}
         >
           {pdfError && activeMode === 'iframe' && (
             <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
@@ -1628,32 +2560,114 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
           {/* Mode 1: PDF */}
           {activeMode === 'pdf' && (
-            <div className="flex-1 overflow-auto p-4 sm:p-5 flex items-center justify-center">
+            <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
               {pdfLoading ? (
-                <div className="flex flex-col items-center gap-3 text-stone-600">
+                <div
+                  className={`flex-1 flex flex-col items-center justify-center gap-3 ${
+                    isDark ? 'text-stone-300' : 'text-stone-600'
+                  }`}
+                >
                   <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
                   <span className="text-sm font-medium">
-                    正在載入 PDF 電子書...
+                    正在載入電子書書頁…
                   </span>
                 </div>
+              ) : pdfDoc && effectivePdfLayout === 'scroll' ? (
+                <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
+                  {Array.from({length: numPages}, (_, i) => i + 1).map(
+                    (pageNum) => (
+                      <div
+                        key={pageNum}
+                        id={`pdf-scroll-page-${pageNum}`}
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="flex flex-col items-center gap-1.5 scroll-mt-4"
+                      >
+                        <PdfPageCanvas
+                          pdfDoc={pdfDoc}
+                          pageNumber={pageNum}
+                          targetWidth={pageTargetWidth}
+                          targetHeight={pageTargetHeight}
+                          zoomFactor={zoomFactor}
+                          theme={readingTheme}
+                          lazyVisibleOnly
+                        />
+                        <span
+                          className={`text-xs font-mono-tabular ${
+                            isDark ? 'text-stone-400' : 'text-stone-500'
+                          }`}
+                        >
+                          第 {pageNum} 頁 / 共 {numPages} 頁
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
               ) : pdfDoc ? (
-                <div className="flex items-center justify-center gap-4 min-h-min my-auto">
-                  <PdfPageCanvas
-                    pdfDoc={pdfDoc}
-                    pageNumber={currentPage}
-                    targetWidth={pageTargetWidth}
-                    targetHeight={pageTargetHeight}
-                    zoomFactor={zoomFactor}
-                  />
-                  {secondPage !== null && (
+                <div className="flex-1 min-h-0 relative flex items-center justify-center overflow-auto p-4 sm:p-6">
+                  {/* Left Floating Page-Turn Edge Button */}
+                  <button
+                    type="button"
+                    disabled={isPrevDisabled}
+                    onClick={() => goToPage(currentPage - stepAmount)}
+                    aria-label="上一頁"
+                    title="翻至上一頁 (←)"
+                    className={`hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full border items-center justify-center shadow-md transition-all disabled:opacity-25 disabled:pointer-events-none ${
+                      isDark
+                        ? 'bg-zinc-900/90 border-zinc-700 text-stone-100 hover:bg-zinc-800'
+                        : 'bg-white/90 border-stone-200 text-stone-800 hover:bg-white hover:scale-105'
+                    }`}
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+
+                  {/* Book Spread / Single Page Leaf with 3D Flip Animation */}
+                  <div
+                    key={flipState.key}
+                    className={`flex items-center justify-center min-h-min my-auto ${
+                      isSpreadActive && secondPage !== null ? 'gap-0' : 'gap-4'
+                    } ${flipAnimationClass}`}
+                  >
                     <PdfPageCanvas
                       pdfDoc={pdfDoc}
-                      pageNumber={secondPage}
+                      pageNumber={currentPage}
                       targetWidth={pageTargetWidth}
                       targetHeight={pageTargetHeight}
                       zoomFactor={zoomFactor}
+                      theme={readingTheme}
+                      spineEdge={
+                        isSpreadActive && secondPage !== null
+                          ? 'left-page'
+                          : 'none'
+                      }
                     />
-                  )}
+                    {secondPage !== null && (
+                      <PdfPageCanvas
+                        pdfDoc={pdfDoc}
+                        pageNumber={secondPage}
+                        targetWidth={pageTargetWidth}
+                        targetHeight={pageTargetHeight}
+                        zoomFactor={zoomFactor}
+                        theme={readingTheme}
+                        spineEdge="right-page"
+                      />
+                    )}
+                  </div>
+
+                  {/* Right Floating Page-Turn Edge Button */}
+                  <button
+                    type="button"
+                    disabled={isNextDisabled}
+                    onClick={() => goToPage(currentPage + stepAmount)}
+                    aria-label="下一頁"
+                    title="翻至下一頁 (→)"
+                    className={`hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-11 h-11 rounded-full border items-center justify-center shadow-md transition-all disabled:opacity-25 disabled:pointer-events-none ${
+                      isDark
+                        ? 'bg-zinc-900/90 border-zinc-700 text-stone-100 hover:bg-zinc-800'
+                        : 'bg-white/90 border-stone-200 text-stone-800 hover:bg-white hover:scale-105'
+                    }`}
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -1661,16 +2675,24 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
           {/* Mode 2: EPUB */}
           {activeMode === 'epub' && (
-            <div className="flex-1 min-h-0 flex flex-col bg-white">
+            <div className="flex-1 min-h-0 relative flex flex-col">
               {epubLoading ? (
-                <div className="flex-1 flex flex-col items-center justify-center gap-3 text-stone-600 bg-[#EFECE6]">
+                <div
+                  className={`flex-1 flex flex-col items-center justify-center gap-3 ${stageBgClass}`}
+                >
                   <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
-                  <span className="text-sm font-medium">
-                    正在解析 EPUB 電子書章節...
+                  <span
+                    className={`text-sm font-medium ${
+                      isDark ? 'text-stone-300' : 'text-stone-600'
+                    }`}
+                  >
+                    正在解析 EPUB 電子書章節…
                   </span>
                 </div>
               ) : epubError ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-6 text-center bg-[#EFECE6]">
+                <div
+                  className={`flex-1 flex flex-col items-center justify-center p-6 text-center ${stageBgClass}`}
+                >
                   <div className="max-w-md bg-white border border-stone-200 rounded-2xl p-6 space-y-3 shadow-sm">
                     <AlertCircle className="w-8 h-8 text-amber-700 mx-auto" />
                     <div className="font-editorial text-lg font-bold text-stone-950">
@@ -1694,9 +2716,12 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   </div>
                 </div>
               ) : epubBook ? (
-                <div className="flex-1 min-h-0 relative bg-white">
+                <div
+                  key={flipState.key}
+                  className={`flex-1 min-h-0 relative ${flipAnimationClass}`}
+                >
                   {epubChapterRendering && (
-                    <div className="absolute inset-0 z-10 bg-white/80 flex items-center justify-center pointer-events-none">
+                    <div className="absolute inset-0 z-10 bg-black/10 flex items-center justify-center pointer-events-none">
                       <Loader2 className="w-6 h-6 animate-spin text-[#1E3A8A]" />
                     </div>
                   )}
@@ -1706,8 +2731,38 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     }`}
                     sandbox=""
                     srcDoc={epubChapterSrcDoc}
-                    className="w-full h-full border-0 bg-white"
+                    className="w-full h-full border-0"
                   />
+                  {epubBook.chapters.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isPrevDisabled}
+                        onClick={() => goToEpubChapter(epubChapterIdx - 1)}
+                        aria-label="上一章"
+                        className={`hidden sm:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full border items-center justify-center shadow-md transition-all disabled:opacity-25 disabled:pointer-events-none ${
+                          isDark
+                            ? 'bg-zinc-900/90 border-zinc-700 text-stone-100 hover:bg-zinc-800'
+                            : 'bg-white/90 border-stone-200 text-stone-800 hover:bg-white'
+                        }`}
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isNextDisabled}
+                        onClick={() => goToEpubChapter(epubChapterIdx + 1)}
+                        aria-label="下一章"
+                        className={`hidden sm:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full border items-center justify-center shadow-md transition-all disabled:opacity-25 disabled:pointer-events-none ${
+                          isDark
+                            ? 'bg-zinc-900/90 border-zinc-700 text-stone-100 hover:bg-zinc-800'
+                            : 'bg-white/90 border-stone-200 text-stone-800 hover:bg-white'
+                        }`}
+                      >
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -1720,7 +2775,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                 <div className="h-full flex flex-col items-center justify-center gap-3 text-stone-600">
                   <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
                   <span className="text-sm font-medium">
-                    正在載入 Markdown 文件...
+                    正在載入 Markdown 文件…
                   </span>
                 </div>
               ) : mdError ? (
@@ -1747,25 +2802,35 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   </div>
                 </div>
               ) : (
-                <article className="max-w-3xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 sm:p-10 shadow-sm">
+                <article
+                  className={`max-w-3xl mx-auto border rounded-2xl p-6 sm:p-10 shadow-sm ${
+                    isDark
+                      ? 'bg-[#18191D] border-zinc-800'
+                      : readingTheme === 'sepia'
+                        ? 'bg-[#FBF5E6] border-[#DFD2B5]'
+                        : 'bg-white border-stone-200'
+                  }`}
+                >
                   <MarkdownBookView
                     content={mdText}
                     baseUrl={resolvedMdBaseUrl}
                     fontSizePx={readerFontSize}
+                    theme={readingTheme}
+                    highlightQuery={submittedSearchQuery}
                   />
                 </article>
               )}
             </div>
           )}
 
-          {/* Mode 4: HTML5 / Cloud Embed */}
+          {/* Mode 4: HTML5 / Cloud Drive Embed */}
           {activeMode === 'iframe' && (
             <div className="flex-1 min-h-0 relative bg-white">
               {iframeLoading && (
                 <div className="absolute inset-0 z-10 bg-[#FBF9F5]/90 flex flex-col items-center justify-center gap-3 text-stone-600 pointer-events-none">
                   <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
                   <span className="text-sm font-medium">
-                    正在開啟內嵌電子書檢視器...
+                    正在開啟內嵌電子書檢視器…
                   </span>
                 </div>
               )}
@@ -1775,6 +2840,13 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                 title={resource.title}
                 onLoad={() => setIframeLoading(false)}
                 allowFullScreen
+                style={
+                  readingTheme === 'dark'
+                    ? {filter: 'brightness(0.92)'}
+                    : readingTheme === 'sepia'
+                      ? {filter: 'sepia(0.12)'}
+                      : undefined
+                }
                 className="w-full h-full border-0 bg-white"
               />
             </div>
@@ -1821,35 +2893,337 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Bottom Scrubber & Quick Page-Jump Bar (PDF & EPUB multi-unit books) */}
+          {totalUnits > 1 && (
+            <footer
+              className={`border-t px-3 sm:px-5 py-2 shrink-0 ${chromeBgClass}`}
+            >
+              <div className="max-w-4xl mx-auto flex flex-wrap items-center gap-2 sm:gap-3">
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isPrevDisabled}
+                    onClick={() =>
+                      activeMode === 'pdf'
+                        ? goToPage(1)
+                        : goToEpubChapter(0)
+                    }
+                    aria-label="跳至第一頁"
+                    title="首頁 / 第一章"
+                    className="min-h-[34px] min-w-[34px] rounded-md hover:bg-black/5 disabled:opacity-30 inline-flex items-center justify-center"
+                  >
+                    <ChevronsLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isPrevDisabled}
+                    onClick={() =>
+                      activeMode === 'pdf'
+                        ? goToPage(currentPage - stepAmount)
+                        : goToEpubChapter(epubChapterIdx - 1)
+                    }
+                    aria-label={activeMode === 'pdf' ? '上一頁' : '上一章'}
+                    className="min-h-[34px] min-w-[34px] rounded-md hover:bg-black/5 disabled:opacity-30 inline-flex items-center justify-center"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Progress Range Slider */}
+                <div className="flex-1 min-w-[120px] flex items-center gap-2.5">
+                  <input
+                    type="range"
+                    min={1}
+                    max={totalUnits}
+                    value={currentUnitNumber}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (activeMode === 'pdf') goToPage(val);
+                      else if (activeMode === 'epub') goToEpubChapter(val - 1);
+                    }}
+                    aria-label={
+                      activeMode === 'pdf' ? '快速拖曳跳頁軸' : '快速切換章節軸'
+                    }
+                    className="w-full accent-[#1E3A8A] cursor-pointer h-1.5"
+                  />
+                  <span className="text-xs font-mono-tabular opacity-70 w-10 text-right shrink-0">
+                    {progressPercent}%
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isNextDisabled}
+                    onClick={() =>
+                      activeMode === 'pdf'
+                        ? goToPage(currentPage + stepAmount)
+                        : goToEpubChapter(epubChapterIdx + 1)
+                    }
+                    aria-label={activeMode === 'pdf' ? '下一頁' : '下一章'}
+                    className="min-h-[34px] min-w-[34px] rounded-md hover:bg-black/5 disabled:opacity-30 inline-flex items-center justify-center"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isNextDisabled}
+                    onClick={() =>
+                      activeMode === 'pdf'
+                        ? goToPage(numPages)
+                        : epubBook &&
+                          goToEpubChapter(epubBook.chapters.length - 1)
+                    }
+                    aria-label="跳至最後一頁"
+                    title="末頁 / 最末章"
+                    className="min-h-[34px] min-w-[34px] rounded-md hover:bg-black/5 disabled:opacity-30 inline-flex items-center justify-center"
+                  >
+                    <ChevronsRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Quick Page / Chapter Jump Input */}
+                {activeMode === 'pdf' ? (
+                  <form
+                    onSubmit={handlePageInputSubmit}
+                    className="flex items-center gap-1.5 text-xs font-mono-tabular shrink-0"
+                  >
+                    <span className="opacity-70">跳至</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      aria-label="輸入跳轉頁碼"
+                      value={pageInput}
+                      onChange={(e) => setPageInput(e.target.value)}
+                      onBlur={handlePageInputSubmit}
+                      className={`w-11 text-center py-1 border rounded text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-[#1E3A8A] ${
+                        isDark
+                          ? 'bg-zinc-800 border-zinc-700 text-white'
+                          : 'bg-white border-stone-300 text-stone-950'
+                      }`}
+                    />
+                    <span className="opacity-70">/ {numPages} 頁</span>
+                  </form>
+                ) : (
+                  <span className="text-xs font-mono-tabular opacity-75 shrink-0">
+                    第 {currentUnitNumber} / {totalUnits} 章
+                  </span>
+                )}
+              </div>
+            </footer>
+          )}
         </main>
 
-        {/* Optional Teaching Notes Side Panel */}
+        {/* Right Drawer: Full-Text Search & Jump Results */}
+        {showSearchDrawer && (
+          <aside
+            aria-label="電子書全文查詢"
+            className={`w-80 sm:w-96 max-w-full shrink-0 border-l flex flex-col overflow-hidden ${chromeBgClass}`}
+          >
+            <div
+              className={`px-4 py-3 border-b flex items-center justify-between gap-2 shrink-0 ${
+                isDark ? 'border-zinc-800' : 'border-stone-200'
+              }`}
+            >
+              <span className="font-editorial text-sm font-bold">
+                全文查詢與快速跳頁
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSearchDrawer(false)}
+                className="p-1 opacity-70 hover:opacity-100 rounded-md"
+                aria-label="關閉搜尋面板"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void runBookSearch(searchQuery);
+              }}
+              className={`p-3 border-b space-y-2 shrink-0 ${
+                isDark ? 'border-zinc-800' : 'border-stone-200'
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="輸入數學概念、單元或關鍵字…"
+                    className={`w-full pl-8 pr-7 py-2 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] ${
+                      isDark
+                        ? 'bg-zinc-800 border-zinc-700 text-white placeholder:text-stone-400'
+                        : 'bg-[#FBF9F5] border-stone-300 text-stone-900 placeholder:text-stone-400'
+                    }`}
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setSubmittedSearchQuery('');
+                        setSearchHits([]);
+                        setActiveHitIdx(-1);
+                      }}
+                      aria-label="清除搜尋"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSearching || !searchQuery.trim()}
+                  className="min-h-[34px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-45 shrink-0"
+                >
+                  {isSearching ? '搜尋中' : '查詢'}
+                </button>
+              </div>
+
+              {searchHits.length > 0 && (
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <span className="font-mono-tabular opacity-75">
+                    找到 {searchHits.length} 處符合結果
+                    {activeHitIdx >= 0
+                      ? `（第 ${activeHitIdx + 1} 筆）`
+                      : ''}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prevIdx =
+                          activeHitIdx <= 0
+                            ? searchHits.length - 1
+                            : activeHitIdx - 1;
+                        jumpToSearchHit(searchHits[prevIdx], prevIdx);
+                      }}
+                      className={`px-2 py-1 rounded border text-[11px] ${btnNeutralClass}`}
+                    >
+                      上一筆
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextIdx = (activeHitIdx + 1) % searchHits.length;
+                        jumpToSearchHit(searchHits[nextIdx], nextIdx);
+                      }}
+                      className={`px-2 py-1 rounded border text-[11px] ${btnNeutralClass}`}
+                    >
+                      下一筆
+                    </button>
+                  </div>
+                </div>
+              )}
+            </form>
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {isSearching ? (
+                <div className="py-10 flex flex-col items-center gap-2 text-xs opacity-75">
+                  <Loader2 className="w-5 h-5 animate-spin text-[#1E3A8A]" />
+                  <span>{searchProgress || '正在建立內文索引…'}</span>
+                </div>
+              ) : submittedSearchQuery && searchHits.length === 0 ? (
+                <div className="py-8 px-3 text-center text-xs opacity-70 space-y-1.5">
+                  <p>找不到符合「{submittedSearchQuery}」的內容。</p>
+                  {activeMode === 'iframe' && (
+                    <p className="text-[11px] opacity-80">
+                      提示：Google 雲端硬碟預覽框請直接使用框內右上角搜尋或下載後查詢。
+                    </p>
+                  )}
+                </div>
+              ) : searchHits.length > 0 ? (
+                searchHits.map((hit, idx) => {
+                  const isActive = idx === activeHitIdx;
+                  return (
+                    <button
+                      key={hit.id}
+                      type="button"
+                      onClick={() => jumpToSearchHit(hit, idx)}
+                      className={`w-full text-left p-2.5 rounded-xl border transition-colors space-y-1 ${
+                        isActive
+                          ? isDark
+                            ? 'border-blue-400 bg-blue-500/15'
+                            : 'border-[#1E3A8A] bg-[#1E3A8A]/10'
+                          : isDark
+                            ? 'border-zinc-700 bg-zinc-800/60 hover:border-zinc-500'
+                            : 'border-stone-200 bg-[#FBF9F5] hover:border-stone-300'
+                      }`}
+                    >
+                      <div
+                        className={`text-xs font-semibold flex items-center justify-between gap-2 ${
+                          isDark ? 'text-blue-300' : 'text-[#1E3A8A]'
+                        }`}
+                      >
+                        <span className="truncate">{hit.label}</span>
+                        <span className="text-[11px] font-normal opacity-75 shrink-0">
+                          點此跳轉
+                        </span>
+                      </div>
+                      <p
+                        className={`text-xs leading-relaxed line-clamp-3 ${
+                          isDark ? 'text-stone-300' : 'text-stone-600'
+                        }`}
+                      >
+                        {renderHighlightedSegment(
+                          hit.snippet,
+                          submittedSearchQuery,
+                        )}
+                      </p>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="py-8 px-3 text-center text-xs opacity-65 leading-relaxed space-y-1.5">
+                  <p>輸入關鍵字後按 Enter 或點擊「查詢」。</p>
+                  <p>支援 PDF 全書文字、EPUB 全章節、Markdown 文件與教學導讀查詢。</p>
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
+
+        {/* Right Drawer: Optional Teaching Notes Side Panel */}
         {showNotesDrawer && resource.content && activeMode !== 'notes-only' && (
           <aside
             aria-label="電子書教學導讀"
-            className="w-80 sm:w-96 max-w-full shrink-0 bg-white border-l border-stone-200 flex flex-col overflow-hidden"
+            className={`w-80 sm:w-96 max-w-full shrink-0 border-l flex flex-col overflow-hidden ${chromeBgClass}`}
           >
-            <div className="px-4 py-3 border-b border-stone-200 flex items-center justify-between gap-2 shrink-0">
-              <span className="font-editorial text-sm font-bold text-stone-950">
+            <div
+              className={`px-4 py-3 border-b flex items-center justify-between gap-2 shrink-0 ${
+                isDark ? 'border-zinc-800' : 'border-stone-200'
+              }`}
+            >
+              <span className="font-editorial text-sm font-bold">
                 教學導讀與使用說明
               </span>
               <button
                 type="button"
                 onClick={() => setShowNotesDrawer(false)}
-                className="p-1 text-stone-500 hover:text-stone-900 rounded-md"
+                className="p-1 opacity-70 hover:opacity-100 rounded-md"
                 aria-label="收起教學導讀"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3">
-              <div className="p-3 bg-[#F7F4EE] border border-stone-200 rounded-xl text-xs text-stone-700 leading-relaxed">
+              <div
+                className={`p-3 border rounded-xl text-xs leading-relaxed ${subtlePanelClass}`}
+              >
                 {resource.summary}
               </div>
               {renderNotes ? (
                 renderNotes(resource.content)
               ) : (
-                <div className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">
+                <div className="text-sm whitespace-pre-wrap leading-relaxed">
                   {resource.content}
                 </div>
               )}
