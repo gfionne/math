@@ -91,3 +91,29 @@ export interface TeachingResource {
   isPinned: boolean;
   rowIndex?: number; // 1-based row index inside Google Sheet 'Resources' tab
 }
+
+export type AssessmentQuestionType = 'single-choice' | 'constructed-response';
+
+export type AssessmentCognitiveLevel = '概念理解' | '程序執行' | '情境應用';
+
+export type AssessmentDifficulty = '基礎' | '中等' | '進階';
+
+export interface AssessmentQuestion {
+  id: string;
+  academicYear: string;
+  grade: string;
+  domainTopic: string;
+  unitTitle: string;
+  cognitiveLevel: AssessmentCognitiveLevel;
+  questionType: AssessmentQuestionType;
+  stem: string;
+  options: string[];
+  correctAnswer: string;
+  explanation: string;
+  hint?: string;
+  imageUrl?: string;
+  difficulty: AssessmentDifficulty;
+  author: string;
+  isPublished: boolean;
+  rowIndex?: number; // 1-based row index inside Google Sheet assessment tab
+}

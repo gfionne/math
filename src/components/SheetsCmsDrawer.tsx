@@ -29,6 +29,7 @@ import {
   saveSiteConfig,
 } from '../config/siteConfig';
 import {getAccessToken} from '../services/googleAuth';
+import {isAssessmentTabName} from '../services/assessmentDb';
 import {uploadImageToGoogleDrive} from '../services/driveUpload';
 import {RichFormatEditor} from './RichFormatEditor';
 import {
@@ -855,7 +856,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                         .filter(
                           (tab) =>
                             tab.title.toLowerCase() !== 'settings' &&
-                            tab.title.toLowerCase() !== 'resources',
+                            tab.title.toLowerCase() !== 'resources' &&
+                            !isAssessmentTabName(tab.title),
                         )
                         .map((tab) => (
                           <button
@@ -874,7 +876,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                       {sheetMeta.tabs.some(
                         (t) =>
                           t.title.toLowerCase() === 'resources' ||
-                          t.title.toLowerCase() === 'settings',
+                          t.title.toLowerCase() === 'settings' ||
+                          isAssessmentTabName(t.title),
                       ) && (
                         <span className="text-[11px] text-stone-400">
                           （含自動同步分頁：
@@ -882,7 +885,8 @@ export const SheetsCmsDrawer: React.FC<SheetsCmsDrawerProps> = ({
                             .filter(
                               (t) =>
                                 t.title.toLowerCase() === 'resources' ||
-                                t.title.toLowerCase() === 'settings',
+                                t.title.toLowerCase() === 'settings' ||
+                                isAssessmentTabName(t.title),
                             )
                             .map((t) => t.title)
                             .join(' · ')}

@@ -9,6 +9,7 @@ import {
   normalizeAcademicYear,
   normalizeDriveImageUrl,
 } from '../utils/postFormatting';
+import {isAssessmentTabName} from './assessmentDb';
 
 export const SETTINGS_TAB_NAME = 'Settings';
 
@@ -211,7 +212,8 @@ export async function fetchSpreadsheetMeta(
     tabs.find(
       (t: {title: string}) =>
         t.title.toLowerCase() !== SETTINGS_TAB_NAME.toLowerCase() &&
-        t.title.toLowerCase() !== 'resources',
+        t.title.toLowerCase() !== 'resources' &&
+        !isAssessmentTabName(t.title),
     ) ||
     tabs[0];
 

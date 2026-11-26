@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
   Clock,
   Copy,
   Download,
@@ -56,6 +57,7 @@ import {SchoolAccessModal} from './components/SchoolAccessModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {StandaloneParentCheckinPage} from './components/StandaloneParentCheckinPage';
 import {TeachingResourcesHubModal} from './components/TeachingResourcesHubModal';
+import {AssessmentBankModal} from './components/AssessmentBankModal';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
 import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
@@ -76,6 +78,7 @@ import {
 import firebaseConfig from '../firebase-applet-config.json';
 import {SEED_POSTS} from './data/seedPosts';
 import {SEED_TEACHING_RESOURCES} from './data/seedResources';
+import {SEED_ASSESSMENT_QUESTIONS} from './data/seedAssessments';
 import {
   auth,
   checkIsTeacherAdmin,
@@ -119,6 +122,21 @@ import {
   writeLocalResourcesCache,
 } from './services/resourcesDb';
 import {
+  appendAssessmentQuestionToSheet,
+  batchAppendAssessmentQuestionsToSheet,
+  DEFAULT_ASSESSMENT_TAB_NAME,
+  deleteAssessmentQuestionFromSheet,
+  ensureAssessmentTabExists,
+  fetchAssessmentFromPublicGviz,
+  fetchAssessmentFromSheetsApi,
+  findAssessmentTab,
+  readLocalAssessmentsCache,
+  readSelectedAssessmentTabPreference,
+  updateAssessmentQuestionInSheet,
+  writeLocalAssessmentsCache,
+  writeSelectedAssessmentTabPreference,
+} from './services/assessmentDb';
+import {
   appendPostToSheet,
   batchAppendPostsToSheet,
   createAndSeedJournalSheet,
@@ -132,6 +150,7 @@ import {
   updatePostInSheet,
 } from './services/sheetsDb';
 import {
+  AssessmentQuestion,
   ConfirmActionState,
   DataSourceMode,
   JournalPost,
@@ -275,6 +294,22 @@ function MainKnowledgeBaseApp() {
   );
   const [hasRemoteResourcesTab, setHasRemoteResourcesTab] = useState(false);
   const [isResourcesHubOpen, setIsResourcesHubOpen] = useState(false);
+  const [assessmentTabName, setAssessmentTabName] = useState<string>(() =>
+    readSelectedAssessmentTabPreference(DEFAULT_PUBLIC_SHEET_ID),
+  );
+  const [assessmentQuestions, setAssessmentQuestions] = useState<
+    AssessmentQuestion[]
+  >(() => {
+    const preferredTab = readSelectedAssessmentTabPreference(
+      DEFAULT_PUBLIC_SHEET_ID,
+    );
+    return (
+      readLocalAssessmentsCache(DEFAULT_PUBLIC_SHEET_ID, preferredTab) ||
+      SEED_ASSESSMENT_QUESTIONS
+    );
+  });
+  const [hasRemoteAssessmentTab, setHasRemoteAssessmentTab] = useState(false);
+  const [isAssessmentBankOpen, setIsAssessmentBankOpen] = useState(false);
   const handledQueryStageRef = useRef(false);
 
   const isSchoolAuthorized = useMemo(
@@ -507,19 +542,27 @@ function MainKnowledgeBaseApp() {
         ? `?sheet=${encodeURIComponent(activeSheetId)}&tab=resources`
         : '?tab=resources'
     }`;
+    const assessmentUrl = `${window.location.origin}${window.location.pathname}${
+      activeSheetId
+        ? `?sheet=${encodeURIComponent(activeSheetId)}&tab=assessment`
+        : '?tab=assessment'
+    }`;
     const currentUrl = customQrTarget?.url
       ? customQrTarget.url
       : activePost
         ? `${window.location.origin}${window.location.pathname}${window.location.search}#post=${encodeURIComponent(activePost.slug)}`
         : interactiveStage.isOpen && interactiveStage.url
           ? new URL(interactiveStage.url, window.location.href).toString()
-          : isResourcesHubOpen
-            ? resourcesUrl
-            : window.location.href;
+          : isAssessmentBankOpen
+            ? assessmentUrl
+            : isResourcesHubOpen
+              ? resourcesUrl
+              : window.location.href;
     const hasDistinctCurrent =
       Boolean(customQrTarget?.url) ||
       Boolean(activePost) ||
       interactiveStage.isOpen ||
+      isAssessmentBankOpen ||
       isResourcesHubOpen ||
       (currentUrl !== homeUrl && currentUrl !== `${homeUrl}#top`);
     return {homeUrl, currentUrl, hasDistinctCurrent};
@@ -527,6 +570,7 @@ function MainKnowledgeBaseApp() {
     activePost,
     interactiveStage.isOpen,
     interactiveStage.url,
+    isAssessmentBankOpen,
     isResourcesHubOpen,
     sheetMeta?.spreadsheetId,
     publicSheetId,
@@ -651,6 +695,37 @@ function MainKnowledgeBaseApp() {
     [],
   );
 
+  const applyLoadedAssessments = useCallback(
+    (
+      spreadsheetId: string,
+      assessData: {
+        hasTab: boolean;
+        tabName: string;
+        questions: AssessmentQuestion[];
+      },
+    ) => {
+      if (assessData.hasTab) {
+        setHasRemoteAssessmentTab(true);
+        setAssessmentTabName(assessData.tabName);
+        setAssessmentQuestions(assessData.questions);
+        writeLocalAssessmentsCache(
+          spreadsheetId,
+          assessData.tabName,
+          assessData.questions,
+        );
+      } else {
+        setHasRemoteAssessmentTab(false);
+        const preferredTab = readSelectedAssessmentTabPreference(spreadsheetId);
+        setAssessmentTabName(preferredTab);
+        const cached = readLocalAssessmentsCache(spreadsheetId, preferredTab);
+        setAssessmentQuestions(
+          cached && cached.length > 0 ? cached : SEED_ASSESSMENT_QUESTIONS,
+        );
+      }
+    },
+    [],
+  );
+
   // Load public Google Sheet from URL query parameter (?sheet=ID) or saved config
   const loadPublicSheet = useCallback(
     async (spreadsheetId: string, tabName?: string) => {
@@ -658,10 +733,13 @@ function MainKnowledgeBaseApp() {
       setIsSyncing(true);
       setSyncError(null);
       try {
-        const [fetched, remoteSettings, resData] = await Promise.all([
+        const preferredAssessTab =
+          readSelectedAssessmentTabPreference(spreadsheetId);
+        const [fetched, remoteSettings, resData, assessData] = await Promise.all([
           fetchPostsFromPublicGviz(spreadsheetId, tabName),
           fetchSiteSettingsFromPublicGviz(spreadsheetId),
           fetchResourcesFromPublicGviz(spreadsheetId),
+          fetchAssessmentFromPublicGviz(spreadsheetId, preferredAssessTab),
         ]);
         setPosts(fetched);
         setPublicSheetId(spreadsheetId);
@@ -671,13 +749,14 @@ function MainKnowledgeBaseApp() {
         localStorage.setItem(PUBLIC_SHEET_STORAGE_KEY, spreadsheetId);
         applyRemoteSettingsIfEnabled(remoteSettings);
         applyLoadedResources(spreadsheetId, resData);
+        applyLoadedAssessments(spreadsheetId, assessData);
       } catch (err: any) {
         setSyncError(err?.message || '讀取公開試算表失敗。');
       } finally {
         setIsSyncing(false);
       }
     },
-    [applyRemoteSettingsIfEnabled, applyLoadedResources],
+    [applyRemoteSettingsIfEnabled, applyLoadedResources, applyLoadedAssessments],
   );
 
   useEffect(() => {
@@ -715,6 +794,11 @@ function MainKnowledgeBaseApp() {
         window.location.hash === '#resources'
       ) {
         setIsResourcesHubOpen(true);
+      } else if (
+        tabParam === 'assessment' ||
+        window.location.hash === '#assessment'
+      ) {
+        setIsAssessmentBankOpen(true);
       }
     }
 
@@ -794,7 +878,10 @@ function MainKnowledgeBaseApp() {
                     token,
                   );
                   const targetTab = cloudCfg.tabName || meta.activeTab;
-                  const [fetched, resData] = await Promise.all([
+                  const preferredAssessTab = readSelectedAssessmentTabPreference(
+                    meta.spreadsheetId,
+                  );
+                  const [fetched, resData, assessData] = await Promise.all([
                     fetchPostsFromSheetsApi(
                       meta.spreadsheetId,
                       targetTab,
@@ -804,6 +891,12 @@ function MainKnowledgeBaseApp() {
                       meta.spreadsheetId,
                       meta.tabs,
                       token,
+                    ),
+                    fetchAssessmentFromSheetsApi(
+                      meta.spreadsheetId,
+                      meta.tabs,
+                      token,
+                      preferredAssessTab,
                     ),
                   ]);
                   setSheetMeta({...meta, activeTab: targetTab});
@@ -815,6 +908,7 @@ function MainKnowledgeBaseApp() {
                     meta.spreadsheetId,
                   );
                   applyLoadedResources(meta.spreadsheetId, resData);
+                  applyLoadedAssessments(meta.spreadsheetId, assessData);
                 } catch {
                   await loadPublicSheet(
                     cloudCfg.spreadsheetId,
@@ -834,7 +928,7 @@ function MainKnowledgeBaseApp() {
     );
 
     return () => unsubscribe();
-  }, [loadPublicSheet, applyLoadedResources]);
+  }, [loadPublicSheet, applyLoadedResources, applyLoadedAssessments]);
 
   useEffect(() => {
     updateDynamicFavicon(posts.length, dataSourceMode);
@@ -1055,29 +1149,40 @@ function MainKnowledgeBaseApp() {
         if (targetId && dataSourceMode !== 'sheets-api') {
           try {
             const meta = await fetchSpreadsheetMeta(targetId, result.accessToken);
-            const [fetched, remoteSettings, resData] = await Promise.all([
-              fetchPostsFromSheetsApi(
-                meta.spreadsheetId,
-                meta.activeTab,
-                result.accessToken,
-              ),
-              fetchSiteSettingsFromSheetsApi(
-                meta.spreadsheetId,
-                meta.tabs,
-                result.accessToken,
-              ),
-              fetchResourcesFromSheetsApi(
-                meta.spreadsheetId,
-                meta.tabs,
-                result.accessToken,
-              ),
-            ]);
+            const preferredAssessTab = readSelectedAssessmentTabPreference(
+              meta.spreadsheetId,
+            );
+            const [fetched, remoteSettings, resData, assessData] =
+              await Promise.all([
+                fetchPostsFromSheetsApi(
+                  meta.spreadsheetId,
+                  meta.activeTab,
+                  result.accessToken,
+                ),
+                fetchSiteSettingsFromSheetsApi(
+                  meta.spreadsheetId,
+                  meta.tabs,
+                  result.accessToken,
+                ),
+                fetchResourcesFromSheetsApi(
+                  meta.spreadsheetId,
+                  meta.tabs,
+                  result.accessToken,
+                ),
+                fetchAssessmentFromSheetsApi(
+                  meta.spreadsheetId,
+                  meta.tabs,
+                  result.accessToken,
+                  preferredAssessTab,
+                ),
+              ]);
             setSheetMeta(meta);
             setPosts(fetched);
             setPublicSheetId(meta.spreadsheetId);
             setDataSourceMode('sheets-api');
             applyRemoteSettingsIfEnabled(remoteSettings, meta.title);
             applyLoadedResources(meta.spreadsheetId, resData);
+            applyLoadedAssessments(meta.spreadsheetId, assessData);
           } catch {
             // Keep existing view if signed-in account lacks permission on the public sheet
           }
@@ -1161,10 +1266,19 @@ function MainKnowledgeBaseApp() {
     setSyncError(null);
     try {
       const meta = await fetchSpreadsheetMeta(spreadsheetId, token);
-      const [fetched, remoteSettings, resData] = await Promise.all([
+      const preferredAssessTab = readSelectedAssessmentTabPreference(
+        meta.spreadsheetId,
+      );
+      const [fetched, remoteSettings, resData, assessData] = await Promise.all([
         fetchPostsFromSheetsApi(meta.spreadsheetId, meta.activeTab, token),
         fetchSiteSettingsFromSheetsApi(meta.spreadsheetId, meta.tabs, token),
         fetchResourcesFromSheetsApi(meta.spreadsheetId, meta.tabs, token),
+        fetchAssessmentFromSheetsApi(
+          meta.spreadsheetId,
+          meta.tabs,
+          token,
+          preferredAssessTab,
+        ),
       ]);
       setSheetMeta(meta);
       setPosts(fetched);
@@ -1173,6 +1287,7 @@ function MainKnowledgeBaseApp() {
       localStorage.setItem(PUBLIC_SHEET_STORAGE_KEY, meta.spreadsheetId);
       applyRemoteSettingsIfEnabled(remoteSettings, meta.title);
       applyLoadedResources(meta.spreadsheetId, resData);
+      applyLoadedAssessments(meta.spreadsheetId, assessData);
     } catch (err: any) {
       setSyncError(err?.message || '連線 Google Sheet API 失敗。');
     } finally {
@@ -1210,7 +1325,7 @@ function MainKnowledgeBaseApp() {
       setIsSyncing(true);
       setSyncError(null);
       try {
-        const [fetched, remoteSettings, resData] = await Promise.all([
+        const [fetched, remoteSettings, resData, assessData] = await Promise.all([
           fetchPostsFromSheetsApi(
             sheetMeta.spreadsheetId,
             sheetMeta.activeTab,
@@ -1226,10 +1341,17 @@ function MainKnowledgeBaseApp() {
             sheetMeta.tabs,
             token,
           ),
+          fetchAssessmentFromSheetsApi(
+            sheetMeta.spreadsheetId,
+            sheetMeta.tabs,
+            token,
+            assessmentTabName,
+          ),
         ]);
         setPosts(fetched);
         applyRemoteSettingsIfEnabled(remoteSettings, sheetMeta.title);
         applyLoadedResources(sheetMeta.spreadsheetId, resData);
+        applyLoadedAssessments(sheetMeta.spreadsheetId, assessData);
       } catch (err: any) {
         const msg = err?.message || '';
         if (
@@ -2001,6 +2123,393 @@ function MainKnowledgeBaseApp() {
     }
   };
 
+  const handleSelectAssessmentTab = async (tabName: string) => {
+    const cleanTab = tabName.trim() || DEFAULT_ASSESSMENT_TAB_NAME;
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+    writeSelectedAssessmentTabPreference(targetId, cleanTab);
+    setAssessmentTabName(cleanTab);
+    if (!targetId) return;
+
+    setIsSyncing(true);
+    setSyncError(null);
+    try {
+      const token = getAccessToken();
+      if (token) {
+        const activeMeta =
+          sheetMeta && sheetMeta.spreadsheetId === targetId
+            ? sheetMeta
+            : await fetchSpreadsheetMeta(targetId, token);
+        const assessData = await fetchAssessmentFromSheetsApi(
+          activeMeta.spreadsheetId,
+          activeMeta.tabs,
+          token,
+          cleanTab,
+        );
+        setSheetMeta({
+          ...activeMeta,
+          activeTab: publicTabName || activeMeta.activeTab,
+        });
+        applyLoadedAssessments(activeMeta.spreadsheetId, assessData);
+      } else {
+        const assessData = await fetchAssessmentFromPublicGviz(
+          targetId,
+          cleanTab,
+        );
+        applyLoadedAssessments(targetId, assessData);
+      }
+    } catch (err: any) {
+      setSyncError(err?.message || `讀取「${cleanTab}」題庫分頁失敗。`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSyncSeedAssessmentsToSheet = (tabName: string) => {
+    const cleanTab = tabName.trim() || DEFAULT_ASSESSMENT_TAB_NAME;
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+    if (!targetId) {
+      setSyncError('尚未連結目標 Google 試算表。');
+      return;
+    }
+
+    setConfirmState({
+      isOpen: true,
+      title: `確認在 Google Sheet 建立「${cleanTab}」題庫分頁？`,
+      description: `系統將在目標 Google 試算表中確認或新建「${cleanTab}」分頁並寫入標準欄位表頭；若該分頁目前為空，將寫入 ${SEED_ASSESSMENT_QUESTIONS.length} 題示範學力檢測試題。`,
+      details: [
+        `試算表 ID：${targetId}`,
+        `目標分頁名稱：${cleanTab}`,
+        `寫入範例題數：${SEED_ASSESSMENT_QUESTIONS.length} 題（單選題＋建構反應題）`,
+      ],
+      confirmLabel: '確認建立並同步',
+      isDestructive: false,
+      onConfirm: async () => {
+        let token = getAccessToken();
+        if (!token) {
+          const authResult = await handleSignIn();
+          token = authResult?.accessToken || getAccessToken();
+        }
+        if (!token) {
+          setSyncError('請先完成 Google Sheets 寫入授權，再同步題庫分頁。');
+          return;
+        }
+        setIsSyncing(true);
+        setSyncError(null);
+        try {
+          const activeMeta =
+            sheetMeta && sheetMeta.spreadsheetId === targetId
+              ? sheetMeta
+              : await fetchSpreadsheetMeta(targetId, token);
+          const ensured = await ensureAssessmentTabExists(
+            activeMeta.spreadsheetId,
+            activeMeta.tabs,
+            cleanTab,
+            token,
+          );
+          const existingRemote = await fetchAssessmentFromSheetsApi(
+            activeMeta.spreadsheetId,
+            ensured.tabs,
+            token,
+            ensured.tabName,
+          );
+          if (existingRemote.questions.length === 0) {
+            await batchAppendAssessmentQuestionsToSheet(
+              activeMeta.spreadsheetId,
+              ensured.tabName,
+              SEED_ASSESSMENT_QUESTIONS,
+              token,
+              existingRemote.headerRow,
+            );
+          }
+          const refreshed = await fetchAssessmentFromSheetsApi(
+            activeMeta.spreadsheetId,
+            ensured.tabs,
+            token,
+            ensured.tabName,
+          );
+          writeSelectedAssessmentTabPreference(
+            activeMeta.spreadsheetId,
+            ensured.tabName,
+          );
+          setSheetMeta({
+            ...activeMeta,
+            activeTab: publicTabName || activeMeta.activeTab,
+            tabs: ensured.tabs,
+          });
+          setDataSourceMode('sheets-api');
+          applyLoadedAssessments(activeMeta.spreadsheetId, refreshed);
+        } catch (err: any) {
+          if (isSheetsAuthExpired(err)) {
+            clearAccessToken();
+            setHasAccessToken(false);
+            setSyncError('Google Sheets 授權已過期，請重新登入後再試。');
+          } else {
+            setSyncError(err?.message || `寫入「${cleanTab}」題庫分頁失敗。`);
+          }
+        } finally {
+          setIsSyncing(false);
+        }
+      },
+    });
+  };
+
+  const handleSaveAssessmentQuestion = async (
+    question: AssessmentQuestion,
+    isNew: boolean,
+    tabName: string,
+    onSaved?: () => void,
+  ) => {
+    const cleanTab = tabName.trim() || DEFAULT_ASSESSMENT_TAB_NAME;
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+
+    if (!targetId) {
+      setAssessmentQuestions((prev) => {
+        const next = isNew
+          ? [question, ...prev]
+          : prev.map((q) => (q.id === question.id ? question : q));
+        writeLocalAssessmentsCache(targetId, cleanTab, next);
+        return next;
+      });
+      onSaved?.();
+      return;
+    }
+
+    let token = getAccessToken();
+    if (!token) {
+      const authResult = await handleSignIn();
+      token = authResult?.accessToken || getAccessToken();
+      if (!token) {
+        throw new Error(
+          '尚未完成 Google Sheets 寫入授權，請先完成授權後再儲存至試算表分頁。',
+        );
+      }
+    }
+
+    setConfirmState({
+      isOpen: true,
+      title: isNew
+        ? `確認新增試題至 Google Sheet「${cleanTab}」分頁？`
+        : `確認更新 Google Sheet「${cleanTab}」分頁試題？`,
+      description: isNew
+        ? `即將在試算表「${sheetMeta?.title || targetId}」的「${cleanTab}」分頁新增一筆試題資料列（若該分頁尚未存在，將自動建立表頭）。`
+        : `即將覆寫「${cleanTab}」分頁第 ${question.rowIndex || '目標'} 列的現有試題內容。`,
+      details: [
+        `年級與單元：${question.grade} · ${question.unitTitle}`,
+        `認知層次／題型：${question.cognitiveLevel} · ${
+          question.questionType === 'single-choice' ? '單選題' : '建構反應題'
+        }`,
+        `公開狀態：${question.isPublished ? '立即公開給學生練習' : '草稿'}`,
+      ],
+      confirmLabel: isNew ? '確認寫入題庫' : '確認覆寫更新',
+      isDestructive: false,
+      onConfirm: async () => {
+        const activeToken = getAccessToken();
+        if (!activeToken) {
+          setSyncError('Google Sheets 授權已過期，請重新登入後再試。');
+          return;
+        }
+        setIsSyncing(true);
+        setSyncError(null);
+        try {
+          const activeMeta =
+            sheetMeta && sheetMeta.spreadsheetId === targetId
+              ? sheetMeta
+              : await fetchSpreadsheetMeta(targetId, activeToken);
+          const ensured = await ensureAssessmentTabExists(
+            activeMeta.spreadsheetId,
+            activeMeta.tabs,
+            cleanTab,
+            activeToken,
+          );
+          const existingRemote = await fetchAssessmentFromSheetsApi(
+            activeMeta.spreadsheetId,
+            ensured.tabs,
+            activeToken,
+            ensured.tabName,
+          );
+
+          if (ensured.createdNow) {
+            const existingLocal = assessmentQuestions.filter(
+              (item) => item.id !== question.id,
+            );
+            if (existingLocal.length > 0) {
+              await batchAppendAssessmentQuestionsToSheet(
+                activeMeta.spreadsheetId,
+                ensured.tabName,
+                existingLocal,
+                activeToken,
+                existingRemote.headerRow,
+              );
+            }
+            await appendAssessmentQuestionToSheet(
+              activeMeta.spreadsheetId,
+              ensured.tabName,
+              question,
+              activeToken,
+              existingRemote.headerRow,
+            );
+          } else {
+            const matchedRow =
+              !isNew && question.rowIndex
+                ? question.rowIndex
+                : existingRemote.questions.find((item) => item.id === question.id)
+                    ?.rowIndex;
+            if (isNew || !matchedRow) {
+              await appendAssessmentQuestionToSheet(
+                activeMeta.spreadsheetId,
+                ensured.tabName,
+                question,
+                activeToken,
+                existingRemote.headerRow,
+              );
+            } else {
+              await updateAssessmentQuestionInSheet(
+                activeMeta.spreadsheetId,
+                ensured.tabName,
+                matchedRow,
+                question,
+                activeToken,
+                existingRemote.headerRow,
+              );
+            }
+          }
+
+          const refreshed = await fetchAssessmentFromSheetsApi(
+            activeMeta.spreadsheetId,
+            ensured.tabs,
+            activeToken,
+            ensured.tabName,
+          );
+          writeSelectedAssessmentTabPreference(
+            activeMeta.spreadsheetId,
+            ensured.tabName,
+          );
+          setSheetMeta({
+            ...activeMeta,
+            activeTab: publicTabName || activeMeta.activeTab,
+            tabs: ensured.tabs,
+          });
+          setDataSourceMode('sheets-api');
+          applyLoadedAssessments(activeMeta.spreadsheetId, refreshed);
+          onSaved?.();
+        } catch (err: any) {
+          if (isSheetsAuthExpired(err)) {
+            clearAccessToken();
+            setHasAccessToken(false);
+            setSyncError('Google Sheets 授權已過期，請重新登入後再儲存。');
+          } else {
+            setSyncError(err?.message || '儲存試題至 Google Sheet 失敗。');
+          }
+        } finally {
+          setIsSyncing(false);
+        }
+      },
+    });
+  };
+
+  const handleDeleteAssessmentQuestion = (
+    question: AssessmentQuestion,
+    tabName: string,
+  ) => {
+    const cleanTab = tabName.trim() || DEFAULT_ASSESSMENT_TAB_NAME;
+    const targetId =
+      sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID;
+    const isRemoteTarget = Boolean(
+      targetId && (hasRemoteAssessmentTab || sheetMeta),
+    );
+
+    setConfirmState({
+      isOpen: true,
+      title: isRemoteTarget
+        ? `確認從 Google Sheet「${cleanTab}」刪除此試題？`
+        : '確認從目前題庫移除此試題？',
+      description: isRemoteTarget
+        ? `即將自 Google 試算表「${cleanTab}」分頁永久刪除這筆題目資料列，刪除後無法復原。`
+        : '此操作將從本機題庫清單中移除該試題。',
+      details: [
+        `年級與單元：${question.grade} · ${question.unitTitle}`,
+        `題幹摘要：${question.stem.slice(0, 60)}${question.stem.length > 60 ? '…' : ''}`,
+      ],
+      confirmLabel: '確認刪除試題',
+      isDestructive: true,
+      onConfirm: async () => {
+        if (isRemoteTarget && targetId) {
+          let token = getAccessToken();
+          if (!token) {
+            const authResult = await handleSignIn();
+            token = authResult?.accessToken || getAccessToken();
+          }
+          if (!token) {
+            setSyncError('尚未完成 Google Sheets 寫入授權，已取消刪除。');
+            return;
+          }
+          setIsSyncing(true);
+          setSyncError(null);
+          try {
+            const activeMeta =
+              sheetMeta && sheetMeta.spreadsheetId === targetId
+                ? sheetMeta
+                : await fetchSpreadsheetMeta(targetId, token);
+            const targetTabObj = findAssessmentTab(activeMeta.tabs, cleanTab);
+            if (!targetTabObj) {
+              throw new Error(`找不到「${cleanTab}」題庫分頁。`);
+            }
+            const existingRemote = await fetchAssessmentFromSheetsApi(
+              activeMeta.spreadsheetId,
+              activeMeta.tabs,
+              token,
+              targetTabObj.title,
+            );
+            const targetRowIndex =
+              question.rowIndex ||
+              existingRemote.questions.find((item) => item.id === question.id)
+                ?.rowIndex;
+            if (!targetRowIndex) {
+              throw new Error('在 Google Sheet 中找不到該試題列，請先重新同步。');
+            }
+            await deleteAssessmentQuestionFromSheet(
+              activeMeta.spreadsheetId,
+              targetTabObj.sheetId,
+              targetRowIndex,
+              token,
+            );
+            const refreshed = await fetchAssessmentFromSheetsApi(
+              activeMeta.spreadsheetId,
+              activeMeta.tabs,
+              token,
+              targetTabObj.title,
+            );
+            setSheetMeta({
+              ...activeMeta,
+              activeTab: publicTabName || activeMeta.activeTab,
+            });
+            setDataSourceMode('sheets-api');
+            applyLoadedAssessments(activeMeta.spreadsheetId, refreshed);
+          } catch (err: any) {
+            if (isSheetsAuthExpired(err)) {
+              clearAccessToken();
+              setHasAccessToken(false);
+              setSyncError('Google Sheets 授權已過期，請重新登入後再試。');
+            } else {
+              setSyncError(err?.message || '刪除 Google Sheet 試題失敗。');
+            }
+          } finally {
+            setIsSyncing(false);
+          }
+        } else {
+          setAssessmentQuestions((prev) => {
+            const next = prev.filter((item) => item.id !== question.id);
+            writeLocalAssessmentsCache(targetId, cleanTab, next);
+            return next;
+          });
+        }
+      },
+    });
+  };
+
   const openDrawer = (tab: DrawerTab, postToEdit: JournalPost | null = null) => {
     if (!user || !hasAccessToken) {
       handleSignIn();
@@ -2093,14 +2602,14 @@ function MainKnowledgeBaseApp() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedCategory('學力檢測');
-                  setViewMode('grid');
-                  scrollToSection('journal-catalog');
-                }}
-                className="px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+                onClick={() => setIsAssessmentBankOpen(true)}
+                className={`px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                  isAssessmentBankOpen
+                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                    : ''
+                }`}
               >
-                學力檢測
+                檢測題庫
               </button>
               <button
                 type="button"
@@ -2323,14 +2832,14 @@ function MainKnowledgeBaseApp() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setSelectedCategory('學力檢測');
-                setViewMode('grid');
-                scrollToSection('journal-catalog');
-              }}
-              className="px-2.5 py-1 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
+              onClick={() => setIsAssessmentBankOpen(true)}
+              className={`px-2.5 py-1 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                isAssessmentBankOpen
+                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
+                  : ''
+              }`}
             >
-              學力檢測
+              檢測題庫
             </button>
           </nav>
         </div>
@@ -3120,6 +3629,45 @@ function MainKnowledgeBaseApp() {
               </div>
             </div>
 
+            {/* Interactive Math Assessment Question Bank Banner */}
+            <div className="bg-white/90 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                  <span className="font-semibold text-[#1E3A8A]">
+                    學力檢測互動練習與題庫系統
+                  </span>
+                  <span aria-hidden="true" className="text-stone-400">
+                    ·
+                  </span>
+                  <span className="font-mono-tabular text-stone-600">
+                    收錄 {assessmentQuestions.filter((q) => q.isPublished).length} 題（單選題／建構反應題）
+                  </span>
+                  <span aria-hidden="true" className="text-stone-400">
+                    ·
+                  </span>
+                  <span className="text-stone-500">
+                    同步分頁：{assessmentTabName}
+                  </span>
+                </div>
+                <h2 className="font-editorial text-lg font-bold text-stone-950">
+                  國小數學學力檢測題庫（即時批改回饋 × Google Sheet 教師題庫管理）
+                </h2>
+                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
+                  依年級與「概念理解／程序執行／情境應用」認知層次篩選練習，作答後立即顯示迷思診斷解析與錯題複習；教師可綁定 Google Sheet 指定分頁即時維護題庫。
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsAssessmentBankOpen(true)}
+                  className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                >
+                  <ClipboardCheck className="w-4 h-4 shrink-0" />
+                  <span>進入互動題庫練習</span>
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -3279,6 +3827,27 @@ function MainKnowledgeBaseApp() {
               </button>
             )}
           </div>
+
+          {selectedCategory === '學力檢測' && (
+            <div className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-[#1E3A8A]">
+                  學力檢測線上互動練習
+                </div>
+                <p className="text-sm text-stone-700">
+                  除了閱讀學力檢測分析文章，也可讓學生直接開啟「學力檢測互動題庫」進行即時練習與診斷。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssessmentBankOpen(true)}
+                className="min-h-[38px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <ClipboardCheck className="w-3.5 h-3.5" />
+                <span>開啟學力檢測互動題庫</span>
+              </button>
+            </div>
+          )}
 
           {/* Empty State */}
           {filteredPosts.length === 0 ? (
@@ -3554,6 +4123,7 @@ function MainKnowledgeBaseApp() {
           Boolean(activePost) ||
           interactiveStage.isOpen ||
           isResourcesHubOpen ||
+          isAssessmentBankOpen ||
           schoolAccessPrompt.isOpen ||
           meetingCheckinState.isOpen
         }
@@ -3847,6 +4417,50 @@ function MainKnowledgeBaseApp() {
           Boolean(activePost) ||
           interactiveStage.isOpen ||
           Boolean(confirmState?.isOpen)
+        }
+      />
+
+      {/* Interactive Elementary Math Assessment Question Bank Modal */}
+      <AssessmentBankModal
+        isOpen={isAssessmentBankOpen}
+        onClose={() => {
+          setCustomQrTarget(null);
+          setIsAssessmentBankOpen(false);
+          if (window.location.hash === '#assessment') {
+            history.replaceState(
+              null,
+              '',
+              window.location.pathname + window.location.search,
+            );
+          }
+        }}
+        questions={assessmentQuestions}
+        activeTabName={assessmentTabName}
+        availableTabs={sheetMeta?.tabs ?? []}
+        hasRemoteAssessmentTab={hasRemoteAssessmentTab}
+        spreadsheetId={
+          sheetMeta?.spreadsheetId || publicSheetId || DEFAULT_PUBLIC_SHEET_ID
+        }
+        spreadsheetTitle={sheetMeta?.title}
+        isSyncing={isSyncing}
+        syncError={syncError}
+        isTeacherAdmin={isTeacherAdmin}
+        hasAccessToken={hasAccessToken}
+        defaultAuthorName={user?.displayName || '黃佩詩 老師'}
+        onRefreshSync={handleRefreshSync}
+        onSelectAssessmentTab={handleSelectAssessmentTab}
+        onRequestSheetsAuth={handleSignIn}
+        onSyncSeedToSheet={handleSyncSeedAssessmentsToSheet}
+        onSaveQuestion={handleSaveAssessmentQuestion}
+        onDeleteQuestion={handleDeleteAssessmentQuestion}
+        onUploadDiagramFile={handleUploadResourceFile}
+        onOpenShareQr={(url, title) => {
+          setCustomQrTarget({url, title});
+          setSiteQrTargetMode('current');
+          setSiteQrMode('modal');
+        }}
+        disableEscapeClose={
+          siteQrMode === 'modal' || Boolean(confirmState?.isOpen)
         }
       />
 
