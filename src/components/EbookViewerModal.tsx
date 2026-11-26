@@ -136,7 +136,10 @@ function isSafeMediaOrLinkUrl(raw: string, baseUrl?: string): string | null {
   }
 }
 
-function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
+function resolveEbookSource(
+  rawUrl?: string,
+  resourceTitle?: string,
+): ResolvedEbookSource {
   const trimmed = (rawUrl || '').trim();
   if (!trimmed) {
     return {
@@ -181,7 +184,13 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
     ) {
       const fileId = extractDriveFileId(trimmed);
       if (fileId) {
-        const mirroredLocalUrl = LOCAL_DRIVE_PDF_MIRRORS[fileId];
+        const normalizedTitle = (resourceTitle || '').replace(/\s+/g, '');
+        const isConstructedResponseTitle = normalizedTitle.includes(
+          '建構反應題融入數學領域素養教學活動設計',
+        );
+        const mirroredLocalUrl = isConstructedResponseTitle
+          ? LOCAL_DRIVE_PDF_MIRRORS[fileId]
+          : undefined;
         const directDownloadUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`;
         return {
           mode: 'pdf',
@@ -950,8 +959,8 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const epubTextCacheRef = useRef<Map<number, string>>(new Map());
 
   const source = useMemo(
-    () => resolveEbookSource(resource?.resourceUrl),
-    [resource?.resourceUrl],
+    () => resolveEbookSource(resource?.resourceUrl, resource?.title),
+    [resource?.resourceUrl, resource?.title],
   );
 
   // Reading Theme & Layout states
@@ -1066,6 +1075,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
         entry.designer || '',
         entry.resourceKind || '',
         entry.pageNote || '',
+        entry.bookPageNote || '',
         String(entry.startPage),
       ]
         .join(' ')
@@ -2780,6 +2790,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                                   entry.designer && entry.designer !== '—'
                                     ? entry.designer
                                     : null,
+                                  entry.bookPageNote || null,
                                   tocGroupMode !== 'category' && entry.category
                                     ? entry.category
                                     : null,
@@ -3149,22 +3160,25 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                       {activeTocEntry.order ? `${activeTocEntry.order} · ` : ''}
                       {activeTocEntry.title}
                     </span>
-                    {(activeTocEntry.grade || activeTocEntry.designer) && (
-                      <span className="opacity-70 ml-1.5 hidden sm:inline">
-                        （
-                        {[
-                          activeTocEntry.grade !== '通用'
-                            ? activeTocEntry.grade
-                            : null,
-                          activeTocEntry.designer !== '—'
-                            ? activeTocEntry.designer
-                            : null,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                        ）
-                      </span>
-                    )}
+                    {(() => {
+                      const subMeta = [
+                        activeTocEntry.grade && activeTocEntry.grade !== '通用'
+                          ? activeTocEntry.grade
+                          : null,
+                        activeTocEntry.designer &&
+                        activeTocEntry.designer !== '—'
+                          ? activeTocEntry.designer
+                          : null,
+                        activeTocEntry.bookPageNote || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ');
+                      return subMeta ? (
+                        <span className="opacity-70 ml-1.5 hidden sm:inline">
+                          （{subMeta}）
+                        </span>
+                      ) : null;
+                    })()}
                   </span>
                   <span className="font-mono-tabular text-[11px] opacity-75 shrink-0">
                     P.{activeTocEntry.pageNote || activeTocEntry.startPage}
@@ -3624,6 +3638,9 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                       </span>
                       <span className="font-mono-tabular font-semibold text-[#1E3A8A]">
                         PDF 第 {activeTocEntry.pageNote || activeTocEntry.startPage} 頁
+                        {activeTocEntry.bookPageNote
+                          ? `（${activeTocEntry.bookPageNote}）`
+                          : ''}
                       </span>
                     </div>
                     <div className="font-editorial text-lg font-bold text-stone-950">

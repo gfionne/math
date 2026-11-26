@@ -10,6 +10,7 @@ export interface EbookTocEntry {
   startPage: number;
   endPage?: number;
   pageNote?: string;
+  bookPageNote?: string;
   resourceKind?: string;
   level?: number;
 }
@@ -37,9 +38,9 @@ export interface PdfOutlineLike {
 }
 
 export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
-  sourceLabel: '篇章結構目錄（17 篇）',
+  sourceLabel: '篇章結構目錄（20 篇）',
   footnote:
-    '註：本文件現有內容至第 194 頁止，第 183～219 頁於既有拆分設定中暫歸於末篇區間；若書末尚含「五年級-比率」、「五年級-扇形」等篇目，可依實際末段頁碼另行細分。',
+    '註：全書 219 頁已完整對齊原書頁碼（PDF 頁碼＝原書頁碼＋11），涵蓋 00 導覽前言、01～08 探究教學篇、09～18 形成性評量與五年級素養教案，以及 19 版權與臺北市國小數學輔導團名錄。',
   categoryDescriptions: {
     導覽與前言: '封面、序、專文、目次與篇名索引。',
     '探究教學篇（擴展式）':
@@ -47,31 +48,35 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
     '探究教學篇（題組式）':
       '以環環相扣的題組任務引導學生逐步深入，聚焦四年級分數表徵與概念理解。',
     形成性評量篇:
-      '搭配建構反應題型，於課堂即時蒐集學生迷思概念與思考歷程，作為補救與調整教學依據。',
+      '搭配建構反應題型與五年級素養教案／附件，於課堂即時蒐集學生迷思概念與思考歷程，提供評閱標準與解題舉隅。',
+    書末版權與附錄: '全書出版資訊、編撰群與臺北市國民教育輔導團國小數學領域輔導小組名單。',
   },
   crossTopicStrands: [
     {
       id: 'strand-fraction-division',
-      label: '分數與除法連結',
-      description: '四年級從概念探究、畫圖表徵到評量檢核的完整組合',
-      chapterOrders: ['03', '07', '08', '13'],
+      label: '分數、除法與比率',
+      description:
+        '從四年級「兩數相除是分數」、「畫圖表徵分數」、「分數」、「分數為兩整數相除結果」延伸至五年級「比率與百分率」折扣問題',
+      chapterOrders: ['03', '07', '08', '13', '17'],
     },
     {
       id: 'strand-estimation-ops',
-      label: '概數估算／四則運算',
-      description: '串聯四、五年級運算規則與合理性判斷',
-      chapterOrders: ['02', '05', '11', '12'],
+      label: '運算規則／估算／去零餘數',
+      description:
+        '串聯四年級「四捨五入」、「取概數」、「整數四則」與五年級「連除併式」、「去零除法」餘數還原',
+      chapterOrders: ['02', '05', '11', '12', '16'],
     },
     {
       id: 'strand-geometry-measure',
-      label: '幾何與測量',
-      description: '橫跨三至五年級一維長度、二維面積／角度到三維容積',
-      chapterOrders: ['04', '10', '14', '15'],
+      label: '幾何構成與測量',
+      description:
+        '橫跨三至五年級「周界和周長」、「周長與面積」、「角度」、「容積的應用」與「扇形」構成要素判斷',
+      chapterOrders: ['04', '10', '14', '15', '18'],
     },
     {
       id: 'strand-data-strategy',
-      label: '資料與解題策略',
-      description: '一年級分類基礎到六年級多元解題策略表達',
+      label: '資料整理與解題策略',
+      description: '一年級「分類整理」基礎到六年級「怎樣解題」多元解題策略表達',
       chapterOrders: ['06', '09'],
     },
   ],
@@ -86,6 +91,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 1,
       endPage: 11,
       pageNote: '1～11',
+      bookPageNote: '前導頁',
       resourceKind: '導讀與目錄索引',
     },
     {
@@ -98,6 +104,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 12,
       endPage: 24,
       pageNote: '12～24',
+      bookPageNote: '原書 001～013',
       resourceKind: '探究教案、學習單與教學資源',
     },
     {
@@ -110,6 +117,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 25,
       endPage: 35,
       pageNote: '25～35',
+      bookPageNote: '原書 014～024',
       resourceKind: '探究教案、學習單與教學資源',
     },
     {
@@ -122,6 +130,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 36,
       endPage: 44,
       pageNote: '36～44',
+      bookPageNote: '原書 025～033',
       resourceKind: '探究教案、學習單與教學資源',
     },
     {
@@ -134,6 +143,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 45,
       endPage: 53,
       pageNote: '45～53',
+      bookPageNote: '原書 034～042',
       resourceKind: '探究教案、學習單與教學資源',
     },
     {
@@ -146,6 +156,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 54,
       endPage: 66,
       pageNote: '54～66',
+      bookPageNote: '原書 043～055',
       resourceKind: '探究教案、學習單與教學資源',
     },
     {
@@ -158,6 +169,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 67,
       endPage: 79,
       pageNote: '67～79',
+      bookPageNote: '原書 056～068',
       resourceKind: '探究教案、學習單與教學資源',
     },
     {
@@ -170,6 +182,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 80,
       endPage: 90,
       pageNote: '80～90',
+      bookPageNote: '原書 069～079',
       resourceKind: '題組式探究教案、學習單與資源',
     },
     {
@@ -182,6 +195,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 91,
       endPage: 102,
       pageNote: '91～102',
+      bookPageNote: '原書 080～091',
       resourceKind: '題組式探究教案、學習單與資源',
     },
     {
@@ -194,6 +208,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 103,
       endPage: 113,
       pageNote: '103～113',
+      bookPageNote: '原書 092～102',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -206,6 +221,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 114,
       endPage: 124,
       pageNote: '114～124',
+      bookPageNote: '原書 103～113',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -218,6 +234,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 125,
       endPage: 136,
       pageNote: '125～136',
+      bookPageNote: '原書 114～125',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -230,6 +247,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 137,
       endPage: 148,
       pageNote: '137～148',
+      bookPageNote: '原書 126～137',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -242,6 +260,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 149,
       endPage: 158,
       pageNote: '149～158',
+      bookPageNote: '原書 138～147',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -254,6 +273,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 159,
       endPage: 169,
       pageNote: '159～169',
+      bookPageNote: '原書 148～158',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -266,6 +286,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       startPage: 170,
       endPage: 182,
       pageNote: '169（接170）～182',
+      bookPageNote: '原書 158（接159）～171',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -273,12 +294,52 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       order: '16',
       category: '形成性評量篇',
       grade: '五年級',
-      title: '去零除法（含後續末段頁碼）',
+      title: '去零除法（101年度基測附件與解題舉隅）',
       designer: '李孟柔',
       startPage: 183,
+      endPage: 195,
+      pageNote: '183～195',
+      bookPageNote: '原書 172～184',
+      resourceKind: '教學活動設計、評量單、檢測結果說明與解題舉隅',
+    },
+    {
+      id: 'cr-17',
+      order: '17',
+      category: '形成性評量篇',
+      grade: '五年級',
+      title: '比率與百分率（折扣問題，康軒版第5節）',
+      designer: '孫德蘭（指導：鍾靜）',
+      startPage: 196,
+      endPage: 206,
+      pageNote: '196～206',
+      bookPageNote: '原書 185～195',
+      resourceKind: '教學活動設計、評量單、101基測附件',
+    },
+    {
+      id: 'cr-18',
+      order: '18',
+      category: '形成性評量篇',
+      grade: '五年級',
+      title: '扇形（冰淇淋外包裝判斷，南一版第1節）',
+      designer: '吳欣悅（指導：鍾靜）',
+      startPage: 207,
+      endPage: 217,
+      pageNote: '207～217',
+      bookPageNote: '原書 196～206',
+      resourceKind: '教學活動設計、評量單、自編試題附件',
+    },
+    {
+      id: 'cr-19',
+      order: '19',
+      category: '書末版權與附錄',
+      grade: '通用',
+      title: '版權頁與臺北市國小數學輔導小組名單',
+      designer: '陳滄智等',
+      startPage: 218,
       endPage: 219,
-      pageNote: '183～219*',
-      resourceKind: '形成性評量題組、評量說明與附件',
+      pageNote: '218～219',
+      bookPageNote: '原書 207～208',
+      resourceKind: '出版資訊、編撰與輔導團名單',
     },
   ],
 };
@@ -447,10 +508,10 @@ export function resolveBookTocMeta(
     return {sourceLabel: '目錄', entries: []};
   }
 
-  const titleAndSummary = `${resource.id} ${resource.title} ${resource.summary}`.toLowerCase();
+  const normalizedTitle = (resource.title || '').replace(/\s+/g, '');
   const isConstructedResponseBook =
     resource.id === 'res-constructed-response-math-ebook' ||
-    titleAndSummary.includes('建構反應題');
+    normalizedTitle.includes('建構反應題融入數學領域素養教學活動設計');
 
   if (isConstructedResponseBook) {
     return CONSTRUCTED_RESPONSE_BOOK_META;
