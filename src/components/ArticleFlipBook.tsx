@@ -18,6 +18,27 @@ import {
   normalizeDriveImageUrl,
 } from '../utils/postFormatting';
 
+interface FlipBookBoundsRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  pageWidth: number;
+}
+
+interface FlipBookControllerInternal {
+  isPointOnCorners?: (pt: {x: number; y: number}) => boolean;
+  flipPrev?: (corner?: 'top' | 'bottom') => void;
+  flip?: (pt: {x: number; y: number}) => void;
+  __pesPatchedLeftFlip?: boolean;
+}
+
+interface FlipBookRenderInternal {
+  getRect: () => FlipBookBoundsRect;
+  getOrientation: () => 'portrait' | 'landscape';
+  convertToBook: (pt: {x: number; y: number}) => {x: number; y: number};
+}
+
 interface FlipBookApi {
   flipNext: (corner?: 'top' | 'bottom') => void;
   flipPrev: (corner?: 'top' | 'bottom') => void;
@@ -26,6 +47,8 @@ interface FlipBookApi {
   getPageCount: () => number;
   getCurrentPageIndex: () => number;
   getOrientation: () => 'portrait' | 'landscape';
+  getFlipController?: () => FlipBookControllerInternal | undefined;
+  getRender?: () => FlipBookRenderInternal | undefined;
 }
 
 interface FlipBookComponentRef {
@@ -271,8 +294,56 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
     }
   }, []);
 
+  /**
+   * Upstream `page-flip` hardcodes `flipPrev()` at `{ x: 10, y }` and checks
+   * `isPointOnCorners()` against `bookPt.x < threshold`. In portrait mode (where
+   * `bounds.left = -pageWidth`) or vertically-fitted landscape (`bounds.left > 0`),
+   * left corners map to `bookPt.x >= pageWidth`, silently breaking left-side taps,
+   * swipes, and `flipPrev()`. Patch the controller once per instance.
+   */
+  const ensureLeftFlipPatched = useCallback(() => {
+    const pf = flipBookRef.current?.pageFlip();
+    const controller = pf?.getFlipController?.();
+    const render = pf?.getRender?.();
+    if (!controller || !render || controller.__pesPatchedLeftFlip) return;
+
+    controller.__pesPatchedLeftFlip = true;
+
+    controller.isPointOnCorners = (pt: {x: number; y: number}) => {
+      const bounds = render.getRect();
+      const pageWidth = bounds.pageWidth;
+      const threshold =
+        Math.sqrt(pageWidth * pageWidth + bounds.height * bounds.height) / 5;
+      const bookPt = render.convertToBook(pt);
+      const isPortrait = render.getOrientation() === 'portrait';
+      const leftStart = isPortrait ? pageWidth : 0;
+
+      const inYCorner =
+        bookPt.y > 0 &&
+        bookPt.y < bounds.height &&
+        (bookPt.y < threshold || bookPt.y > bounds.height - threshold);
+      const inLeftCorner =
+        bookPt.x >= leftStart && bookPt.x < leftStart + threshold;
+      const inRightCorner =
+        bookPt.x > bounds.width - threshold && bookPt.x <= bounds.width;
+
+      return inYCorner && (inLeftCorner || inRightCorner);
+    };
+
+    controller.flipPrev = (corner: 'top' | 'bottom' = 'top') => {
+      const bounds = render.getRect();
+      const isPortrait = render.getOrientation() === 'portrait';
+      const targetX = isPortrait
+        ? bounds.left + bounds.pageWidth + 10
+        : bounds.left + 10;
+      const targetY = corner === 'top' ? 1 : Math.max(1, bounds.height - 2);
+      controller.flip?.({x: targetX, y: targetY});
+    };
+  }, []);
+
   const handleInit = useCallback(
     (e: {data?: {page?: number; mode?: 'portrait' | 'landscape'}}) => {
+      ensureLeftFlipPatched();
       if (typeof e?.data?.page === 'number') {
         setCurrentPageIdx(e.data.page);
       }
@@ -280,16 +351,17 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
         setOrientation(e.data.mode);
       }
     },
-    [],
+    [ensureLeftFlipPatched],
   );
 
   const handleOrientationChange = useCallback(
     (e: {data?: 'portrait' | 'landscape'}) => {
+      ensureLeftFlipPatched();
       if (e?.data === 'portrait' || e?.data === 'landscape') {
         setOrientation(e.data);
       }
     },
-    [],
+    [ensureLeftFlipPatched],
   );
 
   const handleStateChange = useCallback((e: {data?: string}) => {
@@ -298,18 +370,30 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
     }
   }, []);
 
-  const flipPrev = useCallback((corner: 'top' | 'bottom' = 'bottom') => {
-    flipBookRef.current?.pageFlip()?.flipPrev(corner);
-  }, []);
+  const flipPrev = useCallback(
+    (corner: 'top' | 'bottom' = 'bottom') => {
+      ensureLeftFlipPatched();
+      flipBookRef.current?.pageFlip()?.flipPrev(corner);
+    },
+    [ensureLeftFlipPatched],
+  );
 
-  const flipNext = useCallback((corner: 'top' | 'bottom' = 'bottom') => {
-    flipBookRef.current?.pageFlip()?.flipNext(corner);
-  }, []);
+  const flipNext = useCallback(
+    (corner: 'top' | 'bottom' = 'bottom') => {
+      ensureLeftFlipPatched();
+      flipBookRef.current?.pageFlip()?.flipNext(corner);
+    },
+    [ensureLeftFlipPatched],
+  );
 
-  const flipToPage = useCallback((targetPage: number, corner: 'top' | 'bottom' = 'bottom') => {
-    const clamped = Math.max(0, Math.min(totalBookPages - 1, targetPage));
-    flipBookRef.current?.pageFlip()?.flip(clamped, corner);
-  }, [totalBookPages]);
+  const flipToPage = useCallback(
+    (targetPage: number, corner: 'top' | 'bottom' = 'bottom') => {
+      ensureLeftFlipPatched();
+      const clamped = Math.max(0, Math.min(totalBookPages - 1, targetPage));
+      flipBookRef.current?.pageFlip()?.flip(clamped, corner);
+    },
+    [ensureLeftFlipPatched, totalBookPages],
+  );
 
   // Keyboard navigation inside flipbook mode
   useEffect(() => {
@@ -427,13 +511,17 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
             }`}
           />
 
-          {/* Subtle dog-ear corner visual indicator */}
+          {/* Subtle dog-ear corner visual indicators (left corner always shown on mobile portrait) */}
           <div
             aria-hidden="true"
-            className={`pointer-events-none absolute bottom-0 w-6 h-6 ${
-              isLeftInSpread
-                ? 'left-0 bg-gradient-to-tr from-stone-400/20 via-stone-300/10 to-transparent'
-                : 'right-0 bg-gradient-to-tl from-stone-400/20 via-stone-300/10 to-transparent'
+            className={`pointer-events-none absolute bottom-0 left-0 w-6 h-6 bg-gradient-to-tr from-stone-400/20 via-stone-300/10 to-transparent ${
+              isLeftInSpread ? '' : 'lg:hidden'
+            }`}
+          />
+          <div
+            aria-hidden="true"
+            className={`pointer-events-none absolute bottom-0 right-0 w-6 h-6 bg-gradient-to-tl from-stone-400/20 via-stone-300/10 to-transparent ${
+              isLeftInSpread ? 'lg:hidden' : ''
             }`}
           />
 
@@ -477,11 +565,21 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
                 : 'border-stone-200/80 text-stone-500'
             }`}
           >
-            <span>{isLeftInSpread ? '← 點擊左書角翻回' : post.author}</span>
+            <span className={isLeftInSpread ? '' : 'lg:hidden'}>
+              ← 點擊左角翻回
+            </span>
+            {!isLeftInSpread && (
+              <span className="hidden lg:inline">{post.author}</span>
+            )}
             <span className="font-semibold text-stone-700">
               第 {pageNumber} 頁
             </span>
-            <span>{isLeftInSpread ? post.author : '點擊右書角翻頁 →'}</span>
+            {isLeftInSpread && (
+              <span className="hidden lg:inline">{post.author}</span>
+            )}
+            <span className={isLeftInSpread ? 'lg:hidden' : ''}>
+              點擊右角翻頁 →
+            </span>
           </div>
         </div>,
       );
@@ -689,9 +787,9 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
           onClick={() => flipPrev('bottom')}
           aria-label="翻至上一頁"
           title="翻至上一頁 (←)"
-          className="hidden lg:flex absolute left-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/90 border border-stone-200 text-stone-800 items-center justify-center shadow-md hover:bg-white hover:scale-105 transition-all disabled:opacity-25 disabled:pointer-events-none"
+          className="flex absolute left-1.5 sm:left-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/90 border border-stone-200 text-stone-800 items-center justify-center shadow-md hover:bg-white hover:scale-105 transition-all disabled:opacity-25 disabled:pointer-events-none"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
 
         <div className="w-full max-w-[940px] flex justify-center items-center">
@@ -738,9 +836,9 @@ export const ArticleFlipBook: React.FC<ArticleFlipBookProps> = ({
           onClick={() => flipNext('bottom')}
           aria-label="翻至下一頁"
           title="翻至下一頁 (→)"
-          className="hidden lg:flex absolute right-3 top-1/2 -translate-y-1/2 z-20 w-10 h-10 rounded-full bg-white/90 border border-stone-200 text-stone-800 items-center justify-center shadow-md hover:bg-white hover:scale-105 transition-all disabled:opacity-25 disabled:pointer-events-none"
+          className="flex absolute right-1.5 sm:right-3 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/90 border border-stone-200 text-stone-800 items-center justify-center shadow-md hover:bg-white hover:scale-105 transition-all disabled:opacity-25 disabled:pointer-events-none"
         >
-          <ChevronRight className="w-5 h-5" />
+          <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
         </button>
       </div>
 

@@ -330,30 +330,6 @@ const createEmptyResourceForm = (defaultAuthor = 'PesMath 數學領域社群'): 
 });
 
 type HubViewMode = 'directory' | 'cards';
-type ChapterCategoryFilter =
-  | '全部教學篇章'
-  | '探究教學篇（擴展式）'
-  | '探究教學篇（題組式）'
-  | '形成性評量篇'
-  | '導覽與附錄';
-type ChapterGradeFilter =
-  | '全部年級'
-  | '一年級'
-  | '二年級'
-  | '三年級'
-  | '四年級'
-  | '五年級'
-  | '六年級';
-
-const CHAPTER_GRADE_OPTIONS: ChapterGradeFilter[] = [
-  '全部年級',
-  '一年級',
-  '二年級',
-  '三年級',
-  '四年級',
-  '五年級',
-  '六年級',
-];
 
 const CATEGORY_META: Array<{
   id: Exclude<TypeFilter, '全部類型'>;
@@ -405,10 +381,6 @@ export const TeachingResourcesHubModal: React.FC<
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('全部類型');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<HubViewMode>('directory');
-  const [chapterCategoryFilter, setChapterCategoryFilter] =
-    useState<ChapterCategoryFilter>('全部教學篇章');
-  const [chapterGradeFilter, setChapterGradeFilter] =
-    useState<ChapterGradeFilter>('全部年級');
 
   // Reader & Editor Sub-modals
   const [readingResource, setReadingResource] =
@@ -662,21 +634,11 @@ export const TeachingResourcesHubModal: React.FC<
     return CONSTRUCTED_RESPONSE_BOOK_META.entries.filter((entry) => {
       const cat = entry.category || '';
       const isAppdx = cat === '導覽與前言' || cat === '書末版權與附錄';
-      if (chapterCategoryFilter === '全部教學篇章') {
-        if (isAppdx) return false;
-      } else if (chapterCategoryFilter === '導覽與附錄') {
-        if (!isAppdx) return false;
-      } else if (cat !== chapterCategoryFilter) {
-        return false;
-      }
+      if (isAppdx) return false;
 
       if (gradeFilter !== '全部年段') {
         const entryBand = mapChapterGradeToGradeBand(entry.grade);
         if (entryBand !== gradeFilter) return false;
-      }
-
-      if (chapterGradeFilter !== '全部年級') {
-        if (entry.grade !== chapterGradeFilter) return false;
       }
 
       if (q) {
@@ -698,42 +660,7 @@ export const TeachingResourcesHubModal: React.FC<
 
       return true;
     });
-  }, [
-    constructedResponseBook,
-    chapterCategoryFilter,
-    gradeFilter,
-    chapterGradeFilter,
-    searchQuery,
-  ]);
-
-  const chapterCategoryCounts = useMemo(() => {
-    const counts: Record<ChapterCategoryFilter, number> = {
-      全部教學篇章: 0,
-      '探究教學篇（擴展式）': 0,
-      '探究教學篇（題組式）': 0,
-      形成性評量篇: 0,
-      導覽與附錄: 0,
-    };
-    for (const entry of CONSTRUCTED_RESPONSE_BOOK_META.entries) {
-      if (gradeFilter !== '全部年段') {
-        if (mapChapterGradeToGradeBand(entry.grade) !== gradeFilter) continue;
-      }
-      const cat = entry.category || '';
-      if (cat === '導覽與前言' || cat === '書末版權與附錄') {
-        counts['導覽與附錄'] += 1;
-      } else {
-        counts['全部教學篇章'] += 1;
-        if (cat === '探究教學篇（擴展式）') {
-          counts['探究教學篇（擴展式）'] += 1;
-        } else if (cat === '探究教學篇（題組式）') {
-          counts['探究教學篇（題組式）'] += 1;
-        } else if (cat === '形成性評量篇') {
-          counts['形成性評量篇'] += 1;
-        }
-      }
-    }
-    return counts;
-  }, [gradeFilter]);
+  }, [constructedResponseBook, gradeFilter, searchQuery]);
 
   const groupedChapterCatalog = useMemo(() => {
     const order = [
@@ -783,9 +710,7 @@ export const TeachingResourcesHubModal: React.FC<
   const hasActiveFilters =
     gradeFilter !== '全部年段' ||
     typeFilter !== '全部類型' ||
-    searchQuery.trim() !== '' ||
-    chapterCategoryFilter !== '全部教學篇章' ||
-    chapterGradeFilter !== '全部年級';
+    searchQuery.trim() !== '';
 
   const stageSelectedFileIntoDraft = (file: File) => {
     const maxBytes = 50 * 1024 * 1024;
@@ -1624,16 +1549,7 @@ export const TeachingResourcesHubModal: React.FC<
                     <button
                       key={grade}
                       type="button"
-                      onClick={() => {
-                        setGradeFilter(grade);
-                        if (
-                          grade !== '全部年段' &&
-                          chapterGradeFilter !== '全部年級' &&
-                          mapChapterGradeToGradeBand(chapterGradeFilter) !== grade
-                        ) {
-                          setChapterGradeFilter('全部年級');
-                        }
-                      }}
+                      onClick={() => setGradeFilter(grade)}
                       className={`min-h-[32px] px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
                         gradeFilter === grade
                           ? 'bg-stone-900 text-white border-stone-900'
@@ -1652,8 +1568,6 @@ export const TeachingResourcesHubModal: React.FC<
                       setGradeFilter('全部年段');
                       setTypeFilter('全部類型');
                       setSearchQuery('');
-                      setChapterCategoryFilter('全部教學篇章');
-                      setChapterGradeFilter('全部年級');
                     }}
                     className="min-h-[32px] px-2 py-1 text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap"
                   >
@@ -1688,8 +1602,6 @@ export const TeachingResourcesHubModal: React.FC<
                       setGradeFilter('全部年段');
                       setTypeFilter('全部類型');
                       setSearchQuery('');
-                      setChapterCategoryFilter('全部教學篇章');
-                      setChapterGradeFilter('全部年級');
                     }}
                     className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
                   >
@@ -2049,134 +1961,12 @@ export const TeachingResourcesHubModal: React.FC<
           {constructedResponseBook &&
             (typeFilter === '全部類型' ||
               typeFilter === '電子書' ||
-              typeFilter === '自製教案 / 學習單') && (
+              typeFilter === '自製教案 / 學習單') &&
+            groupedChapterCatalog.length > 0 && (
               <section className="bg-white border border-stone-200 rounded-2xl overflow-hidden">
-                <div className="px-4 sm:px-5 py-3.5 bg-[#F7F4EE] border-b border-stone-200 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
-                  <div className="space-y-0.5 min-w-0">
-                    <div className="text-[11px] font-semibold text-[#1E3A8A]">
-                      專書資源分類架構｜資源類型 × 年級 × 數學單元映射
-                    </div>
-                    <h2 className="font-editorial text-sm sm:text-base font-bold text-stone-950 truncate">
-                      《建構反應題融入數學領域素養教學活動設計》18 單元對照索引
-                    </h2>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 shrink-0">
-                    <span className="text-xs font-mono-tabular text-stone-600">
-                      顯示 {filteredChapterCatalog.length} 項
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => openEbookAtPage(constructedResponseBook, 1)}
-                      className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                    >
-                      <BookOpen className="w-3.5 h-3.5 shrink-0" />
-                      <span>開啟全書閱讀器</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Pedagogical ResourceType + Exact Grade Filter Strip */}
-                <div className="px-4 sm:px-5 py-3 border-b border-stone-100 space-y-2.5 bg-[#FBF9F5]">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs font-semibold text-stone-600 mr-1">
-                      資源類型：
-                    </span>
-                    {(
-                      [
-                        {id: '全部教學篇章', label: '全部教學篇章'},
-                        {
-                          id: '探究教學篇（擴展式）',
-                          label: '探究教學篇（擴展式）',
-                        },
-                        {
-                          id: '探究教學篇（題組式）',
-                          label: '探究教學篇（題組式）',
-                        },
-                        {id: '形成性評量篇', label: '形成性評量篇'},
-                        {id: '導覽與附錄', label: '導覽與書末附錄'},
-                      ] as Array<{id: ChapterCategoryFilter; label: string}>
-                    ).map((item) => {
-                      const active = chapterCategoryFilter === item.id;
-                      const cnt = chapterCategoryCounts[item.id];
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            setChapterCategoryFilter(item.id);
-                            if (item.id === '導覽與附錄') {
-                              setChapterGradeFilter('全部年級');
-                            }
-                          }}
-                          className={`min-h-[32px] px-2.5 py-1 text-xs font-medium rounded-lg border inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
-                            active
-                              ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                              : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
-                          }`}
-                        >
-                          <span>{item.label}</span>
-                          <span
-                            className={`font-mono-tabular text-[11px] ${
-                              active ? 'text-blue-100' : 'text-stone-500'
-                            }`}
-                          >
-                            ({cnt})
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {chapterCategoryFilter !== '導覽與附錄' && (
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-xs font-semibold text-stone-600 mr-1">
-                        對應年級：
-                      </span>
-                      {CHAPTER_GRADE_OPTIONS.filter((g) => {
-                        if (g === '全部年級' || gradeFilter === '全部年段') {
-                          return true;
-                        }
-                        return mapChapterGradeToGradeBand(g) === gradeFilter;
-                      }).map((g) => {
-                        const active = chapterGradeFilter === g;
-                        return (
-                          <button
-                            key={g}
-                            type="button"
-                            onClick={() => setChapterGradeFilter(g)}
-                            className={`min-h-[30px] px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                              active
-                                ? 'bg-stone-900 text-white border-stone-900'
-                                : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
-                            }`}
-                          >
-                            {g}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Grouped Chapter Mapping List */}
-                {groupedChapterCatalog.length === 0 ? (
-                  <div className="p-6 text-center space-y-2 text-xs text-stone-500">
-                    <p>目前篩選條件下沒有符合的專書篇章。</p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setChapterCategoryFilter('全部教學篇章');
-                        setChapterGradeFilter('全部年級');
-                      }}
-                      className="px-3 py-1.5 font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70"
-                    >
-                      顯示全部教學篇章
-                    </button>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-stone-200">
-                    {groupedChapterCatalog.map((group) => (
-                      <div key={group.category}>
+                <div className="divide-y divide-stone-200">
+                  {groupedChapterCatalog.map((group) => (
+                    <div key={group.category}>
                         <div className="px-4 sm:px-5 py-2 bg-[#F7F4EE]/60 border-b border-stone-100 flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                           <div className="min-w-0">
                             <span className="text-xs font-bold text-stone-900">
@@ -2276,8 +2066,7 @@ export const TeachingResourcesHubModal: React.FC<
                         </div>
                       </div>
                     ))}
-                  </div>
-                )}
+                </div>
               </section>
             )}
         </div>
