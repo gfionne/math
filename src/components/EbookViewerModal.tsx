@@ -35,6 +35,11 @@ import {
 } from 'lucide-react';
 import {TeachingResource} from '../types/journal';
 import {
+  EbookTocEntry,
+  findActiveTocEntry,
+  resolveBookTocMeta,
+} from '../utils/ebookToc';
+import {
   EbookReadingTheme,
   LoadedEbookEpub,
   parseEpubBuffer,
@@ -53,6 +58,7 @@ interface EbookViewerModalProps {
 type ViewerMode = 'pdf' | 'epub' | 'markdown' | 'iframe' | 'notes-only';
 type PdfViewLayout = 'single' | 'spread' | 'scroll';
 type SidebarTab = 'toc' | 'thumbs' | 'bookmarks';
+type TocGroupMode = 'order' | 'grade' | 'category';
 
 interface ResolvedEbookSource {
   mode: ViewerMode;
@@ -950,6 +956,13 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
   const [stageSize, setStageSize] = useState({width: 960, height: 640});
 
+  // Sidebar Quick TOC Navigation states
+  const [tocGroupMode, setTocGroupMode] = useState<TocGroupMode>('order');
+  const [tocFilterQuery, setTocFilterQuery] = useState('');
+  const [activeStrandId, setActiveStrandId] = useState<string | null>(null);
+  const [selectedTocId, setSelectedTocId] = useState<string | null>(null);
+  const [iframeTargetPage, setIframeTargetPage] = useState<number | null>(null);
+
   // EPUB states
   const [epubBook, setEpubBook] = useState<LoadedEbookEpub | null>(null);
   const [epubLoading, setEpubLoading] = useState(false);
@@ -990,6 +1003,99 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     () => (activeMode === 'markdown' && mdText ? extractMarkdownHeadings(mdText) : []),
     [activeMode, mdText],
   );
+
+  const bookTocMeta = useMemo(
+    () => resolveBookTocMeta(resource ?? null, pdfOutline),
+    [resource, pdfOutline],
+  );
+
+  const hasRichChapterMetadata = useMemo(
+    () => bookTocMeta.entries.some((entry) => Boolean(entry.grade || entry.category)),
+    [bookTocMeta.entries],
+  );
+
+  const filteredTocEntries = useMemo(() => {
+    let base = bookTocMeta.entries;
+    if (activeStrandId && bookTocMeta.crossTopicStrands) {
+      const strand = bookTocMeta.crossTopicStrands.find(
+        (s) => s.id === activeStrandId,
+      );
+      if (strand) {
+        const orderSet = new Set(strand.chapterOrders);
+        base = base.filter((e) => e.order && orderSet.has(e.order));
+      }
+    }
+    const q = tocFilterQuery.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((entry) => {
+      const haystack = [
+        entry.order || '',
+        entry.title,
+        entry.grade || '',
+        entry.category || '',
+        entry.designer || '',
+        entry.resourceKind || '',
+        entry.pageNote || '',
+        String(entry.startPage),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [bookTocMeta, activeStrandId, tocFilterQuery]);
+
+  const groupedTocSections = useMemo(() => {
+    if (!hasRichChapterMetadata || tocGroupMode === 'order') {
+      return [
+        {
+          key: 'all',
+          label: bookTocMeta.sourceLabel,
+          description: undefined as string | undefined,
+          entries: filteredTocEntries,
+        },
+      ];
+    }
+
+    const buckets = new Map<string, EbookTocEntry[]>();
+    for (const entry of filteredTocEntries) {
+      const rawKey =
+        tocGroupMode === 'grade'
+          ? entry.grade || '通用'
+          : entry.category || '其他篇章';
+      const list = buckets.get(rawKey);
+      if (list) list.push(entry);
+      else buckets.set(rawKey, [entry]);
+    }
+
+    if (tocGroupMode === 'grade') {
+      const gradeOrder = [
+        '通用',
+        '一年級',
+        '二年級',
+        '三年級',
+        '四年級',
+        '五年級',
+        '六年級',
+      ];
+      const orderedKeys = [
+        ...gradeOrder.filter((g) => buckets.has(g)),
+        ...Array.from(buckets.keys()).filter((k) => !gradeOrder.includes(k)),
+      ];
+      return orderedKeys.map((k) => ({
+        key: `grade-${k}`,
+        label: k === '通用' ? '導覽與通用索引' : k,
+        description: undefined as string | undefined,
+        entries: buckets.get(k) || [],
+      }));
+    }
+
+    return Array.from(buckets.entries()).map(([cat, list]) => ({
+      key: `cat-${cat}`,
+      label: cat,
+      description: bookTocMeta.categoryDescriptions?.[cat],
+      entries: list,
+    }));
+  }, [hasRichChapterMetadata, tocGroupMode, filteredTocEntries, bookTocMeta]);
 
   // Load saved bookmarks for this resource
   useEffect(() => {
@@ -1033,6 +1139,12 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   // Reset state when opening a new ebook resource
   useEffect(() => {
     if (!resource) return;
+    const initialToc = resolveBookTocMeta(resource, []);
+    const isDesktop =
+      typeof window !== 'undefined' ? window.innerWidth >= 1024 : true;
+    const shouldAutoOpenToc =
+      initialToc.entries.length > 0 && isDesktop;
+
     setCurrentPage(1);
     setPageInput('1');
     setZoomFactor(1);
@@ -1040,8 +1152,13 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     setPdfError(null);
     setPdfOutline([]);
     setThumbs({});
-    setShowSidebar(false);
-    setSidebarTab('thumbs');
+    setShowSidebar(shouldAutoOpenToc);
+    setSidebarTab(initialToc.entries.length > 0 ? 'toc' : 'thumbs');
+    setTocGroupMode('order');
+    setTocFilterQuery('');
+    setActiveStrandId(null);
+    setSelectedTocId(initialToc.entries[0]?.id ?? null);
+    setIframeTargetPage(null);
     setShowNotesDrawer(false);
     setShowSearchDrawer(false);
     setSearchQuery('');
@@ -1126,8 +1243,12 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
         const outline = await flattenPdfOutline(doc);
         if (!cancelled) {
           setPdfOutline(outline);
-          if (outline.length > 0) {
+          const mergedToc = resolveBookTocMeta(resource, outline);
+          if (mergedToc.entries.length > 0) {
             setSidebarTab('toc');
+            if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+              setShowSidebar(true);
+            }
           } else {
             setSidebarTab('thumbs');
           }
@@ -1647,7 +1768,57 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
       ? new URL(source.embedUrl, window.location.href).toString()
       : undefined;
 
+  const hasStructuredToc = bookTocMeta.entries.length > 0;
+
+  const activeTocEntry = useMemo(() => {
+    if (!hasStructuredToc) return null;
+    if (activeMode === 'pdf') {
+      return findActiveTocEntry(bookTocMeta.entries, currentPage, secondPage);
+    }
+    return (
+      bookTocMeta.entries.find((e) => e.id === selectedTocId) ||
+      bookTocMeta.entries[0] ||
+      null
+    );
+  }, [
+    hasStructuredToc,
+    activeMode,
+    bookTocMeta.entries,
+    currentPage,
+    secondPage,
+    selectedTocId,
+  ]);
+
+  const activeTocIndex = activeTocEntry
+    ? bookTocMeta.entries.findIndex((e) => e.id === activeTocEntry.id)
+    : -1;
+
+  const handleSelectTocEntry = (entry: EbookTocEntry) => {
+    setSelectedTocId(entry.id);
+    if (activeMode === 'pdf') {
+      goToPage(entry.startPage);
+    } else if (activeMode === 'iframe') {
+      setIframeTargetPage(entry.startPage);
+      setIframeLoading(true);
+      setIframeKey((k) => k + 1);
+    } else if (activeMode === 'notes-only') {
+      const topCard = document.getElementById('notes-selected-chapter-card');
+      topCard?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+    }
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setShowSidebar(false);
+    }
+  };
+
+  const resolvedIframeSrc = useMemo(() => {
+    if (activeMode !== 'iframe' || !source.embedUrl) return source.embedUrl;
+    if (!iframeTargetPage || iframeTargetPage <= 0) return source.embedUrl;
+    const baseWithoutHash = source.embedUrl.split('#')[0];
+    return `${baseWithoutHash}#page=${iframeTargetPage}`;
+  }, [activeMode, source.embedUrl, iframeTargetPage]);
+
   const showTocButton =
+    hasStructuredToc ||
     (activeMode === 'pdf' && numPages > 0) ||
     (activeMode === 'epub' && Boolean(epubBook && epubBook.chapters.length > 0)) ||
     (activeMode === 'markdown' && mdHeadings.length > 0);
@@ -2197,11 +2368,20 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
       {/* Main Reader Body */}
       <div className="flex-1 min-h-0 flex overflow-hidden relative">
-        {/* Left Sidebar: Outline / Thumbnails / Bookmarks */}
+        {/* Mobile Sidebar Backdrop */}
+        {showSidebar && showTocButton && (
+          <div
+            aria-hidden="true"
+            onClick={() => setShowSidebar(false)}
+            className="absolute inset-0 z-20 bg-stone-950/35 md:hidden"
+          />
+        )}
+
+        {/* Left Sidebar: Quick Chapter TOC / Thumbnails / Bookmarks */}
         {showSidebar && showTocButton && (
           <aside
-            aria-label="電子書導覽側欄"
-            className={`w-56 sm:w-64 shrink-0 border-r flex flex-col overflow-hidden ${chromeBgClass}`}
+            aria-label="電子書快速目錄導航"
+            className={`absolute inset-y-0 left-0 z-30 w-[85vw] max-w-[330px] md:static md:w-72 lg:w-80 shrink-0 border-r flex flex-col overflow-hidden shadow-xl md:shadow-none ${chromeBgClass}`}
           >
             {/* Sidebar Tab Switcher */}
             <div
@@ -2212,7 +2392,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
               <button
                 type="button"
                 onClick={() => setSidebarTab('toc')}
-                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                   sidebarTab === 'toc'
                     ? 'bg-[#1E3A8A] text-white'
                     : isDark
@@ -2220,13 +2400,19 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                       : 'text-stone-600 hover:bg-[#F7F4EE]'
                 }`}
               >
-                {activeMode === 'pdf' ? '目錄' : activeMode === 'epub' ? '章節' : '大綱'}
+                {activeMode === 'epub'
+                  ? '章節'
+                  : activeMode === 'markdown'
+                    ? '大綱'
+                    : hasStructuredToc
+                      ? `快速目錄 (${bookTocMeta.entries.length})`
+                      : '目錄'}
               </button>
               {activeMode === 'pdf' && (
                 <button
                   type="button"
                   onClick={() => setSidebarTab('thumbs')}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                     sidebarTab === 'thumbs'
                       ? 'bg-[#1E3A8A] text-white'
                       : isDark
@@ -2241,7 +2427,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setSidebarTab('bookmarks')}
-                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
                     sidebarTab === 'bookmarks'
                       ? 'bg-[#1E3A8A] text-white'
                       : isDark
@@ -2252,69 +2438,299 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   書籤 ({bookmarks.length})
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowSidebar(false)}
+                aria-label="收合側邊目錄"
+                className="md:hidden min-h-[30px] min-w-[30px] inline-flex items-center justify-center rounded-md opacity-70 hover:opacity-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* Sidebar Tab Body */}
-            <div className="flex-1 overflow-y-auto p-2.5 space-y-1.5">
-              {/* PDF: Outline TOC */}
-              {activeMode === 'pdf' && sidebarTab === 'toc' && (
-                <>
-                  {pdfOutline.length > 0 ? (
-                    pdfOutline.map((item) => {
-                      const isActive =
-                        item.pageNumber !== null &&
-                        (item.pageNumber === currentPage ||
-                          item.pageNumber === secondPage);
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          disabled={item.pageNumber === null}
-                          onClick={() => {
-                            if (item.pageNumber !== null) {
-                              goToPage(item.pageNumber);
-                            }
-                          }}
-                          style={{paddingLeft: `${8 + item.level * 12}px`}}
-                          className={`w-full text-left py-2 pr-2.5 rounded-lg text-xs leading-snug flex items-center justify-between gap-2 transition-colors ${
-                            isActive
-                              ? isDark
-                                ? 'bg-blue-500/20 text-blue-300 font-semibold'
-                                : 'bg-[#1E3A8A]/12 text-[#1E3A8A] font-semibold'
-                              : isDark
-                                ? 'text-stone-200 hover:bg-zinc-800'
-                                : 'text-stone-700 hover:bg-[#F7F4EE]'
-                          }`}
-                        >
-                          <span className="line-clamp-2">{item.title}</span>
-                          {item.pageNumber !== null && (
-                            <span className="font-mono-tabular text-[11px] opacity-60 shrink-0">
-                              P.{item.pageNumber}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="py-6 px-3 text-center space-y-3">
-                      <p
-                        className={`text-xs leading-relaxed ${
-                          isDark ? 'text-stone-400' : 'text-stone-500'
+            {/* Quick Chapter Filter & Grouping Controls for Structured / PDF TOC */}
+            {sidebarTab === 'toc' &&
+              (hasStructuredToc || activeMode === 'pdf') &&
+              (activeMode === 'pdf' ||
+                activeMode === 'iframe' ||
+                activeMode === 'notes-only') && (
+                <div
+                  className={`p-2.5 border-b space-y-2 shrink-0 ${
+                    isDark ? 'border-zinc-800' : 'border-stone-200'
+                  }`}
+                >
+                  {hasStructuredToc && (
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 opacity-50 pointer-events-none" />
+                      <input
+                        type="text"
+                        value={tocFilterQuery}
+                        onChange={(e) => setTocFilterQuery(e.target.value)}
+                        placeholder="篩選章節、年級、主題或頁碼…"
+                        aria-label="篩選快速目錄"
+                        className={`w-full pl-8 pr-7 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] ${
+                          isDark
+                            ? 'bg-zinc-800 border-zinc-700 text-white placeholder:text-stone-400'
+                            : 'bg-[#FBF9F5] border-stone-300 text-stone-900 placeholder:text-stone-400'
                         }`}
-                      >
-                        此 PDF 未內建書籤大綱，可直接瀏覽頁面縮圖或使用頁碼跳轉。
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setSidebarTab('thumbs')}
-                        className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
-                      >
-                        切換至頁面縮圖
-                      </button>
+                      />
+                      {tocFilterQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setTocFilterQuery('')}
+                          aria-label="清除目錄篩選"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 opacity-55 hover:opacity-100"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   )}
-                </>
+
+                  {hasRichChapterMetadata && (
+                    <div
+                      className={`grid grid-cols-3 gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
+                      role="group"
+                      aria-label="目錄分群檢視方式"
+                    >
+                      {(
+                        [
+                          {id: 'order', label: '原書次序'},
+                          {id: 'grade', label: '依年級'},
+                          {id: 'category', label: '依篇別'},
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => setTocGroupMode(opt.id)}
+                          className={`py-1 text-[11px] font-medium rounded-md transition-colors whitespace-nowrap ${
+                            tocGroupMode === opt.id
+                              ? isDark
+                                ? 'bg-zinc-950 text-blue-300 font-semibold'
+                                : 'bg-white text-[#1E3A8A] font-semibold shadow-2xs'
+                              : isDark
+                                ? 'text-stone-300 hover:text-white'
+                                : 'text-stone-600 hover:text-stone-950'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {bookTocMeta.crossTopicStrands &&
+                    bookTocMeta.crossTopicStrands.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] opacity-70 px-0.5">
+                          <span>跨年級備課脈絡</span>
+                          {activeStrandId && (
+                            <button
+                              type="button"
+                              onClick={() => setActiveStrandId(null)}
+                              className="text-[#1E3A8A] dark:text-blue-300 hover:underline font-medium"
+                            >
+                              顯示全部
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {bookTocMeta.crossTopicStrands.map((strand) => {
+                            const selected = activeStrandId === strand.id;
+                            return (
+                              <button
+                                key={strand.id}
+                                type="button"
+                                title={strand.description}
+                                onClick={() =>
+                                  setActiveStrandId((prev) =>
+                                    prev === strand.id ? null : strand.id,
+                                  )
+                                }
+                                className={`px-2 py-1 text-[11px] rounded-md border transition-colors whitespace-nowrap ${
+                                  selected
+                                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                                    : isDark
+                                      ? 'bg-zinc-800 border-zinc-700 text-stone-200 hover:border-zinc-500'
+                                      : 'bg-white border-stone-200 text-stone-700 hover:border-stone-400'
+                                }`}
+                              >
+                                {strand.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                </div>
               )}
+
+            {/* Sidebar Tab Body */}
+            <div className="flex-1 overflow-y-auto p-2.5 space-y-2">
+              {/* Structured / PDF TOC (works across PDF, iframe Drive PDF, and notes-only) */}
+              {sidebarTab === 'toc' &&
+                (activeMode === 'pdf' ||
+                  activeMode === 'iframe' ||
+                  activeMode === 'notes-only') && (
+                  <>
+                    {hasStructuredToc ? (
+                      filteredTocEntries.length > 0 ? (
+                        <div className="space-y-3">
+                          {groupedTocSections.map((section) => (
+                            <div key={section.key} className="space-y-1">
+                              {(tocGroupMode !== 'order' ||
+                                groupedTocSections.length > 1) && (
+                                <div
+                                  className={`px-2 py-1.5 rounded-md border text-[11px] space-y-0.5 ${subtlePanelClass}`}
+                                >
+                                  <div className="flex items-center justify-between gap-2 font-semibold">
+                                    <span>{section.label}</span>
+                                    <span className="font-mono-tabular opacity-75">
+                                      {section.entries.length} 篇
+                                    </span>
+                                  </div>
+                                  {section.description && (
+                                    <p className="text-[11px] opacity-75 leading-snug">
+                                      {section.description}
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+
+                              {section.entries.map((entry) => {
+                                const isActive =
+                                  activeTocEntry?.id === entry.id;
+                                const pageLabel = entry.pageNote
+                                  ? `P.${entry.pageNote}`
+                                  : `P.${entry.startPage}`;
+                                const metaLine = [
+                                  entry.grade && entry.grade !== '通用'
+                                    ? entry.grade
+                                    : null,
+                                  entry.designer && entry.designer !== '—'
+                                    ? entry.designer
+                                    : null,
+                                  tocGroupMode !== 'category' && entry.category
+                                    ? entry.category
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ');
+
+                                return (
+                                  <button
+                                    key={entry.id}
+                                    type="button"
+                                    onClick={() => handleSelectTocEntry(entry)}
+                                    style={
+                                      entry.level
+                                        ? {
+                                            paddingLeft: `${10 + entry.level * 12}px`,
+                                          }
+                                        : undefined
+                                    }
+                                    className={`w-full text-left px-2.5 py-2 rounded-lg border text-xs leading-snug transition-colors space-y-1 ${
+                                      isActive
+                                        ? isDark
+                                          ? 'bg-blue-500/20 border-blue-400/50 text-blue-200 font-semibold'
+                                          : 'bg-[#1E3A8A]/10 border-[#1E3A8A]/35 text-[#1E3A8A] font-semibold'
+                                        : isDark
+                                          ? 'border-transparent text-stone-200 hover:bg-zinc-800'
+                                          : 'border-transparent text-stone-800 hover:bg-[#F7F4EE]'
+                                    }`}
+                                  >
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span className="min-w-0 flex-1">
+                                        {entry.order && (
+                                          <span className="font-mono-tabular text-[11px] opacity-60 mr-1.5">
+                                            {entry.order}
+                                          </span>
+                                        )}
+                                        <span>{entry.title}</span>
+                                      </span>
+                                      <span
+                                        className={`font-mono-tabular text-[11px] shrink-0 ${
+                                          isActive
+                                            ? 'opacity-95'
+                                            : 'opacity-60'
+                                        }`}
+                                      >
+                                        {pageLabel}
+                                      </span>
+                                    </div>
+                                    {metaLine && (
+                                      <div
+                                        className={`text-[11px] font-normal truncate ${
+                                          isDark
+                                            ? 'text-stone-400'
+                                            : 'text-stone-500'
+                                        }`}
+                                      >
+                                        {metaLine}
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ))}
+
+                          {bookTocMeta.footnote && (
+                            <p
+                              className={`px-2 pt-2 border-t text-[11px] leading-relaxed ${
+                                isDark
+                                  ? 'border-zinc-800 text-stone-400'
+                                  : 'border-stone-200 text-stone-500'
+                              }`}
+                            >
+                              {bookTocMeta.footnote}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="py-6 px-3 text-center space-y-2">
+                          <p
+                            className={`text-xs ${
+                              isDark ? 'text-stone-400' : 'text-stone-500'
+                            }`}
+                          >
+                            找不到符合篩選條件的章節。
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTocFilterQuery('');
+                              setActiveStrandId(null);
+                            }}
+                            className="text-xs font-semibold text-[#1E3A8A] dark:text-blue-300 hover:underline"
+                          >
+                            清除篩選條件
+                          </button>
+                        </div>
+                      )
+                    ) : (
+                      <div className="py-6 px-3 text-center space-y-3">
+                        <p
+                          className={`text-xs leading-relaxed ${
+                            isDark ? 'text-stone-400' : 'text-stone-500'
+                          }`}
+                        >
+                          此 PDF 未內建書籤大綱，可直接瀏覽頁面縮圖或使用頁碼跳轉。
+                        </p>
+                        {activeMode === 'pdf' && (
+                          <button
+                            type="button"
+                            onClick={() => setSidebarTab('thumbs')}
+                            className="px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
+                          >
+                            切換至頁面縮圖
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
 
               {/* PDF: Page Thumbnails */}
               {activeMode === 'pdf' && sidebarTab === 'thumbs' && (
@@ -2539,6 +2955,94 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
           onTouchEnd={handleStageTouchEnd}
           className={`flex-1 min-w-0 min-h-0 relative flex flex-col overflow-hidden transition-colors ${stageBgClass}`}
         >
+          {/* Active Chapter Breadcrumb & Quick Prev/Next Chapter Strip */}
+          {activeTocEntry &&
+            (activeMode === 'pdf' || activeMode === 'iframe') && (
+              <div
+                className={`px-3 sm:px-4 py-1.5 border-b flex items-center justify-between gap-2 text-xs shrink-0 ${chromeBgClass}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  {!showSidebar && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSidebarTab('toc');
+                        setShowSidebar(true);
+                      }}
+                      className={`px-2 py-1 rounded border text-[11px] font-medium inline-flex items-center gap-1 shrink-0 ${btnNeutralClass}`}
+                    >
+                      <PanelLeft className="w-3 h-3" />
+                      <span>展開目錄</span>
+                    </button>
+                  )}
+                  <span className="truncate">
+                    <span className="font-semibold">
+                      {activeTocEntry.order ? `${activeTocEntry.order} · ` : ''}
+                      {activeTocEntry.title}
+                    </span>
+                    {(activeTocEntry.grade || activeTocEntry.designer) && (
+                      <span className="opacity-70 ml-1.5 hidden sm:inline">
+                        （
+                        {[
+                          activeTocEntry.grade !== '通用'
+                            ? activeTocEntry.grade
+                            : null,
+                          activeTocEntry.designer !== '—'
+                            ? activeTocEntry.designer
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                        ）
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono-tabular text-[11px] opacity-75 shrink-0">
+                    P.{activeTocEntry.pageNote || activeTocEntry.startPage}
+                  </span>
+                </div>
+
+                {bookTocMeta.entries.length > 1 && (
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      disabled={activeTocIndex <= 0}
+                      onClick={() => {
+                        if (activeTocIndex > 0) {
+                          handleSelectTocEntry(
+                            bookTocMeta.entries[activeTocIndex - 1],
+                          );
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded border text-[11px] disabled:opacity-35 whitespace-nowrap ${btnNeutralClass}`}
+                    >
+                      上一篇
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        activeTocIndex === -1 ||
+                        activeTocIndex >= bookTocMeta.entries.length - 1
+                      }
+                      onClick={() => {
+                        if (
+                          activeTocIndex >= 0 &&
+                          activeTocIndex < bookTocMeta.entries.length - 1
+                        ) {
+                          handleSelectTocEntry(
+                            bookTocMeta.entries[activeTocIndex + 1],
+                          );
+                        }
+                      }}
+                      className={`px-2 py-0.5 rounded border text-[11px] disabled:opacity-35 whitespace-nowrap ${btnNeutralClass}`}
+                    >
+                      下一篇
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
           {pdfError && activeMode === 'iframe' && (
             <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <span className="inline-flex items-center gap-1.5">
@@ -2825,30 +3329,43 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
           {/* Mode 4: HTML5 / Cloud Drive Embed */}
           {activeMode === 'iframe' && (
-            <div className="flex-1 min-h-0 relative bg-white">
-              {iframeLoading && (
-                <div className="absolute inset-0 z-10 bg-[#FBF9F5]/90 flex flex-col items-center justify-center gap-3 text-stone-600 pointer-events-none">
-                  <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
-                  <span className="text-sm font-medium">
-                    正在開啟內嵌電子書檢視器…
+            <div className="flex-1 min-h-0 relative bg-white flex flex-col">
+              {iframeTargetPage !== null && (
+                <div className="px-3 py-1.5 bg-[#F7F4EE] border-b border-stone-200 text-[11px] text-stone-700 flex items-center justify-between gap-2 shrink-0">
+                  <span>
+                    已選取章節起始頁碼：第{' '}
+                    <strong className="font-mono-tabular text-[#1E3A8A]">
+                      {iframeTargetPage}
+                    </strong>{' '}
+                    頁（若雲端預覽器未自動捲動，可於下方框內直接輸入頁碼）
                   </span>
                 </div>
               )}
-              <iframe
-                key={`${source.embedUrl}-${iframeKey}`}
-                src={source.embedUrl}
-                title={resource.title}
-                onLoad={() => setIframeLoading(false)}
-                allowFullScreen
-                style={
-                  readingTheme === 'dark'
-                    ? {filter: 'brightness(0.92)'}
-                    : readingTheme === 'sepia'
-                      ? {filter: 'sepia(0.12)'}
-                      : undefined
-                }
-                className="w-full h-full border-0 bg-white"
-              />
+              <div className="flex-1 min-h-0 relative">
+                {iframeLoading && (
+                  <div className="absolute inset-0 z-10 bg-[#FBF9F5]/90 flex flex-col items-center justify-center gap-3 text-stone-600 pointer-events-none">
+                    <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
+                    <span className="text-sm font-medium">
+                      正在開啟內嵌電子書檢視器…
+                    </span>
+                  </div>
+                )}
+                <iframe
+                  key={`${resolvedIframeSrc}-${iframeKey}`}
+                  src={resolvedIframeSrc}
+                  title={resource.title}
+                  onLoad={() => setIframeLoading(false)}
+                  allowFullScreen
+                  style={
+                    readingTheme === 'dark'
+                      ? {filter: 'brightness(0.92)'}
+                      : readingTheme === 'sepia'
+                        ? {filter: 'sepia(0.12)'}
+                        : undefined
+                  }
+                  className="w-full h-full border-0 bg-white"
+                />
+              </div>
             </div>
           )}
 
@@ -2856,6 +3373,44 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
           {activeMode === 'notes-only' && (
             <div className="flex-1 overflow-y-auto p-4 sm:p-8">
               <div className="max-w-3xl mx-auto bg-white border border-stone-200 rounded-2xl p-6 sm:p-10 shadow-sm space-y-5">
+                {activeTocEntry && (
+                  <div
+                    id="notes-selected-chapter-card"
+                    className="p-4 rounded-xl bg-[#F7F4EE] border border-stone-200 space-y-1.5 scroll-mt-4"
+                  >
+                    <div className="text-xs font-medium text-stone-500 flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        {[
+                          activeTocEntry.order
+                            ? `篇章 ${activeTocEntry.order}`
+                            : null,
+                          activeTocEntry.category,
+                          activeTocEntry.grade !== '通用'
+                            ? activeTocEntry.grade
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                      <span className="font-mono-tabular font-semibold text-[#1E3A8A]">
+                        PDF 第 {activeTocEntry.pageNote || activeTocEntry.startPage} 頁
+                      </span>
+                    </div>
+                    <div className="font-editorial text-lg font-bold text-stone-950">
+                      {activeTocEntry.title}
+                    </div>
+                    <div className="text-xs text-stone-600 flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {activeTocEntry.designer &&
+                        activeTocEntry.designer !== '—' && (
+                          <span>設計者：{activeTocEntry.designer}</span>
+                        )}
+                      {activeTocEntry.resourceKind && (
+                        <span>資源型態：{activeTocEntry.resourceKind}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <div className="pb-4 border-b border-stone-200 space-y-2">
                   <div className="text-xs font-medium text-stone-500">
                     <span className="text-[#1E3A8A] font-semibold">

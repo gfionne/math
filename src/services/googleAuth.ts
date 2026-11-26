@@ -12,6 +12,7 @@ import {
   getDoc,
   getFirestore,
   initializeFirestore,
+  setLogLevel,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -19,12 +20,15 @@ export const app =
   getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
+// Suppress transient SDK OnlineStateTracker console.error noise; real app errors still log via handleFirestoreError.
+setLogLevel('silent');
+
 function createFirestoreDb(): Firestore {
   try {
     return initializeFirestore(
       app,
       {
-        experimentalAutoDetectLongPolling: true,
+        experimentalForceLongPolling: true,
       },
       firebaseConfig.firestoreDatabaseId,
     );

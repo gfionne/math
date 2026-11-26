@@ -111,8 +111,22 @@ function writeCachedSharedSiteConfig(config: SharedCloudSiteConfig): void {
   }
 }
 
+function isTransientOfflineError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message.toLowerCase() : String(error ?? '').toLowerCase();
+  return msg.includes('the client is offline') || msg.includes('unavailable');
+}
+
 async function testConnection() {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    if (typeof window !== 'undefined') {
+      window.addEventListener(
+        'online',
+        () => {
+          void testConnection();
+        },
+        {once: true},
+      );
+    }
     return;
   }
   const probe = async () => {
@@ -121,18 +135,12 @@ async function testConnection() {
   try {
     await probe();
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes('the client is offline')
-    ) {
+    if (isTransientOfflineError(error)) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
       try {
         await probe();
       } catch (retryError) {
-        if (
-          retryError instanceof Error &&
-          retryError.message.includes('the client is offline')
-        ) {
+        if (isTransientOfflineError(retryError)) {
           console.warn(
             'Firestore temporarily unreachable (offline/network timeout); retrying automatically when network stabilizes.',
           );
