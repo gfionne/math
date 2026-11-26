@@ -50,8 +50,17 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 function getPdfjsAssetBaseUrl(folder: 'cmaps' | 'standard_fonts'): string {
   if (typeof window === 'undefined') return `./pdfjs/${folder}/`;
-  return new URL(`pdfjs/${folder}/`, window.location.href).toString();
+  const base =
+    typeof document !== 'undefined' && document.baseURI
+      ? document.baseURI
+      : window.location.href;
+  return new URL(`pdfjs/${folder}/`, base).toString();
 }
+
+const LOCAL_DRIVE_PDF_MIRRORS: Record<string, string> = {
+  '1QGX7XWqy3ZmtElQZQ9JCyCl2EYelTufv':
+    './assets/ebooks/constructed-response-math.pdf',
+};
 
 interface EbookViewerModalProps {
   resource: TeachingResource | null;
@@ -172,13 +181,14 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
     ) {
       const fileId = extractDriveFileId(trimmed);
       if (fileId) {
+        const mirroredLocalUrl = LOCAL_DRIVE_PDF_MIRRORS[fileId];
         const directDownloadUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`;
         return {
           mode: 'pdf',
-          embedUrl: directDownloadUrl,
+          embedUrl: mirroredLocalUrl || directDownloadUrl,
           rawUrl: trimmed,
           formatLabel: '雲端 PDF 電子書',
-          downloadUrl: directDownloadUrl,
+          downloadUrl: mirroredLocalUrl || directDownloadUrl,
           downloadExt: 'pdf',
           driveFileId: fileId,
           fallbackPreviewUrl: `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
@@ -1263,6 +1273,12 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     }> = [{url: source.embedUrl}];
 
     if (source.driveFileId) {
+      const remoteDownloadUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(
+        source.driveFileId,
+      )}&export=download&confirm=t`;
+      if (source.embedUrl !== remoteDownloadUrl) {
+        candidates.push({url: remoteDownloadUrl});
+      }
       const oauthToken = getAccessToken();
       if (oauthToken) {
         candidates.push({
@@ -1330,12 +1346,20 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
           'PDF.js load failed across all candidates, switching to embedded frame fallback:',
           lastErr,
         );
+        const errStatus = (lastErr as {status?: number})?.status;
+        const errName = (lastErr as {name?: string})?.name || '';
+        const isPermissionOrHtmlError =
+          errStatus === 401 ||
+          errStatus === 403 ||
+          errName === 'InvalidPDFException';
         setPdfLoading(false);
         setPdfLoadProgress(null);
         setPdfCorsFallback(true);
         setPdfError(
           source.driveFileId
-            ? '無法以站內直連模式載入此雲端 PDF（可能為私有檔案或跨網域限制），已切換為 Google 雲端預覽框。'
+            ? isPermissionOrHtmlError
+              ? '此雲端 PDF 尚未設為公開檢視或非標準 PDF 格式，已切換為 Google 雲端預覽框。'
+              : '受限於手機或靜態網站對 Google 雲端硬碟的跨網域安全原則（CORP），目前改以 Google 雲端預覽框開啟；請直接於預覽框切換頁碼或點「另開檔案」。'
             : '無法透過輕量 Canvas 解析此遠端 PDF（可能受限於跨網域 CORS 設定），已自動切換為內嵌文件框預覽。',
         );
         return;

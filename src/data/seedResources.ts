@@ -109,7 +109,7 @@ export const SEED_TEACHING_RESOURCES: TeachingResource[] = [
 * **資料與解題策略**：一年級「分類整理」至六年級「怎樣解題」。
 
 > **尾端頁碼說明**：現有內容至第 194 頁止，第 183～219 頁於既有拆分設定中暫歸於末篇區間；若書末尚含「五年級－比率」、「五年級－扇形」等篇目，可依實際末段頁碼另行細分。若老師欲於本電子書內直接檢視原書 PDF 頁面，點選本資源「編輯」後拖曳上傳 PDF 或貼上雲端連結即可立即啟用跨頁與跳頁閱讀。`,
-    resourceUrl: '',
+    resourceUrl: './assets/ebooks/constructed-response-math.pdf',
     author: '數學領域素養教學研發團隊',
     publishedAt: '2026-11-26',
     isPublic: true,
