@@ -28,6 +28,54 @@ export default defineConfig(() => {
           }
         },
       },
+      // Expose pdfjs-dist cmaps & standard_fonts so CJK (Traditional Chinese) PDFs render accurately on both dev and static GitHub Pages
+      {
+        name: 'pdfjs-cjk-assets',
+        configureServer(server) {
+          const pdfjsRoot = path.resolve(__dirname, 'node_modules/pdfjs-dist');
+          server.middlewares.use('/pdfjs', (req, res, next) => {
+            const rawPath = decodeURIComponent((req.url || '').split('?')[0]);
+            const cleanRel = rawPath.replace(/^\/+/, '');
+            if (
+              !cleanRel.startsWith('cmaps/') &&
+              !cleanRel.startsWith('standard_fonts/')
+            ) {
+              next();
+              return;
+            }
+            const targetFile = path.resolve(pdfjsRoot, cleanRel);
+            if (
+              !targetFile.startsWith(pdfjsRoot + path.sep) ||
+              !fs.existsSync(targetFile) ||
+              fs.statSync(targetFile).isDirectory()
+            ) {
+              next();
+              return;
+            }
+            res.statusCode = 200;
+            res.setHeader(
+              'Content-Type',
+              cleanRel.endsWith('.bcmap')
+                ? 'application/octet-stream'
+                : 'application/octet-stream',
+            );
+            res.setHeader('Cache-Control', 'public, max-age=86400');
+            fs.createReadStream(targetFile).pipe(res);
+          });
+        },
+        closeBundle(error?: Error): void {
+          if (error) return;
+          const distDir = path.resolve(__dirname, 'dist');
+          const pdfjsRoot = path.resolve(__dirname, 'node_modules/pdfjs-dist');
+          for (const folder of ['cmaps', 'standard_fonts']) {
+            const srcFolder = path.join(pdfjsRoot, folder);
+            const destFolder = path.join(distDir, 'pdfjs', folder);
+            if (fs.existsSync(distDir) && fs.existsSync(srcFolder)) {
+              fs.cpSync(srcFolder, destFolder, {recursive: true, force: true});
+            }
+          }
+        },
+      },
       // Automatically synchronize index.html <title> and meta tags from site-config.json
       {
         name: 'inject-site-config-html-title',

@@ -3,6 +3,8 @@ import express, {type Request, type Response} from 'express';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import {Readable} from 'node:stream';
+import type {ReadableStream as NodeReadableStream} from 'node:stream/web';
 import {fileURLToPath} from 'node:url';
 import {GoogleGenAI, ThinkingLevel, Type} from '@google/genai';
 
@@ -413,6 +415,68 @@ async function startServer() {
 
       console.error('Gemini generate-slides error:', err);
       res.status(status).json({error: friendlyError});
+    }
+  });
+
+  app.get('/api/drive-pdf/:fileId', async (req: Request, res: Response) => {
+    const fileId = String(req.params.fileId || '').trim();
+    if (!/^[a-zA-Z0-9_-]{10,120}$/.test(fileId)) {
+      res.status(400).json({error: '無效的 Google Drive 檔案代碼'});
+      return;
+    }
+
+    const targetUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`;
+    const forwardHeaders: Record<string, string> = {};
+    const rangeHeader = req.headers.range;
+    if (typeof rangeHeader === 'string' && /^bytes=\d+-\d*$/i.test(rangeHeader.trim())) {
+      forwardHeaders.Range = rangeHeader.trim();
+    }
+
+    try {
+      const upstream = await fetch(targetUrl, {
+        headers: forwardHeaders,
+        redirect: 'follow',
+        signal: AbortSignal.timeout(45000),
+      });
+
+      const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
+      if (!upstream.ok || contentType.includes('text/html')) {
+        res.status(upstream.ok ? 403 : upstream.status).json({
+          error: '此 Google Drive 檔案尚未設為公開檢視或非直接 PDF 檔。',
+        });
+        return;
+      }
+
+      res.status(upstream.status);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      const contentLength = upstream.headers.get('content-length');
+      if (contentLength) res.setHeader('Content-Length', contentLength);
+      const contentRange = upstream.headers.get('content-range');
+      if (contentRange) res.setHeader('Content-Range', contentRange);
+
+      if (!upstream.body) {
+        const buf = Buffer.from(await upstream.arrayBuffer());
+        res.send(buf);
+        return;
+      }
+
+      const nodeStream = Readable.fromWeb(
+        upstream.body as unknown as NodeReadableStream<Uint8Array>,
+      );
+      nodeStream.on('error', () => {
+        if (!res.headersSent) {
+          res.status(502).end();
+        } else {
+          res.end();
+        }
+      });
+      nodeStream.pipe(res);
+    } catch {
+      if (!res.headersSent) {
+        res.status(502).json({error: '代理讀取雲端 PDF 逾時或失敗。'});
+      }
     }
   });
 

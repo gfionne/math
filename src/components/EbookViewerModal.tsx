@@ -34,6 +34,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import {TeachingResource} from '../types/journal';
+import {getAccessToken} from '../services/googleAuth';
 import {
   EbookTocEntry,
   findActiveTocEntry,
@@ -46,6 +47,11 @@ import {
 } from '../utils/epubLoader';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+function getPdfjsAssetBaseUrl(folder: 'cmaps' | 'standard_fonts'): string {
+  if (typeof window === 'undefined') return `./pdfjs/${folder}/`;
+  return new URL(`pdfjs/${folder}/`, window.location.href).toString();
+}
 
 interface EbookViewerModalProps {
   resource: TeachingResource | null;
@@ -67,6 +73,8 @@ interface ResolvedEbookSource {
   formatLabel: string;
   downloadUrl?: string;
   downloadExt?: string;
+  driveFileId?: string;
+  fallbackPreviewUrl?: string;
 }
 
 interface PdfOutlineNode {
@@ -158,16 +166,22 @@ function resolveEbookSource(rawUrl?: string): ResolvedEbookSource {
       };
     }
 
-    if (parsed.hostname.includes('drive.google.com')) {
+    if (
+      parsed.hostname.includes('drive.google.com') ||
+      parsed.hostname.includes('drive.usercontent.google.com')
+    ) {
       const fileId = extractDriveFileId(trimmed);
       if (fileId) {
+        const directDownloadUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(fileId)}&export=download&confirm=t`;
         return {
-          mode: 'iframe',
-          embedUrl: `https://drive.google.com/file/d/${fileId}/preview`,
+          mode: 'pdf',
+          embedUrl: directDownloadUrl,
           rawUrl: trimmed,
-          formatLabel: '雲端 PDF 閱讀器',
-          downloadUrl: `https://drive.google.com/uc?export=download&id=${fileId}`,
+          formatLabel: '雲端 PDF 電子書',
+          downloadUrl: directDownloadUrl,
           downloadExt: 'pdf',
+          driveFileId: fileId,
+          fallbackPreviewUrl: `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview`,
         };
       }
     }
@@ -921,6 +935,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const touchStartRef = useRef<{x: number; y: number} | null>(null);
+  const pendingPageRef = useRef<number | null>(null);
   const pdfTextCacheRef = useRef<Map<number, string>>(new Map());
   const epubTextCacheRef = useRef<Map<number, string>>(new Map());
 
@@ -948,6 +963,11 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageInput, setPageInput] = useState('1');
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfLoadProgress, setPdfLoadProgress] = useState<{
+    loaded: number;
+    total: number;
+  } | null>(null);
+  const [queuedTargetPage, setQueuedTargetPage] = useState<number | null>(null);
   const [pdfCorsFallback, setPdfCorsFallback] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [zoomFactor, setZoomFactor] = useState(1);
@@ -1147,6 +1167,9 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
     setCurrentPage(1);
     setPageInput('1');
+    pendingPageRef.current = null;
+    setQueuedTargetPage(null);
+    setPdfLoadProgress(null);
     setZoomFactor(1);
     setPdfCorsFallback(false);
     setPdfError(null);
@@ -1210,65 +1233,165 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     return () => observer.disconnect();
   }, [resource, showSidebar, showNotesDrawer, showSearchDrawer, activeMode]);
 
-  // Load PDF document when in PDF mode
+  // Load PDF document when in PDF mode (supports direct Drive CORS stream + authenticated Drive API + optional server proxy)
   useEffect(() => {
     if (!resource || source.mode !== 'pdf' || pdfCorsFallback) {
       setPdfDoc(null);
       setPdfOutline([]);
       setNumPages(0);
       setPdfLoading(false);
+      setPdfLoadProgress(null);
       return;
     }
 
     let cancelled = false;
+    let activeLoadingTask: pdfjsLib.PDFDocumentLoadingTask | null = null;
     setPdfLoading(true);
+    setPdfLoadProgress(null);
     setPdfError(null);
     setPdfDoc(null);
     setPdfOutline([]);
     setNumPages(0);
     pdfTextCacheRef.current.clear();
 
-    const loadingTask = pdfjsLib.getDocument({url: source.embedUrl});
+    const cMapUrl = getPdfjsAssetBaseUrl('cmaps');
+    const standardFontDataUrl = getPdfjsAssetBaseUrl('standard_fonts');
 
-    void loadingTask.promise
-      .then(async (doc) => {
-        if (cancelled) {
-          void doc.cleanup().catch(() => {});
-          return;
-        }
-        setPdfDoc(doc);
-        setNumPages(doc.numPages);
-        setPdfLoading(false);
+    const candidates: Array<{
+      url: string;
+      httpHeaders?: Record<string, string>;
+    }> = [{url: source.embedUrl}];
 
-        const outline = await flattenPdfOutline(doc);
-        if (!cancelled) {
-          setPdfOutline(outline);
-          const mergedToc = resolveBookTocMeta(resource, outline);
-          if (mergedToc.entries.length > 0) {
-            setSidebarTab('toc');
-            if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
-              setShowSidebar(true);
-            }
-          } else {
-            setSidebarTab('thumbs');
-          }
-        }
-      })
-      .catch((err) => {
+    if (source.driveFileId) {
+      const oauthToken = getAccessToken();
+      if (oauthToken) {
+        candidates.push({
+          url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(
+            source.driveFileId,
+          )}?alt=media`,
+          httpHeaders: {Authorization: `Bearer ${oauthToken}`},
+        });
+      }
+      const isStaticGithubPages =
+        typeof window !== 'undefined' &&
+        window.location.hostname.toLowerCase().endsWith('github.io');
+      if (!isStaticGithubPages) {
+        candidates.push({
+          url: `./api/drive-pdf/${encodeURIComponent(source.driveFileId)}`,
+        });
+      }
+    }
+
+    void (async () => {
+      let loadedDoc: pdfjsLib.PDFDocumentProxy | null = null;
+      let lastErr: unknown = null;
+
+      for (const candidate of candidates) {
         if (cancelled) return;
-        console.warn('PDF.js load failed, switching to embedded frame fallback:', err);
+        setPdfLoadProgress(null);
+        const task = pdfjsLib.getDocument({
+          url: candidate.url,
+          httpHeaders: candidate.httpHeaders,
+          cMapUrl,
+          cMapPacked: true,
+          standardFontDataUrl,
+        });
+        activeLoadingTask = task;
+
+        task.onProgress = ({
+          loaded,
+          total,
+        }: {
+          loaded: number;
+          total: number;
+        }) => {
+          if (cancelled) return;
+          setPdfLoadProgress({loaded, total});
+        };
+
+        try {
+          const doc = await task.promise;
+          if (cancelled) {
+            void doc.cleanup().catch(() => {});
+            return;
+          }
+          loadedDoc = doc;
+          break;
+        } catch (err) {
+          lastErr = err;
+          void task.destroy().catch(() => {});
+        }
+      }
+
+      if (cancelled) return;
+
+      if (!loadedDoc) {
+        console.warn(
+          'PDF.js load failed across all candidates, switching to embedded frame fallback:',
+          lastErr,
+        );
         setPdfLoading(false);
+        setPdfLoadProgress(null);
         setPdfCorsFallback(true);
         setPdfError(
-          '無法透過輕量 Canvas 解析此遠端 PDF（可能受限於跨網域 CORS 設定），已自動切換為內嵌文件框預覽。',
+          source.driveFileId
+            ? '無法以站內直連模式載入此雲端 PDF（可能為私有檔案或跨網域限制），已切換為 Google 雲端預覽框。'
+            : '無法透過輕量 Canvas 解析此遠端 PDF（可能受限於跨網域 CORS 設定），已自動切換為內嵌文件框預覽。',
         );
-      });
+        return;
+      }
+
+      setPdfDoc(loadedDoc);
+      setNumPages(loadedDoc.numPages);
+      setPdfLoading(false);
+      setPdfLoadProgress(null);
+
+      const requestedPage = pendingPageRef.current;
+      if (requestedPage !== null) {
+        const clampedTarget = Math.max(
+          1,
+          Math.min(loadedDoc.numPages, requestedPage),
+        );
+        pendingPageRef.current = null;
+        setQueuedTargetPage(null);
+        setCurrentPage(clampedTarget);
+        setPageInput(String(clampedTarget));
+        window.setTimeout(() => {
+          const targetEl = document.getElementById(
+            `pdf-scroll-page-${clampedTarget}`,
+          );
+          targetEl?.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }, 80);
+      }
+
+      const outline = await flattenPdfOutline(loadedDoc);
+      if (!cancelled) {
+        setPdfOutline(outline);
+        const mergedToc = resolveBookTocMeta(resource, outline);
+        if (mergedToc.entries.length > 0) {
+          setSidebarTab('toc');
+          if (typeof window !== 'undefined' && window.innerWidth >= 1024) {
+            setShowSidebar(true);
+          }
+        } else {
+          setSidebarTab('thumbs');
+        }
+      }
+    })();
 
     return () => {
       cancelled = true;
-      void loadingTask.destroy().catch(() => {});
+      if (activeLoadingTask) {
+        void activeLoadingTask.destroy().catch(() => {});
+      }
     };
-  }, [resource, source.mode, source.embedUrl, pdfCorsFallback]);
+  }, [
+    resource,
+    source.mode,
+    source.embedUrl,
+    source.driveFileId,
+    pdfCorsFallback,
+  ]);
 
   // Cleanup pdfDoc when replaced or unmounted
   useEffect(() => {
@@ -1743,7 +1866,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
   const activeTocEntry = useMemo(() => {
     if (!hasStructuredToc) return null;
-    if (activeMode === 'pdf') {
+    if (activeMode === 'pdf' && numPages > 0) {
       return findActiveTocEntry(bookTocMeta.entries, currentPage, secondPage);
     }
     return (
@@ -1754,6 +1877,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   }, [
     hasStructuredToc,
     activeMode,
+    numPages,
     bookTocMeta.entries,
     currentPage,
     secondPage,
@@ -1761,18 +1885,30 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   ]);
 
   const resolvedIframeSrc = useMemo(() => {
-    if (activeMode !== 'iframe' || !source.embedUrl) return source.embedUrl;
-    if (!iframeTargetPage || iframeTargetPage <= 0) return source.embedUrl;
-    const baseWithoutHash = source.embedUrl.split('#')[0];
+    const baseIframeUrl = source.fallbackPreviewUrl || source.embedUrl;
+    if (activeMode !== 'iframe' || !baseIframeUrl) return baseIframeUrl;
+    if (source.driveFileId) return baseIframeUrl;
+    if (!iframeTargetPage || iframeTargetPage <= 0) return baseIframeUrl;
+    const baseWithoutHash = baseIframeUrl.split('#')[0];
     return `${baseWithoutHash}#page=${iframeTargetPage}`;
-  }, [activeMode, source.embedUrl, iframeTargetPage]);
+  }, [
+    activeMode,
+    source.embedUrl,
+    source.fallbackPreviewUrl,
+    source.driveFileId,
+    iframeTargetPage,
+  ]);
 
   if (!resource) return null;
 
   const isDark = readingTheme === 'dark';
 
-  const horizontalPadding = isSpreadActive ? 88 : 56;
-  const verticalPadding = 40;
+  const horizontalPadding = isSpreadActive
+    ? 88
+    : stageSize.width < 640
+      ? 18
+      : 56;
+  const verticalPadding = stageSize.width < 640 ? 20 : 40;
   const pageTargetWidth = isSpreadActive
     ? Math.max(220, (stageSize.width - horizontalPadding - 12) / 2)
     : Math.max(240, stageSize.width - horizontalPadding);
@@ -1803,11 +1939,20 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   const handleSelectTocEntry = (entry: EbookTocEntry) => {
     setSelectedTocId(entry.id);
     if (activeMode === 'pdf') {
-      goToPage(entry.startPage);
+      if (numPages > 0) {
+        pendingPageRef.current = null;
+        setQueuedTargetPage(null);
+        goToPage(entry.startPage);
+      } else {
+        pendingPageRef.current = entry.startPage;
+        setQueuedTargetPage(entry.startPage);
+      }
     } else if (activeMode === 'iframe') {
       setIframeTargetPage(entry.startPage);
-      setIframeLoading(true);
-      setIframeKey((k) => k + 1);
+      if (!source.driveFileId) {
+        setIframeLoading(true);
+        setIframeKey((k) => k + 1);
+      }
     } else if (activeMode === 'notes-only') {
       const topCard = document.getElementById('notes-selected-chapter-card');
       topCard?.scrollIntoView({behavior: 'smooth', block: 'nearest'});
@@ -3044,21 +3189,33 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
             )}
 
           {pdfError && activeMode === 'iframe' && (
-            <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-3 sm:px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <span className="inline-flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{pdfError}</span>
               </span>
-              {source.rawUrl && (
-                <a
-                  href={source.rawUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+              <div className="flex items-center gap-3 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPdfCorsFallback(false);
+                    setPdfError(null);
+                  }}
                   className="font-semibold text-[#1E3A8A] underline underline-offset-2"
                 >
-                  直接下載或另開檔案
-                </a>
-              )}
+                  重試站內直連閱讀
+                </button>
+                {source.rawUrl && (
+                  <a
+                    href={source.rawUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-[#1E3A8A] underline underline-offset-2"
+                  >
+                    另開檔案
+                  </a>
+                )}
+              </div>
             </div>
           )}
 
@@ -3067,17 +3224,66 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
             <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
               {pdfLoading ? (
                 <div
-                  className={`flex-1 flex flex-col items-center justify-center gap-3 ${
+                  className={`flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center ${
                     isDark ? 'text-stone-300' : 'text-stone-600'
                   }`}
                 >
                   <Loader2 className="w-7 h-7 animate-spin text-[#1E3A8A]" />
-                  <span className="text-sm font-medium">
-                    正在載入電子書書頁…
-                  </span>
+                  <div className="space-y-1.5 max-w-xs w-full">
+                    <div className="text-sm font-medium">
+                      {pdfLoadProgress && pdfLoadProgress.total > 0
+                        ? `正在載入電子書… ${Math.min(
+                            100,
+                            Math.round(
+                              (pdfLoadProgress.loaded / pdfLoadProgress.total) *
+                                100,
+                            ),
+                          )}%`
+                        : pdfLoadProgress && pdfLoadProgress.loaded > 0
+                          ? `正在下載電子書（${(
+                              pdfLoadProgress.loaded /
+                              (1024 * 1024)
+                            ).toFixed(1)} MB）…`
+                          : '正在連線並解析電子書書頁…'}
+                    </div>
+                    {pdfLoadProgress && pdfLoadProgress.total > 0 && (
+                      <>
+                        <div className="w-full h-1.5 rounded-full bg-stone-300/60 overflow-hidden">
+                          <div
+                            className="h-full bg-[#1E3A8A] transition-all duration-200"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                Math.round(
+                                  (pdfLoadProgress.loaded /
+                                    pdfLoadProgress.total) *
+                                    100,
+                                ),
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="text-[11px] font-mono-tabular opacity-75">
+                          {(pdfLoadProgress.loaded / (1024 * 1024)).toFixed(1)}{' '}
+                          /{' '}
+                          {(pdfLoadProgress.total / (1024 * 1024)).toFixed(1)}{' '}
+                          MB
+                        </div>
+                      </>
+                    )}
+                    {queuedTargetPage !== null && (
+                      <div className="text-xs font-medium text-[#1E3A8A] dark:text-blue-300 pt-1">
+                        載入完成後將自動跳至第{' '}
+                        <span className="font-mono-tabular font-bold">
+                          {queuedTargetPage}
+                        </span>{' '}
+                        頁
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : pdfDoc && effectivePdfLayout === 'scroll' ? (
-                <div className="flex-1 overflow-y-auto px-4 py-6 space-y-5">
+                <div className="flex-1 overflow-y-auto px-2 sm:px-4 py-4 sm:py-6 space-y-5">
                   {Array.from({length: numPages}, (_, i) => i + 1).map(
                     (pageNum) => (
                       <div
@@ -3107,7 +3313,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   )}
                 </div>
               ) : pdfDoc ? (
-                <div className="flex-1 min-h-0 relative flex items-center justify-center overflow-auto p-4 sm:p-6">
+                <div className="flex-1 min-h-0 relative flex overflow-auto p-2 sm:p-6">
                   {/* Left Floating Page-Turn Edge Button */}
                   <button
                     type="button"
@@ -3127,7 +3333,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   {/* Book Spread / Single Page Leaf with 3D Flip Animation */}
                   <div
                     key={flipState.key}
-                    className={`flex items-center justify-center min-h-min my-auto ${
+                    className={`flex items-center justify-center m-auto min-h-min ${
                       isSpreadActive && secondPage !== null ? 'gap-0' : 'gap-4'
                     } ${flipAnimationClass}`}
                   >
@@ -3337,7 +3543,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     <strong className="font-mono-tabular text-[#1E3A8A]">
                       {iframeTargetPage}
                     </strong>{' '}
-                    頁（若雲端預覽器未自動捲動，可於下方框內直接輸入頁碼）
+                    頁（Google 雲端預覽框受限於外部網域安全性，請於下方預覽框切換頁碼）
                   </span>
                 </div>
               )}
