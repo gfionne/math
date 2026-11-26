@@ -4,6 +4,11 @@ import {
   ResourceType,
   TeachingResource,
 } from '../types/journal';
+import {
+  CONSTRUCTED_RESPONSE_CANONICAL_CONTENT,
+  CONSTRUCTED_RESPONSE_CANONICAL_SUMMARY,
+  CONSTRUCTED_RESPONSE_CANONICAL_TAGS,
+} from '../utils/ebookToc';
 
 export const RESOURCE_GRADE_BANDS: ResourceGradeBand[] = [
   '低年級 (1-2)',
@@ -27,7 +32,11 @@ export const RESOURCE_SOURCE_ORIGINS: ResourceSourceOrigin[] = [
 ];
 
 export const SUGGESTED_TOPIC_TAGS = [
+  '探究教學篇',
+  '形成性評量篇',
+  '建構反應題',
   '分數與小數',
+  '比率與百分率',
   '幾何與空間',
   '因數與倍數',
   '時間與測量',
@@ -90,26 +99,11 @@ export const SEED_TEACHING_RESOURCES: TeachingResource[] = [
     gradeBand: '跨年級通用',
     resourceType: '電子書',
     sourceOrigin: '公開精選',
-    topicTags: '素養導向, 差異化學習, 分數與小數, 幾何與空間, 時間與測量',
-    summary:
-      '全書 219 頁收錄 1～6 年級共 18 篇探究教學與形成性評量／素養教案、學習單與評量規準（含導覽目錄與書末版權共 20 區間），支援側邊目錄依原書次序、年級、篇別與跨年級脈絡快速跳頁。',
-    content: `## 全書篇章導覽與備課指南（全書 219 頁完整索引）
-
-本書依教學型態分為四大主軸，並於電子書左側提供**原書次序、年級、資源分類與跨年級脈絡**快速跳頁導航（已對齊全書 PDF 頁碼與原書頁碼）：
-
-### 依「資源分類與教學功能」整理
-1. **探究教學篇 — 擴展式（01～06 篇，PDF 12～79 頁／原書 001～068 頁）**：以單一核心問題為起點，逐步延伸、追問與擴展探究層次（二年級錢幣換算、四年級四捨五入與兩數相除是分數、五年級容積應用與連除併式、六年級怎樣解題）。
-2. **探究教學篇 — 題組式（07～08 篇，PDF 80～102 頁／原書 069～091 頁）**：以環環相扣的題組任務引導學生逐步深入，集中於四年級「畫圖表徵分數」與「分數」概念理解。
-3. **形成性評量篇與五年級素養教案／附件（09～18 篇，PDF 103～217 頁／原書 092～206 頁）**：涵蓋一年級分類整理、三年級周界和周長、四年級取概數／整數四則／分數為兩整數相除結果／周長與面積／角度，以及五年級「去零除法（餘數還原）」、孫德蘭老師「比率與百分率（折扣問題）」與吳欣悅老師「扇形（冰淇淋外包裝判斷）」。
-4. **書末版權與輔導團名錄（19 區間，PDF 218～219 頁／原書 207～208 頁）**：出版資訊與臺北市國民教育輔導團國小數學領域輔導小組名單。
-
-### 跨年級主題脈絡觀察（備課參考）
-* **分數、除法與比率脈絡**：四年級「兩數相除是分數」→「畫圖表徵分數」→「分數」→「分數為兩整數相除結果」→五年級「比率與百分率（折扣問題）」，建立除法、分數、百分率與生活折扣之間的連結。
-* **運算規則、估算與刪零餘數**：四年級「四捨五入」、「取概數」、「整數四則」與五年級「連除併式」、「去零除法」餘數還原（如 \`200200 ÷ 400\` 餘數為 \`200\` 而非 \`2\`）。
-* **幾何構成、測量與空間推理**：三年級「周界和周長」、四年級「周長與面積」與「角度」、五年級「容積的應用」與「扇形」構成要素判斷（運用 van Hiele 幾何層次檢核圓心、半徑與弧）。
-* **資料整理與綜合解題**：一年級「分類整理」至六年級「怎樣解題」。`,
+    topicTags: CONSTRUCTED_RESPONSE_CANONICAL_TAGS,
+    summary: CONSTRUCTED_RESPONSE_CANONICAL_SUMMARY,
+    content: CONSTRUCTED_RESPONSE_CANONICAL_CONTENT,
     resourceUrl: './assets/ebooks/constructed-response-math.pdf',
-    author: '數學領域素養教學研發團隊',
+    author: '臺北市國民教育輔導團國小數學領域輔導小組',
     publishedAt: '2026-11-26',
     isPublic: true,
     isPinned: true,

@@ -64,6 +64,7 @@ const LOCAL_DRIVE_PDF_MIRRORS: Record<string, string> = {
 
 interface EbookViewerModalProps {
   resource: TeachingResource | null;
+  initialPage?: number | null;
   onClose: () => void;
   onOpenShareQr?: (url: string, title: string) => void;
   hubShareUrl?: string;
@@ -945,6 +946,7 @@ async function flattenPdfOutline(
 
 export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
   resource,
+  initialPage = null,
   onClose,
   onOpenShareQr,
   hubShareUrl = '',
@@ -1185,10 +1187,17 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     const shouldAutoOpenToc =
       initialToc.entries.length > 0 && isDesktop;
 
-    setCurrentPage(1);
-    setPageInput('1');
-    pendingPageRef.current = null;
-    setQueuedTargetPage(null);
+    const targetStartPage =
+      initialPage && initialPage > 1 ? Math.floor(initialPage) : 1;
+    const matchedInitialToc =
+      targetStartPage > 1
+        ? findActiveTocEntry(initialToc.entries, targetStartPage)
+        : initialToc.entries[0] ?? null;
+
+    setCurrentPage(targetStartPage);
+    setPageInput(String(targetStartPage));
+    pendingPageRef.current = targetStartPage > 1 ? targetStartPage : null;
+    setQueuedTargetPage(targetStartPage > 1 ? targetStartPage : null);
     setPdfLoadProgress(null);
     setZoomFactor(1);
     setPdfCorsFallback(false);
@@ -1200,8 +1209,8 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     setTocGroupMode('order');
     setTocFilterQuery('');
     setActiveStrandId(null);
-    setSelectedTocId(initialToc.entries[0]?.id ?? null);
-    setIframeTargetPage(null);
+    setSelectedTocId(matchedInitialToc?.id ?? null);
+    setIframeTargetPage(targetStartPage > 1 ? targetStartPage : null);
     setShowNotesDrawer(false);
     setShowSearchDrawer(false);
     setSearchQuery('');
@@ -1220,7 +1229,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     setMdError(null);
     setIframeKey((k) => k + 1);
     setIframeLoading(true);
-  }, [resource?.id, resource?.resourceUrl]);
+  }, [resource?.id, resource?.resourceUrl, initialPage]);
 
   // Keep pageInput synced with currentPage
   useEffect(() => {
@@ -2855,18 +2864,6 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                               })}
                             </div>
                           ))}
-
-                          {bookTocMeta.footnote && (
-                            <p
-                              className={`px-2 pt-2 border-t text-[11px] leading-relaxed ${
-                                isDark
-                                  ? 'border-zinc-800 text-stone-400'
-                                  : 'border-stone-200 text-stone-500'
-                              }`}
-                            >
-                              {bookTocMeta.footnote}
-                            </p>
-                          )}
                         </div>
                       ) : (
                         <div className="py-6 px-3 text-center space-y-2">

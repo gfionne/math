@@ -1,4 +1,4 @@
-import {TeachingResource} from '../types/journal';
+import {ResourceGradeBand, TeachingResource} from '../types/journal';
 
 export interface EbookTocEntry {
   id: string;
@@ -27,7 +27,6 @@ export interface EbookTocBookMeta {
   entries: EbookTocEntry[];
   categoryDescriptions?: Record<string, string>;
   crossTopicStrands?: EbookCrossTopicStrand[];
-  footnote?: string;
 }
 
 export interface PdfOutlineLike {
@@ -37,26 +36,56 @@ export interface PdfOutlineLike {
   level: number;
 }
 
+export type PedagogicalTypeGroup =
+  | '探究教學篇'
+  | '形成性評量篇'
+  | '導覽與附錄';
+
+export function mapChapterGradeToGradeBand(grade?: string): ResourceGradeBand {
+  const g = (grade || '').trim();
+  if (g === '一年級' || g === '二年級') return '低年級 (1-2)';
+  if (g === '三年級' || g === '四年級') return '中年級 (3-4)';
+  if (g === '五年級' || g === '六年級') return '高年級 (5-6)';
+  return '跨年級通用';
+}
+
+export function getPedagogicalTypeGroup(
+  category?: string,
+): PedagogicalTypeGroup {
+  const c = (category || '').trim();
+  if (c.startsWith('探究教學篇')) return '探究教學篇';
+  if (c.startsWith('形成性評量篇')) return '形成性評量篇';
+  return '導覽與附錄';
+}
+
+export function isConstructedResponseBookResource(
+  resource?: Pick<TeachingResource, 'id' | 'title'> | null,
+): boolean {
+  if (!resource) return false;
+  if (resource.id === 'res-constructed-response-math-ebook') return true;
+  const normalizedTitle = (resource.title || '').replace(/\s+/g, '');
+  return normalizedTitle.includes('建構反應題融入數學領域素養教學活動設計');
+}
+
 export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
   sourceLabel: '篇章結構目錄（20 篇）',
-  footnote:
-    '註：全書 219 頁已完整對齊原書頁碼（PDF 頁碼＝原書頁碼＋11），涵蓋 00 導覽前言、01～08 探究教學篇、09～18 形成性評量與五年級素養教案，以及 19 版權與臺北市國小數學輔導團名錄。',
   categoryDescriptions: {
-    導覽與前言: '封面、序、專文、目次與篇名索引。',
+    導覽與前言: '封面、序、專文、目次與篇名頁索引（PDF 1～11）。',
     '探究教學篇（擴展式）':
-      '以單一核心問題為起點逐步延伸追問，適合整節或多節課深度概念建構。',
+      '以單一核心問題為起點，透過引入、探索、分享討論與結論四階段逐步追問延伸（01～06 篇，涵蓋二、四、五、六年級）。',
     '探究教學篇（題組式）':
-      '以環環相扣的題組任務引導學生逐步深入，聚焦四年級分數表徵與概念理解。',
+      '以環環相扣的題組任務引導學生逐題探索與對話表徵（07～08 篇，聚焦四年級分數概念）。',
     形成性評量篇:
-      '搭配建構反應題型與五年級素養教案／附件，於課堂即時蒐集學生迷思概念與思考歷程，提供評閱標準與解題舉隅。',
-    書末版權與附錄: '全書出版資訊、編撰群與臺北市國民教育輔導團國小數學領域輔導小組名單。',
+      '運用建構反應題進行「先評量、後討論」形成性評量與教學整合（09～18 篇，涵蓋一、三、四、五年級），含評閱標準、學生常見錯誤分析與解題舉隅。',
+    書末版權與附錄:
+      '全書出版資訊、編撰群與臺北市國民教育輔導團國小數學領域輔導小組名單。',
   },
   crossTopicStrands: [
     {
       id: 'strand-fraction-division',
       label: '分數、除法與比率',
       description:
-        '從四年級「兩數相除是分數」、「畫圖表徵分數」、「分數」、「分數為兩整數相除結果」延伸至五年級「比率與百分率」折扣問題',
+        '從四年級「兩數相除是分數」、「畫圖表徵分數」、「分數」、「分數為兩整數相除結果」延伸至五年級「比率與百分率（折扣問題）」',
       chapterOrders: ['03', '07', '08', '13', '17'],
     },
     {
@@ -179,10 +208,10 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       grade: '四年級',
       title: '畫圖表徵分數',
       designer: '石玫芳',
-      startPage: 80,
+      startPage: 82,
       endPage: 90,
-      pageNote: '80～90',
-      bookPageNote: '原書 069～079',
+      pageNote: '82～90',
+      bookPageNote: '原書 071～079',
       resourceKind: '題組式探究教案、學習單與資源',
     },
     {
@@ -193,9 +222,9 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       title: '分數',
       designer: '曾婉菁',
       startPage: 91,
-      endPage: 102,
-      pageNote: '91～102',
-      bookPageNote: '原書 080～091',
+      endPage: 101,
+      pageNote: '91～101',
+      bookPageNote: '原書 080～090',
       resourceKind: '題組式探究教案、學習單與資源',
     },
     {
@@ -205,10 +234,10 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       grade: '一年級',
       title: '分類整理',
       designer: '林旭霓',
-      startPage: 103,
+      startPage: 104,
       endPage: 113,
-      pageNote: '103～113',
-      bookPageNote: '原書 092～102',
+      pageNote: '104～113',
+      bookPageNote: '原書 093～102',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -285,8 +314,8 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       designer: '胡詩菁',
       startPage: 170,
       endPage: 182,
-      pageNote: '169（接170）～182',
-      bookPageNote: '原書 158（接159）～171',
+      pageNote: '170～182',
+      bookPageNote: '原書 159～171',
       resourceKind: '形成性評量題組、評量說明與附件',
     },
     {
@@ -300,7 +329,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       endPage: 195,
       pageNote: '183～195',
       bookPageNote: '原書 172～184',
-      resourceKind: '教學活動設計、評量單、檢測結果說明與解題舉隅',
+      resourceKind: '形成性評量教案、檢測結果說明與解題舉隅',
     },
     {
       id: 'cr-17',
@@ -313,7 +342,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       endPage: 206,
       pageNote: '196～206',
       bookPageNote: '原書 185～195',
-      resourceKind: '教學活動設計、評量單、101基測附件',
+      resourceKind: '形成性評量教案、評量單與101基測附件',
     },
     {
       id: 'cr-18',
@@ -326,7 +355,7 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       endPage: 217,
       pageNote: '207～217',
       bookPageNote: '原書 196～206',
-      resourceKind: '教學活動設計、評量單、自編試題附件',
+      resourceKind: '形成性評量教案、評量單與自編試題附件',
     },
     {
       id: 'cr-19',
@@ -339,10 +368,92 @@ export const CONSTRUCTED_RESPONSE_BOOK_META: EbookTocBookMeta = {
       endPage: 219,
       pageNote: '218～219',
       bookPageNote: '原書 207～208',
-      resourceKind: '出版資訊、編撰與輔導團名單',
+      resourceKind: '出版資訊與輔導團名單',
     },
   ],
 };
+
+export const CONSTRUCTED_RESPONSE_CANONICAL_TAGS =
+  '探究教學篇, 形成性評量篇, 建構反應題, 素養導向, 分數與小數, 幾何與空間, 比率與百分率';
+
+export const CONSTRUCTED_RESPONSE_CANONICAL_SUMMARY =
+  '全書 219 頁收錄 1～6 年級共 18 篇教學設計，精確劃分為「探究教學篇（擴展式 6 篇、題組式 2 篇）」與「形成性評量篇（10 篇）」，支援依資源類型、年級與數學單元直達對應 PDF 頁碼。';
+
+export const CONSTRUCTED_RESPONSE_CANONICAL_CONTENT = `## 全書篇章分類架構與年級單元映射（全書 219 頁）
+
+本書依教學型態精確劃分為三大教學模組與前後附錄，並已完成 1～6 年級單元與 PDF／原書頁碼對齊：
+
+### 一、探究教學篇 — 擴展式（01～06 篇｜PDF 12～79 頁／原書 001～068 頁）
+* **01 二年級｜錢幣換算**（李孟柔 · PDF 12～24／原書 001～013）
+* **02 四年級｜四捨五入**（翁嘉聲 · PDF 25～35／原書 014～024）
+* **03 四年級｜兩數相除是分數**（孫德蘭 · PDF 36～44／原書 025～033）
+* **04 五年級｜容積的應用**（石玫芳 · PDF 45～53／原書 034～042）
+* **05 五年級｜連除併式**（李孟柔 · PDF 54～66／原書 043～055）
+* **06 六年級｜怎樣解題**（陳滄智、石玫芳 · PDF 67～79／原書 056～068）
+
+### 二、探究教學篇 — 題組式（07～08 篇｜PDF 82～101 頁／原書 071～090 頁）
+* **07 四年級｜畫圖表徵分數**（石玫芳 · PDF 82～90／原書 071～079）
+* **08 四年級｜分數**（曾婉菁 · PDF 91～101／原書 080～090）
+
+### 三、形成性評量篇（09～18 篇｜PDF 104～217 頁／原書 093～206 頁）
+* **09 一年級｜分類整理**（林旭霓 · PDF 104～113／原書 093～102）
+* **10 三年級｜周界和周長**（孫德蘭 · PDF 114～124／原書 103～113）
+* **11 四年級｜取概數**（房昔梅 · PDF 125～136／原書 114～125）
+* **12 四年級｜整數四則**（張雅文 · PDF 137～148／原書 126～137）
+* **13 四年級｜分數為兩整數相除結果**（駱美如 · PDF 149～158／原書 138～147）
+* **14 四年級｜周長與面積**（石玫芳 · PDF 159～169／原書 148～158）
+* **15 四年級｜角度**（胡詩菁 · PDF 170～182／原書 159～171）
+* **16 五年級｜去零除法**（李孟柔 · PDF 183～195／原書 172～184）
+* **17 五年級｜比率與百分率（折扣問題）**（孫德蘭 · PDF 196～206／原書 185～195）
+* **18 五年級｜扇形（冰淇淋外包裝判斷）**（吳欣悅 · PDF 207～217／原書 196～206）
+
+### 四、導覽前言與書末附錄（00、19｜PDF 1～11、218～219 頁）
+* **00 通用｜封面、序、專文、目次、篇名頁**（PDF 1～11）
+* **19 通用｜版權頁與臺北市國小數學輔導小組名單**（PDF 218～219／原書 207～208）`;
+
+export function enrichTeachingResourceMetadata(
+  resource: TeachingResource,
+): TeachingResource {
+  if (!isConstructedResponseBookResource(resource)) {
+    return resource;
+  }
+
+  const rawSummary = (resource.summary || '').trim();
+  const isOutdatedPlaceholderSummary =
+    !rawSummary ||
+    rawSummary.startsWith('跨年級通用｜電子書：') ||
+    rawSummary.includes('20 區間') ||
+    rawSummary.includes('形成性評量／素養教案');
+
+  const rawContent = (resource.content || '').trim();
+  const isOutdatedContent =
+    !rawContent ||
+    rawContent.includes('本文件為一套數學科建構反應題的教學活動設計指南') ||
+    rawContent.includes('形成性評量篇與五年級素養教案') ||
+    rawContent.includes('暫歸');
+
+  const existingTags = (resource.topicTags || '')
+    .split(/[,，、;；|/]+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const canonicalTags = CONSTRUCTED_RESPONSE_CANONICAL_TAGS.split(',').map(
+    (t) => t.trim(),
+  );
+  const mergedTags = Array.from(new Set([...canonicalTags, ...existingTags])).join(
+    ', ',
+  );
+
+  return {
+    ...resource,
+    summary: isOutdatedPlaceholderSummary
+      ? CONSTRUCTED_RESPONSE_CANONICAL_SUMMARY
+      : rawSummary,
+    content: isOutdatedContent
+      ? CONSTRUCTED_RESPONSE_CANONICAL_CONTENT
+      : rawContent,
+    topicTags: mergedTags,
+  };
+}
 
 function parsePageRangeToken(raw: string): {
   startPage: number;
