@@ -1737,11 +1737,39 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     goToEpubChapter,
   ]);
 
+  const secondPage =
+    isSpreadActive && currentPage + 1 <= numPages ? currentPage + 1 : null;
+  const hasStructuredToc = bookTocMeta.entries.length > 0;
+
+  const activeTocEntry = useMemo(() => {
+    if (!hasStructuredToc) return null;
+    if (activeMode === 'pdf') {
+      return findActiveTocEntry(bookTocMeta.entries, currentPage, secondPage);
+    }
+    return (
+      bookTocMeta.entries.find((e) => e.id === selectedTocId) ||
+      bookTocMeta.entries[0] ||
+      null
+    );
+  }, [
+    hasStructuredToc,
+    activeMode,
+    bookTocMeta.entries,
+    currentPage,
+    secondPage,
+    selectedTocId,
+  ]);
+
+  const resolvedIframeSrc = useMemo(() => {
+    if (activeMode !== 'iframe' || !source.embedUrl) return source.embedUrl;
+    if (!iframeTargetPage || iframeTargetPage <= 0) return source.embedUrl;
+    const baseWithoutHash = source.embedUrl.split('#')[0];
+    return `${baseWithoutHash}#page=${iframeTargetPage}`;
+  }, [activeMode, source.embedUrl, iframeTargetPage]);
+
   if (!resource) return null;
 
   const isDark = readingTheme === 'dark';
-  const secondPage =
-    isSpreadActive && currentPage + 1 <= numPages ? currentPage + 1 : null;
 
   const horizontalPadding = isSpreadActive ? 88 : 56;
   const verticalPadding = 40;
@@ -1768,27 +1796,6 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
       ? new URL(source.embedUrl, window.location.href).toString()
       : undefined;
 
-  const hasStructuredToc = bookTocMeta.entries.length > 0;
-
-  const activeTocEntry = useMemo(() => {
-    if (!hasStructuredToc) return null;
-    if (activeMode === 'pdf') {
-      return findActiveTocEntry(bookTocMeta.entries, currentPage, secondPage);
-    }
-    return (
-      bookTocMeta.entries.find((e) => e.id === selectedTocId) ||
-      bookTocMeta.entries[0] ||
-      null
-    );
-  }, [
-    hasStructuredToc,
-    activeMode,
-    bookTocMeta.entries,
-    currentPage,
-    secondPage,
-    selectedTocId,
-  ]);
-
   const activeTocIndex = activeTocEntry
     ? bookTocMeta.entries.findIndex((e) => e.id === activeTocEntry.id)
     : -1;
@@ -1809,13 +1816,6 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
       setShowSidebar(false);
     }
   };
-
-  const resolvedIframeSrc = useMemo(() => {
-    if (activeMode !== 'iframe' || !source.embedUrl) return source.embedUrl;
-    if (!iframeTargetPage || iframeTargetPage <= 0) return source.embedUrl;
-    const baseWithoutHash = source.embedUrl.split('#')[0];
-    return `${baseWithoutHash}#page=${iframeTargetPage}`;
-  }, [activeMode, source.embedUrl, iframeTargetPage]);
 
   const showTocButton =
     hasStructuredToc ||
