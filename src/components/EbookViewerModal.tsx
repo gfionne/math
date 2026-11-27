@@ -796,21 +796,50 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
           Math.min(fitWidthScale, fitHeightScale),
         );
         const cssScale = fitScale * zoomFactor;
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const nativeDpr =
+          typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+        // Supersample canvas backing store so CJK serif strokes & thin table lines
+        // stay crisp on high-DPI Retina screens, 1x desktop monitors, and mobile pinch-zoom.
+        const oversampleDpr = Math.max(nativeDpr, 2.5);
+        const minRenderScale = lazyVisibleOnly ? 2.4 : 3.2;
+        let renderScale = Math.max(cssScale * oversampleDpr, minRenderScale);
+
+        // Keep backing canvas within browser (especially iOS Safari) per-canvas limits.
+        const maxDim = lazyVisibleOnly ? 2800 : 3600;
+        const maxPixels = lazyVisibleOnly ? 6_500_000 : 11_000_000;
+        const rawWidth = baseViewport.width * renderScale;
+        const rawHeight = baseViewport.height * renderScale;
+        if (rawWidth > maxDim || rawHeight > maxDim) {
+          renderScale *= Math.min(maxDim / rawWidth, maxDim / rawHeight);
+        }
+        const totalPixels =
+          baseViewport.width * renderScale * (baseViewport.height * renderScale);
+        if (totalPixels > maxPixels) {
+          renderScale *= Math.sqrt(maxPixels / totalPixels);
+        }
 
         const cssViewport = page.getViewport({scale: cssScale});
-        const renderViewport = page.getViewport({scale: cssScale * dpr});
+        const renderViewport = page.getViewport({scale: renderScale});
 
         const canvas = canvasRef.current;
         if (!canvas || cancelled) return;
 
-        canvas.width = Math.max(1, Math.floor(renderViewport.width));
-        canvas.height = Math.max(1, Math.floor(renderViewport.height));
-        canvas.style.width = `${Math.floor(cssViewport.width)}px`;
-        canvas.style.height = `${Math.floor(cssViewport.height)}px`;
+        const cssWidth = Math.max(1, Math.round(cssViewport.width));
+        const cssHeight = Math.max(1, Math.round(cssViewport.height));
+        canvas.width = Math.max(1, Math.round(renderViewport.width));
+        canvas.height = Math.max(1, Math.round(renderViewport.height));
+        canvas.style.width = `${cssWidth}px`;
+        canvas.style.height = `${cssHeight}px`;
 
-        const ctx = canvas.getContext('2d');
+        const ctx =
+          canvas.getContext('2d', {alpha: false}) || canvas.getContext('2d');
         if (!ctx) return;
+
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
 
         renderTask = page.render({
           canvas,
@@ -837,7 +866,15 @@ const PdfPageCanvas: React.FC<PdfPageCanvasProps> = ({
         // ignore cancel failure
       }
     };
-  }, [pdfDoc, pageNumber, targetWidth, targetHeight, zoomFactor, shouldRender]);
+  }, [
+    pdfDoc,
+    pageNumber,
+    targetWidth,
+    targetHeight,
+    zoomFactor,
+    shouldRender,
+    lazyVisibleOnly,
+  ]);
 
   const filterStyle: React.CSSProperties =
     theme === 'sepia'
@@ -1588,15 +1625,18 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
           const page = await pdfDoc.getPage(p);
           if (cancelled) return;
           const base = page.getViewport({scale: 1});
-          const viewport = page.getViewport({scale: 200 / base.width});
+          const viewport = page.getViewport({scale: 360 / base.width});
           const canvas = document.createElement('canvas');
           canvas.width = Math.round(viewport.width);
           canvas.height = Math.round(viewport.height);
-          const ctx = canvas.getContext('2d');
+          const ctx =
+            canvas.getContext('2d', {alpha: false}) || canvas.getContext('2d');
           if (!ctx) continue;
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
           await page.render({canvas, canvasContext: ctx, viewport}).promise;
           if (cancelled) return;
-          const url = canvas.toDataURL('image/jpeg', 0.85);
+          const url = canvas.toDataURL('image/jpeg', 0.88);
           setThumbs((prev) => (prev[p] ? prev : {...prev, [p]: url}));
         } catch {
           // ignore thumbnail error
@@ -2076,7 +2116,10 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     : 'bg-white border-stone-200 text-stone-700 hover:bg-stone-50';
 
   const handleStageTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length !== 1) return;
+    if (e.touches.length !== 1) {
+      touchStartRef.current = null;
+      return;
+    }
     touchStartRef.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
@@ -2088,6 +2131,10 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
     touchStartRef.current = null;
     if (!start || e.changedTouches.length !== 1) return;
     if (effectivePdfLayout === 'scroll' && activeMode === 'pdf') return;
+    const viewportZoomed =
+      typeof window !== 'undefined' &&
+      (window.visualViewport?.scale ?? 1) > 1.05;
+    if ((activeMode === 'pdf' && zoomFactor > 1.05) || viewportZoomed) return;
     const dx = e.changedTouches[0].clientX - start.x;
     const dy = e.changedTouches[0].clientY - start.y;
     if (Math.abs(dx) < 52 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
@@ -2286,7 +2333,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
 
                 {/* Zoom controls */}
                 <div
-                  className={`hidden sm:flex items-center gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
+                  className={`flex items-center gap-0.5 p-0.5 border rounded-lg ${subtlePanelClass}`}
                 >
                   <button
                     type="button"
@@ -2297,7 +2344,7 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                       )
                     }
                     aria-label="縮小"
-                    className="min-h-[32px] min-w-[32px] rounded-md hover:bg-black/5 disabled:opacity-35 inline-flex items-center justify-center"
+                    className="min-h-[32px] min-w-[30px] sm:min-w-[32px] rounded-md hover:bg-black/5 disabled:opacity-35 inline-flex items-center justify-center"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
                   </button>
@@ -2305,20 +2352,20 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                     type="button"
                     onClick={() => setZoomFactor(1)}
                     title="重設為自動適應視窗大小"
-                    className="min-h-[32px] px-2 text-xs font-mono-tabular font-medium hover:bg-black/5 rounded-md whitespace-nowrap"
+                    className="min-h-[32px] px-1.5 sm:px-2 text-xs font-mono-tabular font-medium hover:bg-black/5 rounded-md whitespace-nowrap"
                   >
                     {Math.round(zoomFactor * 100)}%
                   </button>
                   <button
                     type="button"
-                    disabled={zoomFactor >= 2.25}
+                    disabled={zoomFactor >= 3}
                     onClick={() =>
                       setZoomFactor((z) =>
-                        Math.min(2.25, +(z + 0.25).toFixed(2)),
+                        Math.min(3, +(z + 0.25).toFixed(2)),
                       )
                     }
                     aria-label="放大"
-                    className="min-h-[32px] min-w-[32px] rounded-md hover:bg-black/5 disabled:opacity-35 inline-flex items-center justify-center"
+                    className="min-h-[32px] min-w-[30px] sm:min-w-[32px] rounded-md hover:bg-black/5 disabled:opacity-35 inline-flex items-center justify-center"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
                   </button>
@@ -3318,34 +3365,36 @@ export const EbookViewerModal: React.FC<EbookViewerModalProps> = ({
                   </div>
                 </div>
               ) : pdfDoc && effectivePdfLayout === 'scroll' ? (
-                <div className="flex-1 overflow-y-auto px-2 sm:px-4 py-4 sm:py-6 space-y-5">
-                  {Array.from({length: numPages}, (_, i) => i + 1).map(
-                    (pageNum) => (
-                      <div
-                        key={pageNum}
-                        id={`pdf-scroll-page-${pageNum}`}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className="flex flex-col items-center gap-1.5 scroll-mt-4"
-                      >
-                        <PdfPageCanvas
-                          pdfDoc={pdfDoc}
-                          pageNumber={pageNum}
-                          targetWidth={pageTargetWidth}
-                          targetHeight={pageTargetHeight}
-                          zoomFactor={zoomFactor}
-                          theme={readingTheme}
-                          lazyVisibleOnly
-                        />
-                        <span
-                          className={`text-xs font-mono-tabular ${
-                            isDark ? 'text-stone-400' : 'text-stone-500'
-                          }`}
+                <div className="flex-1 overflow-auto px-2 sm:px-4 py-4 sm:py-6">
+                  <div className="w-max min-w-full flex flex-col items-center gap-5">
+                    {Array.from({length: numPages}, (_, i) => i + 1).map(
+                      (pageNum) => (
+                        <div
+                          key={pageNum}
+                          id={`pdf-scroll-page-${pageNum}`}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className="flex flex-col items-center gap-1.5 scroll-mt-4"
                         >
-                          第 {pageNum} 頁 / 共 {numPages} 頁
-                        </span>
-                      </div>
-                    ),
-                  )}
+                          <PdfPageCanvas
+                            pdfDoc={pdfDoc}
+                            pageNumber={pageNum}
+                            targetWidth={pageTargetWidth}
+                            targetHeight={pageTargetHeight}
+                            zoomFactor={zoomFactor}
+                            theme={readingTheme}
+                            lazyVisibleOnly
+                          />
+                          <span
+                            className={`text-xs font-mono-tabular ${
+                              isDark ? 'text-stone-400' : 'text-stone-500'
+                            }`}
+                          >
+                            第 {pageNum} 頁 / 共 {numPages} 頁
+                          </span>
+                        </div>
+                      ),
+                    )}
+                  </div>
                 </div>
               ) : pdfDoc ? (
                 <div className="flex-1 min-h-0 relative flex overflow-auto p-2 sm:p-6">
