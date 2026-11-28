@@ -139,11 +139,11 @@
 }
 
 .animate-channel-slide-next {
-  animation: channelSlideNextIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: channelSlideNextIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-channel-slide-prev {
-  animation: channelSlidePrevIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: channelSlidePrevIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-book-flip-next {

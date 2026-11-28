@@ -18,6 +18,7 @@ interface HorizontalCardTrayProps {
   dimInactive?: boolean;
   layer?: 'channel' | 'nested';
   autoAdvanceMs?: number;
+  onUserInteract?: () => void;
   children: React.ReactNode;
 }
 
@@ -97,6 +98,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   dimInactive = true,
   layer = 'channel',
   autoAdvanceMs,
+  onUserInteract,
   children,
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
@@ -106,6 +108,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   const [interactionNonce, setInteractionNonce] = useState(0);
   const activeCardIdxRef = useRef(0);
   const programmaticScrollUntilRef = useRef(0);
+  const autoAdvanceUntilRef = useRef(0);
 
   const dragStateRef = useRef<{
     isDown: boolean;
@@ -145,7 +148,10 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
     }
     setActiveCardIdx(closestIdx);
     activeCardIdxRef.current = closestIdx;
-  }, []);
+    if (Date.now() >= autoAdvanceUntilRef.current) {
+      onUserInteract?.();
+    }
+  }, [onUserInteract]);
 
   const scrollToCard = useCallback((index: number, isUserAction = false) => {
     const rail = railRef.current;
@@ -162,6 +168,9 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
       Math.max(0, target.offsetLeft - baseOffset),
     );
     programmaticScrollUntilRef.current = Date.now() + 650;
+    if (!isUserAction) {
+      autoAdvanceUntilRef.current = Date.now() + 750;
+    }
     rail.scrollTo({
       left: targetLeft,
       behavior: 'smooth',
@@ -170,8 +179,9 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
     activeCardIdxRef.current = clamped;
     if (isUserAction) {
       setInteractionNonce((n) => n + 1);
+      onUserInteract?.();
     }
-  }, []);
+  }, [onUserInteract]);
 
   useEffect(() => {
     if (!autoAdvanceMs || autoAdvanceMs <= 0 || itemCount <= 1) return;
@@ -390,6 +400,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
       >
         <div
           ref={railRef}
+          data-card-rail="true"
           onScroll={handleScroll}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}

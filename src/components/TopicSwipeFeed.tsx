@@ -13,6 +13,7 @@ interface TopicSwipeFeedProps {
   checkPostLocked?: (post: JournalPost) => boolean;
   isJournalActive?: boolean;
   onActiveTopicChange?: (topic: string | null) => void;
+  onUserTopicInteract?: (topic: string) => void;
 }
 
 export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
@@ -24,6 +25,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
   checkPostLocked,
   isJournalActive = true,
   onActiveTopicChange,
+  onUserTopicInteract,
 }) => {
   const [activeTopicIdx, setActiveTopicIdx] = useState(0);
 
@@ -108,6 +110,10 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
               itemCount={group.posts.length}
               itemUnitLabel="篇文章"
               quickSwipeLabel="滑動快覽"
+              onUserInteract={() => {
+                setActiveTopicIdx(topicIndex);
+                onUserTopicInteract?.(group.topic);
+              }}
               onOpenQuickSwipe={(cardIdx) =>
                 onOpenImmersive(topicIndex, cardIdx)
               }

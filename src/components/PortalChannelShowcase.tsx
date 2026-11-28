@@ -199,9 +199,21 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
   const sectionsContainerRef = useRef<HTMLDivElement | null>(null);
   const pendingJournalDockRef = useRef(false);
   const [activeSwipeTopic, setActiveSwipeTopic] = useState<string | null>(null);
+  const [channelTransition, setChannelTransition] = useState<{
+    channel: PortalMajorChannel;
+    dir: 'next' | 'prev';
+    nonce: number;
+  } | null>(null);
   const activeChannelRef = useRef<PortalMajorChannel>(activeChannel);
   const programmaticScrollLockUntilRef = useRef<number>(0);
   const lastHandledJumpNonceRef = useRef<number>(0);
+  const touchSwipeRef = useRef<{
+    startX: number;
+    startY: number;
+    atStartEdge: boolean;
+    atEndEdge: boolean;
+    ignored: boolean;
+  } | null>(null);
 
   const scheduleJournalDockIfStuck = useCallback(() => {
     const subBarEl = journalSubBarRef.current;
@@ -349,6 +361,18 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
 
   const scrollToChannel = useCallback(
     (channel: PortalMajorChannel) => {
+      const prevIdx = PORTAL_MAJOR_CHANNELS.findIndex(
+        (c) => c.id === activeChannelRef.current,
+      );
+      const nextIdx = PORTAL_MAJOR_CHANNELS.findIndex((c) => c.id === channel);
+      if (prevIdx !== -1 && nextIdx !== -1 && prevIdx !== nextIdx) {
+        setChannelTransition({
+          channel,
+          dir: nextIdx > prevIdx ? 'next' : 'prev',
+          nonce: Date.now(),
+        });
+      }
+
       programmaticScrollLockUntilRef.current = Date.now() + 750;
       onSelectChannel(channel);
 
@@ -381,6 +405,96 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
     },
     [featuredPosts.length, onSelectChannel],
   );
+
+  useEffect(() => {
+    if (!channelTransition) return;
+    const t = window.setTimeout(() => setChannelTransition(null), 260);
+    return () => window.clearTimeout(t);
+  }, [channelTransition]);
+
+  const getChannelSlideClass = useCallback(
+    (channel: PortalMajorChannel): string => {
+      if (channelTransition?.channel !== channel) return '';
+      return channelTransition.dir === 'next'
+        ? 'animate-channel-slide-next'
+        : 'animate-channel-slide-prev';
+    },
+    [channelTransition],
+  );
+
+  const activateChannelFromInteract = useCallback(
+    (channel: PortalMajorChannel) => {
+      if (activeChannelRef.current === channel) return;
+      programmaticScrollLockUntilRef.current = Date.now() + 350;
+      onSelectChannel(channel);
+    },
+    [onSelectChannel],
+  );
+
+  const stepChannelBy = useCallback(
+    (delta: -1 | 1) => {
+      const curIdx = PORTAL_MAJOR_CHANNELS.findIndex(
+        (c) => c.id === activeChannelRef.current,
+      );
+      const baseIdx = curIdx === -1 ? 0 : curIdx;
+      let nextIdx = baseIdx + delta;
+      if (
+        nextIdx === 0 &&
+        featuredPosts.length === 0 &&
+        delta === -1
+      ) {
+        return;
+      }
+      if (nextIdx < 0 || nextIdx >= PORTAL_MAJOR_CHANNELS.length) return;
+      scrollToChannel(PORTAL_MAJOR_CHANNELS[nextIdx].id);
+    },
+    [featuredPosts.length, scrollToChannel],
+  );
+
+  const handleSectionsTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    const target = e.target as HTMLElement | null;
+    const isInteractiveChild = Boolean(
+      target?.closest('input, select, textarea, [data-no-swipe="true"]'),
+    );
+    const scrollableX = target?.closest(
+      '[data-card-rail="true"], .journal-table-wrap, .overflow-x-auto',
+    ) as HTMLElement | null;
+    const hasScrollableX =
+      Boolean(scrollableX) &&
+      (scrollableX?.scrollWidth ?? 0) > (scrollableX?.clientWidth ?? 0) + 6;
+    const atStartEdge =
+      !hasScrollableX || (scrollableX ? scrollableX.scrollLeft <= 6 : true);
+    const atEndEdge =
+      !hasScrollableX ||
+      (scrollableX
+        ? scrollableX.scrollLeft >=
+          scrollableX.scrollWidth - scrollableX.clientWidth - 6
+        : true);
+
+    touchSwipeRef.current = {
+      startX: e.touches[0].clientX,
+      startY: e.touches[0].clientY,
+      atStartEdge,
+      atEndEdge,
+      ignored: isInteractiveChild,
+    };
+  };
+
+  const handleSectionsTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    const st = touchSwipeRef.current;
+    touchSwipeRef.current = null;
+    if (!st || st.ignored || e.changedTouches.length !== 1) return;
+    const dx = e.changedTouches[0].clientX - st.startX;
+    const dy = e.changedTouches[0].clientY - st.startY;
+    if (Math.abs(dx) < 58 || Math.abs(dx) <= Math.abs(dy) * 1.4) return;
+
+    if (dx < 0 && st.atEndEdge) {
+      stepChannelBy(1);
+    } else if (dx > 0 && st.atStartEdge) {
+      stepChannelBy(-1);
+    }
+  };
 
   // Sync desktop header channel clicks through the exact same smooth docking scroll
   useEffect(() => {
@@ -420,7 +534,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
           ? activeSwipeTopic
           : null;
 
-    if (!targetCat) return;
+    if (!targetCat) {
+      bar.scrollTo({left: 0, behavior: 'smooth'});
+      return;
+    }
     const activeBtn = categoryTabRefs.current[targetCat];
     if (!activeBtn) return;
 
@@ -754,7 +871,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
             ref={channelListRef}
             role="tablist"
             aria-label="網站主要大類項"
-            className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth min-w-0 py-0.5"
+            className="relative flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth min-w-0 py-1 px-0.5"
           >
             {PORTAL_MAJOR_CHANNELS.map((tab) => {
               const isActive = activeChannel === tab.id;
@@ -777,10 +894,19 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => scrollToChannel(tab.id)}
-                  className={`min-h-[38px] px-3 sm:px-3.5 py-1.5 text-xs sm:text-sm rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.97] ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowRight') {
+                      e.preventDefault();
+                      stepChannelBy(1);
+                    } else if (e.key === 'ArrowLeft') {
+                      e.preventDefault();
+                      stepChannelBy(-1);
+                    }
+                  }}
+                  className={`relative min-h-[38px] px-3 sm:px-3.5 py-1.5 text-xs sm:text-sm rounded-lg transition-all duration-200 ease-out whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.97] ${
                     isActive
-                      ? 'bg-[#1E3A8A] text-white font-bold shadow-sm'
-                      : 'text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/70 font-medium'
+                      ? 'bg-[#1E3A8A] text-white font-bold shadow-sm ring-2 ring-[#1E3A8A]/25'
+                      : 'text-stone-600 bg-white/60 border border-stone-200/75 hover:text-[#1E3A8A] hover:border-[#1E3A8A]/35 hover:bg-white font-medium'
                   }`}
                 >
                   {tab.id === 'ximen' && isXimenLocked && (
@@ -806,6 +932,12 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                     >
                       {tabCount}
                     </span>
+                  )}
+                  {isActive && (
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-3 bottom-0.5 h-[2px] rounded-full bg-white/80"
+                    />
                   )}
                 </button>
               );
@@ -835,17 +967,23 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
       {/* Unified Vertical Sections in exact PORTAL_MAJOR_CHANNELS order */}
       <div
         ref={sectionsContainerRef}
-        className="space-y-10 sm:space-y-12 [overflow-anchor:none]"
+        onTouchStart={handleSectionsTouchStart}
+        onTouchEnd={handleSectionsTouchEnd}
+        className="space-y-10 sm:space-y-12 overflow-x-clip [overflow-anchor:none]"
       >
         {/* 01: 全部精選 — Featured Spotlight Cards */}
         {featuredPosts.length > 0 && (
-          <div id="sec-all" className="scroll-mt-[114px] lg:scroll-mt-[122px]">
+          <div
+            id="sec-all"
+            className={`scroll-mt-[114px] lg:scroll-mt-[122px] ${getChannelSlideClass('all')}`}
+          >
             <HorizontalCardTray
               sectionIndex={1}
               title="本期焦點精選"
               subtitle="每 4 秒自動切換 · 左右滑動推薦"
               isActiveSection={activeChannel === 'all'}
               autoAdvanceMs={4000}
+              onUserInteract={() => activateChannelFromInteract('all')}
               itemCount={featuredPosts.length}
               itemUnitLabel="篇焦點"
               onOpenQuickSwipe={(cardIdx) =>
@@ -898,7 +1036,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 02: 領域社群 — Scoped Search + Topic Card Trays */}
         <section
           id="sec-journal"
-          className={`scroll-mt-[114px] lg:scroll-mt-[122px] rounded-2xl px-3.5 sm:px-5 py-5 space-y-5 transition-all duration-300 ${
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] rounded-2xl px-3.5 sm:px-5 py-5 space-y-5 transition-all duration-300 ${getChannelSlideClass('journal')} ${
             activeChannel === 'journal'
               ? 'bg-[#EDF2FA] border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
               : 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
@@ -1036,6 +1174,14 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                     activeChannel === 'journal' &&
                     viewMode === 'swipe' &&
                     activeSwipeTopic === cat;
+                  const isAllPrimarySelected =
+                    isAllTab &&
+                    isSelected &&
+                    !(
+                      activeChannel === 'journal' &&
+                      viewMode === 'swipe' &&
+                      Boolean(activeSwipeTopic)
+                    );
                   const count = categoryCounts.get(cat) ?? 0;
                   const topicTheme = isAllTab ? null : getNestedTopicTheme(cat);
 
@@ -1051,20 +1197,24 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                         scheduleJournalDockIfStuck();
                         onSelectCategory(cat);
                       }}
-                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
+                      className={`px-3 py-2 text-sm border-b-2 transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
                         isAllTab
                           ? `sticky left-0 z-10 pr-3 mr-1 border-r border-r-stone-300/60 ${
-                              activeChannel === 'journal'
-                                ? 'bg-[#EDF2FA]'
-                                : 'bg-[#F5F2EB]'
-                            } ${
-                              isSelected
-                                ? 'border-b-[#1E3A8A] text-[#1E3A8A] font-bold'
-                                : 'border-b-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
+                              isAllPrimarySelected
+                                ? 'bg-[#1E3A8A] text-white border-b-transparent rounded-lg font-bold shadow-xs'
+                                : `${
+                                    activeChannel === 'journal'
+                                      ? 'bg-[#EDF2FA]'
+                                      : 'bg-[#F5F2EB]'
+                                  } rounded-t-md ${
+                                    isSelected
+                                      ? 'border-b-[#1E3A8A] text-[#1E3A8A] font-bold'
+                                      : 'border-b-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
+                                  }`
                             }`
                           : (isSelected || isScrollPaired) && topicTheme
-                            ? topicTheme.tabActiveClass
-                            : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
+                            ? `rounded-t-md ring-1 ring-current/25 ${topicTheme.tabActiveClass}`
+                            : 'rounded-t-md border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
                       }`}
                     >
                       {(isSelected || isScrollPaired) && topicTheme && (
@@ -1077,9 +1227,11 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                       <span
                         className={`font-mono-tabular text-xs ${
                           isAllTab
-                            ? isSelected
-                              ? 'text-[#1E3A8A]/80'
-                              : 'text-stone-400'
+                            ? isAllPrimarySelected
+                              ? 'text-blue-100 font-semibold'
+                              : isSelected
+                                ? 'text-[#1E3A8A]/80 font-semibold'
+                                : 'text-stone-400'
                             : (isSelected || isScrollPaired) && topicTheme
                               ? topicTheme.tabCountClass
                               : 'text-stone-400'
@@ -1253,6 +1405,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               checkPostLocked={checkPostLocked}
               isJournalActive={activeChannel === 'journal'}
               onActiveTopicChange={setActiveSwipeTopic}
+              onUserTopicInteract={(topic) => {
+                activateChannelFromInteract('journal');
+                setActiveSwipeTopic(topic);
+              }}
             />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1362,7 +1518,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 03: 教學資源 — Teaching Resources & Ebooks */}
         <section
           id="sec-resources"
-          className="scroll-mt-[114px] lg:scroll-mt-[122px]"
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] ${getChannelSlideClass('resources')}`}
         >
           {visibleResources.length > 0 ? (
             <HorizontalCardTray
@@ -1370,6 +1526,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               title="教學資源與電子書"
               subtitle="教案、學習單與全本電子書"
               isActiveSection={activeChannel === 'resources'}
+              onUserInteract={() => activateChannelFromInteract('resources')}
               accentTextClass="text-amber-800"
               accentBarClass="bg-amber-700"
               itemCount={visibleResources.length}
@@ -1482,7 +1639,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 04: 檢測題庫 — Elementary Math Assessment Bank */}
         <section
           id="sec-assessment"
-          className="scroll-mt-[114px] lg:scroll-mt-[122px] space-y-4"
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] space-y-4 ${getChannelSlideClass('assessment')}`}
         >
           {publishedAssessmentQuestions.length === 0 ? (
             <div
@@ -1524,6 +1681,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               title="學力檢測互動題庫"
               subtitle={`同步分頁：${assessmentTabName}`}
               isActiveSection={activeChannel === 'assessment'}
+              onUserInteract={() => activateChannelFromInteract('assessment')}
               accentTextClass="text-emerald-800"
               accentBarClass="bg-emerald-700"
               itemCount={assessmentGradeGroups.length + 1}
@@ -1665,6 +1823,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   title={`${assessmentGradeFilter} · ${level}`}
                   subtitle={`同步分頁：${assessmentTabName}`}
                   isActiveSection={activeChannel === 'assessment' && idx === 0}
+                  onUserInteract={() => activateChannelFromInteract('assessment')}
                   accentTextClass="text-emerald-800"
                   accentBarClass="bg-emerald-700"
                   itemCount={items.length}
@@ -1754,13 +1913,14 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 05: 互動專題 — Ximen Scratch Interactive Topics */}
         <section
           id="sec-ximen"
-          className="scroll-mt-[114px] lg:scroll-mt-[122px]"
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] ${getChannelSlideClass('ximen')}`}
         >
           <HorizontalCardTray
             sectionIndex={5}
             title="百年西門 Scratch 舞台秀互動學習網"
             subtitle="401–404 年段實作資源"
             isActiveSection={activeChannel === 'ximen'}
+            onUserInteract={() => activateChannelFromInteract('ximen')}
             accentTextClass="text-sky-800"
             accentBarClass="bg-sky-700"
             itemCount={XIMEN_CARDS.length}
@@ -1815,13 +1975,14 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 06: 403 班網 — Class 403 Website */}
         <section
           id="sec-class403"
-          className="scroll-mt-[114px] lg:scroll-mt-[122px]"
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] ${getChannelSlideClass('class403')}`}
         >
           <HorizontalCardTray
             sectionIndex={6}
             title="403 班級網站與互動聯絡簿"
             subtitle="Pes Class 115 · 分機 5207"
             isActiveSection={activeChannel === 'class403'}
+            onUserInteract={() => activateChannelFromInteract('class403')}
             itemCount={CLASS403_CARDS.length}
             itemUnitLabel="項班務系統"
             onOpenQuickSwipe={(cardIdx) =>
