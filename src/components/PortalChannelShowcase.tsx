@@ -188,10 +188,28 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
   const stickyBarRef = useRef<HTMLDivElement | null>(null);
   const channelListRef = useRef<HTMLDivElement | null>(null);
   const categoryBarRef = useRef<HTMLDivElement | null>(null);
+  const journalSubBarRef = useRef<HTMLDivElement | null>(null);
+  const journalFeedTopRef = useRef<HTMLDivElement | null>(null);
   const channelTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const activeChannelRef = useRef<PortalMajorChannel>(activeChannel);
   const programmaticScrollLockUntilRef = useRef<number>(0);
   const lastHandledJumpNonceRef = useRef<number>(0);
+
+  const scrollToJournalFeedIfStuck = useCallback(() => {
+    const subBarEl = journalSubBarRef.current;
+    const feedEl = journalFeedTopRef.current;
+    if (!subBarEl || !feedEl) return;
+    const stickyThreshold = window.innerWidth >= 1024 ? 126 : 118;
+    const subBarRect = subBarEl.getBoundingClientRect();
+    if (subBarRect.top <= stickyThreshold) {
+      const feedTop = feedEl.getBoundingClientRect().top + window.scrollY;
+      const desiredOffset = stickyThreshold + subBarRect.height + 10;
+      const targetY = Math.max(0, feedTop - desiredOffset);
+      if (window.scrollY > targetY + 4) {
+        window.scrollTo({top: targetY, behavior: 'smooth'});
+      }
+    }
+  }, []);
 
   activeChannelRef.current = activeChannel;
 
@@ -863,8 +881,15 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
             </form>
           </div>
 
-          {/* Journal Topic Sub-Bar + View Mode Switcher */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2 min-w-0">
+          {/* Journal Topic Sub-Bar + View Mode Switcher (sticky below major channel bar while scrolling 領域社群) */}
+          <div
+            ref={journalSubBarRef}
+            className={`sticky top-[110px] lg:top-[118px] z-10 -mx-3 sm:-mx-5 px-3 sm:px-5 pt-2 pb-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-3 border-b border-stone-200 backdrop-blur-md transition-colors min-w-0 ${
+              activeChannel === 'journal'
+                ? 'bg-white/95 shadow-[0_6px_16px_-10px_rgba(30,58,138,0.14)]'
+                : 'bg-[#FBF9F5]/95 shadow-[0_6px_16px_-10px_rgba(28,25,23,0.10)]'
+            }`}
+          >
             <div className="flex-1 min-w-0 flex items-center">
               <button
                 type="button"
@@ -889,7 +914,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                       key={cat}
                       type="button"
                       data-active={isActive ? 'true' : undefined}
-                      onClick={() => onSelectCategory(cat)}
+                      onClick={() => {
+                        onSelectCategory(cat);
+                        requestAnimationFrame(scrollToJournalFeedIfStuck);
+                      }}
                       className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
                         isActive
                           ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
@@ -921,7 +949,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3 min-w-0 pb-1 lg:pb-0">
+            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3 min-w-0 pb-0.5 lg:pb-0">
               {canShowDraftsToggle && (
                 <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
                   <input
@@ -937,7 +965,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg max-w-full overflow-x-auto no-scrollbar">
                 <button
                   type="button"
-                  onClick={() => onChangeViewMode('swipe')}
+                  onClick={() => {
+                    onChangeViewMode('swipe');
+                    requestAnimationFrame(scrollToJournalFeedIfStuck);
+                  }}
                   className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'swipe'
                       ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
@@ -949,7 +980,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChangeViewMode('grid')}
+                  onClick={() => {
+                    onChangeViewMode('grid');
+                    requestAnimationFrame(scrollToJournalFeedIfStuck);
+                  }}
                   className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'grid'
                       ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
@@ -961,7 +995,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => onChangeViewMode('list')}
+                  onClick={() => {
+                    onChangeViewMode('list');
+                    requestAnimationFrame(scrollToJournalFeedIfStuck);
+                  }}
                   className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'list'
                       ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
@@ -974,6 +1011,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               </div>
             </div>
           </div>
+
+          <div ref={journalFeedTopRef} className="h-0" aria-hidden="true" />
 
           {selectedCategory === '學力檢測' && (
             <div className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
