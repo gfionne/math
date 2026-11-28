@@ -68,6 +68,7 @@ function getNestedActiveClasses(accentBarClass: string): {
         statusTag: 'bg-violet-50 text-[#4C1D95]',
         badgeBg: 'bg-[#4C1D95]',
       };
+    case 'bg-amber-700':
     default:
       return {
         cardFrame:

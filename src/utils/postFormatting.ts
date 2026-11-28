@@ -103,6 +103,101 @@ export function getCategoryAccent(category?: string): CategoryAccent {
   return CATEGORY_PALETTE[hash % CATEGORY_PALETTE.length];
 }
 
+export interface NestedTopicTheme {
+  textClass: string;
+  barClass: string;
+  cardFrame: string;
+  traySurface: string;
+  statusTag: string;
+  tabActiveClass: string;
+  tabCountClass: string;
+  dotClass: string;
+}
+
+export function getNestedTopicTheme(category?: string): NestedTopicTheme {
+  const accent = getCategoryAccent(category);
+  switch (accent.barClass) {
+    case 'bg-[#14532D]':
+      return {
+        textClass: 'text-[#14532D]',
+        barClass: 'bg-[#14532D]',
+        cardFrame:
+          'bg-white border-2 border-[#14532D] ring-2 ring-[#14532D]/12 shadow-md',
+        traySurface: 'bg-[#F0F7F3] border-[#14532D]/25',
+        statusTag: 'bg-emerald-50 text-[#14532D]',
+        tabActiveClass:
+          'border-[#14532D] text-[#14532D] bg-[#F0F7F3] font-bold shadow-2xs',
+        tabCountClass: 'text-[#14532D]/80 font-semibold',
+        dotClass: 'bg-[#14532D]',
+      };
+    case 'bg-[#9A3412]':
+      return {
+        textClass: 'text-[#9A3412]',
+        barClass: 'bg-[#9A3412]',
+        cardFrame:
+          'bg-white border-2 border-[#9A3412] ring-2 ring-[#9A3412]/12 shadow-md',
+        traySurface: 'bg-[#FDF4EF] border-[#9A3412]/25',
+        statusTag: 'bg-orange-50 text-[#9A3412]',
+        tabActiveClass:
+          'border-[#9A3412] text-[#9A3412] bg-[#FDF4EF] font-bold shadow-2xs',
+        tabCountClass: 'text-[#9A3412]/80 font-semibold',
+        dotClass: 'bg-[#9A3412]',
+      };
+    case 'bg-[#115E59]':
+      return {
+        textClass: 'text-[#115E59]',
+        barClass: 'bg-[#115E59]',
+        cardFrame:
+          'bg-white border-2 border-[#115E59] ring-2 ring-[#115E59]/12 shadow-md',
+        traySurface: 'bg-[#EFF7F6] border-[#115E59]/25',
+        statusTag: 'bg-teal-50 text-[#115E59]',
+        tabActiveClass:
+          'border-[#115E59] text-[#115E59] bg-[#EFF7F6] font-bold shadow-2xs',
+        tabCountClass: 'text-[#115E59]/80 font-semibold',
+        dotClass: 'bg-[#115E59]',
+      };
+    case 'bg-[#78350F]':
+      return {
+        textClass: 'text-[#78350F]',
+        barClass: 'bg-[#78350F]',
+        cardFrame:
+          'bg-white border-2 border-[#78350F] ring-2 ring-[#78350F]/12 shadow-md',
+        traySurface: 'bg-[#FBF6EE] border-[#78350F]/25',
+        statusTag: 'bg-amber-50 text-[#78350F]',
+        tabActiveClass:
+          'border-[#78350F] text-[#78350F] bg-[#FBF6EE] font-bold shadow-2xs',
+        tabCountClass: 'text-[#78350F]/80 font-semibold',
+        dotClass: 'bg-[#78350F]',
+      };
+    case 'bg-[#4C1D95]':
+      return {
+        textClass: 'text-[#4C1D95]',
+        barClass: 'bg-[#4C1D95]',
+        cardFrame:
+          'bg-white border-2 border-[#4C1D95] ring-2 ring-[#4C1D95]/12 shadow-md',
+        traySurface: 'bg-[#F6F2FB] border-[#4C1D95]/25',
+        statusTag: 'bg-violet-50 text-[#4C1D95]',
+        tabActiveClass:
+          'border-[#4C1D95] text-[#4C1D95] bg-[#F6F2FB] font-bold shadow-2xs',
+        tabCountClass: 'text-[#4C1D95]/80 font-semibold',
+        dotClass: 'bg-[#4C1D95]',
+      };
+    default:
+      return {
+        textClass: 'text-amber-800',
+        barClass: 'bg-amber-700',
+        cardFrame:
+          'bg-white border-2 border-amber-700 ring-2 ring-amber-700/12 shadow-md',
+        traySurface: 'bg-[#FAF5EB] border-amber-700/25',
+        statusTag: 'bg-amber-50 text-amber-800',
+        tabActiveClass:
+          'border-amber-700 text-amber-800 bg-[#FAF5EB] font-bold shadow-2xs',
+        tabCountClass: 'text-amber-700/80 font-semibold',
+        dotClass: 'bg-amber-700',
+      };
+  }
+}
+
 export function estimateReadMinutes(content: string): number {
   const chars = content.replace(/\s+/g, '').length;
   return Math.max(1, Math.round(chars / 320));

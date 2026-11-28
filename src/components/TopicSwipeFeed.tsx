@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {JournalPost} from '../types/journal';
-import {getCategoryAccent, TopicGroup} from '../utils/postFormatting';
+import {getNestedTopicTheme, TopicGroup} from '../utils/postFormatting';
 import {ArticleCard} from './ArticleCard';
 import {HorizontalCardTray} from './HorizontalCardTray';
 
@@ -12,6 +12,7 @@ interface TopicSwipeFeedProps {
   onResetCategoryFilter: () => void;
   checkPostLocked?: (post: JournalPost) => boolean;
   isJournalActive?: boolean;
+  onActiveTopicChange?: (topic: string | null) => void;
 }
 
 export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
@@ -22,6 +23,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
   onResetCategoryFilter,
   checkPostLocked,
   isJournalActive = true,
+  onActiveTopicChange,
 }) => {
   const [activeTopicIdx, setActiveTopicIdx] = useState(0);
 
@@ -30,6 +32,16 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
       setActiveTopicIdx(0);
     }
   }, [groups.length, activeTopicIdx]);
+
+  useEffect(() => {
+    if (!onActiveTopicChange) return;
+    if (!isJournalActive || groups.length === 0) {
+      onActiveTopicChange(null);
+      return;
+    }
+    const safeIdx = Math.min(activeTopicIdx, groups.length - 1);
+    onActiveTopicChange(groups[safeIdx]?.topic ?? null);
+  }, [isJournalActive, groups, activeTopicIdx, onActiveTopicChange]);
 
   useEffect(() => {
     if (!isJournalActive || groups.length <= 1) return;
@@ -81,7 +93,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
 
       <div className="space-y-8">
         {groups.map((group, topicIndex) => {
-          const accent = getCategoryAccent(group.topic);
+          const theme = getNestedTopicTheme(group.topic);
           return (
             <HorizontalCardTray
               key={group.topic}
@@ -91,8 +103,8 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
               layer="nested"
               isActiveSection={isJournalActive && topicIndex === activeTopicIdx}
               dimInactive={isJournalActive && groups.length > 1}
-              accentTextClass={accent.textClass}
-              accentBarClass={accent.barClass}
+              accentTextClass={theme.textClass}
+              accentBarClass={theme.barClass}
               itemCount={group.posts.length}
               itemUnitLabel="篇文章"
               quickSwipeLabel="滑動快覽"

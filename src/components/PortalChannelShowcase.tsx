@@ -30,7 +30,11 @@ import {
   ResourceGradeBand,
   TeachingResource,
 } from '../types/journal';
-import {formatCategoryDisplay, TopicGroup} from '../utils/postFormatting';
+import {
+  formatCategoryDisplay,
+  getNestedTopicTheme,
+  TopicGroup,
+} from '../utils/postFormatting';
 import {
   buildChannelSwipeDeck,
   CLASS403_CARDS,
@@ -191,6 +195,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
   const journalSubBarRef = useRef<HTMLDivElement | null>(null);
   const journalFeedTopRef = useRef<HTMLDivElement | null>(null);
   const channelTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const categoryTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [activeSwipeTopic, setActiveSwipeTopic] = useState<string | null>(null);
   const activeChannelRef = useRef<PortalMajorChannel>(activeChannel);
   const programmaticScrollLockUntilRef = useRef<number>(0);
   const lastHandledJumpNonceRef = useRef<number>(0);
@@ -402,6 +408,36 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
       behavior: 'smooth',
     });
   }, [activeChannel]);
+
+  // Pair topic sub-bar scroll position with whichever topic is selected or currently visible below
+  useEffect(() => {
+    const bar = categoryBarRef.current;
+    if (!bar) return;
+
+    const targetCat =
+      selectedCategory !== '全部分類'
+        ? selectedCategory
+        : activeChannel === 'journal' && viewMode === 'swipe' && activeSwipeTopic
+          ? activeSwipeTopic
+          : null;
+
+    if (!targetCat) return;
+    const activeBtn = categoryTabRefs.current[targetCat];
+    if (!activeBtn) return;
+
+    const allBtn = categoryTabRefs.current['全部分類'];
+    const pinnedOffset = allBtn ? allBtn.offsetWidth + 4 : 0;
+    const visibleWidth = Math.max(80, bar.clientWidth - pinnedOffset);
+    const targetLeft =
+      activeBtn.offsetLeft -
+      pinnedOffset -
+      (visibleWidth - activeBtn.offsetWidth) / 2;
+
+    bar.scrollTo({
+      left: Math.max(0, targetLeft),
+      behavior: 'smooth',
+    });
+  }, [selectedCategory, activeSwipeTopic, activeChannel, viewMode]);
 
   // Bi-directional scroll-spy: vertical scrolling updates activeChannel in real time
   useEffect(() => {
@@ -917,30 +953,64 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
 
               <div
                 ref={categoryBarRef}
-                className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
+                className="relative flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
               >
                 {availableCategories.map((cat) => {
-                  const isActive = selectedCategory === cat;
+                  const isAllTab = cat === '全部分類';
+                  const isSelected = selectedCategory === cat;
+                  const isScrollPaired =
+                    !isAllTab &&
+                    selectedCategory === '全部分類' &&
+                    activeChannel === 'journal' &&
+                    viewMode === 'swipe' &&
+                    activeSwipeTopic === cat;
                   const count = categoryCounts.get(cat) ?? 0;
+                  const topicTheme = isAllTab ? null : getNestedTopicTheme(cat);
+
                   return (
                     <button
                       key={cat}
+                      ref={(el) => {
+                        categoryTabRefs.current[cat] = el;
+                      }}
                       type="button"
-                      data-active={isActive ? 'true' : undefined}
+                      data-active={isSelected || isScrollPaired ? 'true' : undefined}
                       onClick={() => {
                         onSelectCategory(cat);
                         requestAnimationFrame(scrollToJournalFeedIfStuck);
                       }}
-                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
-                        isActive
-                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
-                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
+                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
+                        isAllTab
+                          ? `sticky left-0 z-10 pr-3 mr-1 border-r border-r-stone-300/60 ${
+                              activeChannel === 'journal'
+                                ? 'bg-[#EDF2FA]'
+                                : 'bg-[#F5F2EB]'
+                            } ${
+                              isSelected
+                                ? 'border-b-[#1E3A8A] text-[#1E3A8A] font-bold'
+                                : 'border-b-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
+                            }`
+                          : (isSelected || isScrollPaired) && topicTheme
+                            ? topicTheme.tabActiveClass
+                            : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
                       }`}
                     >
-                      <span>{cat === '全部分類' ? '全部主題' : cat}</span>
+                      {(isSelected || isScrollPaired) && topicTheme && (
+                        <span
+                          aria-hidden="true"
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${topicTheme.dotClass}`}
+                        />
+                      )}
+                      <span>{isAllTab ? '全部主題' : cat}</span>
                       <span
                         className={`font-mono-tabular text-xs ${
-                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
+                          isAllTab
+                            ? isSelected
+                              ? 'text-[#1E3A8A]/80'
+                              : 'text-stone-400'
+                            : (isSelected || isScrollPaired) && topicTheme
+                              ? topicTheme.tabCountClass
+                              : 'text-stone-400'
                         }`}
                       >
                         {count}
@@ -1110,6 +1180,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               onResetCategoryFilter={() => onSelectCategory('全部分類')}
               checkPostLocked={checkPostLocked}
               isJournalActive={activeChannel === 'journal'}
+              onActiveTopicChange={setActiveSwipeTopic}
             />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
