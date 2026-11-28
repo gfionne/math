@@ -753,7 +753,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   <button
                     type="button"
                     onClick={onOpenPresentationMode}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                    className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
                   >
                     <Presentation className="w-3.5 h-3.5" />
                     <span>簡報模式</span>
@@ -761,7 +761,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   <button
                     type="button"
                     onClick={() => scrollToChannel('journal')}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                    className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
                   >
                     <span>領域社群</span>
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -792,7 +792,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
           id="sec-journal"
           className={`scroll-mt-[114px] lg:scroll-mt-[122px] rounded-2xl px-3.5 sm:px-5 py-5 space-y-5 transition-all duration-300 ${
             activeChannel === 'journal'
-              ? 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
+              ? 'bg-[#EDF2FA] border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
               : 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
           }`}
         >
@@ -897,10 +897,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
           {/* Journal Topic Sub-Bar + View Mode Switcher (sticky below major channel bar while scrolling 領域社群) */}
           <div
             ref={journalSubBarRef}
-            className={`sticky top-[110px] lg:top-[118px] z-10 -mx-3 sm:-mx-5 px-3 sm:px-5 pt-2 pb-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-3 border-b border-stone-200 backdrop-blur-md transition-colors min-w-0 ${
+            className={`sticky top-[110px] lg:top-[118px] z-10 -mx-3.5 sm:-mx-5 px-3.5 sm:px-5 pt-2 pb-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 sm:gap-3 border-b backdrop-blur-md transition-colors min-w-0 ${
               activeChannel === 'journal'
-                ? 'bg-white/95 shadow-[0_6px_16px_-10px_rgba(30,58,138,0.14)]'
-                : 'bg-[#FBF9F5]/95 shadow-[0_6px_16px_-10px_rgba(28,25,23,0.10)]'
+                ? 'bg-[#EDF2FA]/95 border-[#1E3A8A]/20 shadow-[0_6px_16px_-10px_rgba(30,58,138,0.16)]'
+                : 'bg-[#F5F2EB]/95 border-stone-200 shadow-[0_6px_16px_-10px_rgba(28,25,23,0.10)]'
             }`}
           >
             <div className="flex-1 min-w-0 flex items-center">

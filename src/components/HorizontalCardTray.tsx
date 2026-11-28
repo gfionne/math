@@ -16,8 +16,67 @@ interface HorizontalCardTrayProps {
   footerSlot?: React.ReactNode;
   isActiveSection?: boolean;
   dimInactive?: boolean;
+  layer?: 'channel' | 'nested';
   autoAdvanceMs?: number;
   children: React.ReactNode;
+}
+
+function getNestedActiveClasses(accentBarClass: string): {
+  cardFrame: string;
+  traySurface: string;
+  statusTag: string;
+  badgeBg: string;
+} {
+  switch (accentBarClass) {
+    case 'bg-[#14532D]':
+      return {
+        cardFrame:
+          'bg-white border-2 border-[#14532D] ring-2 ring-[#14532D]/12 shadow-md',
+        traySurface: 'bg-[#F0F7F3] border-[#14532D]/25',
+        statusTag: 'bg-emerald-50 text-[#14532D]',
+        badgeBg: 'bg-[#14532D]',
+      };
+    case 'bg-[#9A3412]':
+      return {
+        cardFrame:
+          'bg-white border-2 border-[#9A3412] ring-2 ring-[#9A3412]/12 shadow-md',
+        traySurface: 'bg-[#FDF4EF] border-[#9A3412]/25',
+        statusTag: 'bg-orange-50 text-[#9A3412]',
+        badgeBg: 'bg-[#9A3412]',
+      };
+    case 'bg-[#115E59]':
+      return {
+        cardFrame:
+          'bg-white border-2 border-[#115E59] ring-2 ring-[#115E59]/12 shadow-md',
+        traySurface: 'bg-[#EFF7F6] border-[#115E59]/25',
+        statusTag: 'bg-teal-50 text-[#115E59]',
+        badgeBg: 'bg-[#115E59]',
+      };
+    case 'bg-[#78350F]':
+      return {
+        cardFrame:
+          'bg-white border-2 border-[#78350F] ring-2 ring-[#78350F]/12 shadow-md',
+        traySurface: 'bg-[#FBF6EE] border-[#78350F]/25',
+        statusTag: 'bg-amber-50 text-[#78350F]',
+        badgeBg: 'bg-[#78350F]',
+      };
+    case 'bg-[#4C1D95]':
+      return {
+        cardFrame:
+          'bg-white border-2 border-[#4C1D95] ring-2 ring-[#4C1D95]/12 shadow-md',
+        traySurface: 'bg-[#F6F2FB] border-[#4C1D95]/25',
+        statusTag: 'bg-violet-50 text-[#4C1D95]',
+        badgeBg: 'bg-[#4C1D95]',
+      };
+    default:
+      return {
+        cardFrame:
+          'bg-white border-2 border-amber-700 ring-2 ring-amber-700/12 shadow-md',
+        traySurface: 'bg-[#FAF5EB] border-amber-700/25',
+        statusTag: 'bg-amber-50 text-amber-800',
+        badgeBg: 'bg-amber-700',
+      };
+  }
 }
 
 export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
@@ -35,6 +94,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   footerSlot,
   isActiveSection = false,
   dimInactive = true,
+  layer = 'channel',
   autoAdvanceMs,
   children,
 }) => {
@@ -205,16 +265,22 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   const canGoPrev = activeCardIdx > 0;
   const canGoNext = activeCardIdx < itemCount - 1;
   const childArray = React.Children.toArray(children);
+  const nestedTheme =
+    layer === 'nested' ? getNestedActiveClasses(accentBarClass) : null;
 
   return (
     <section
       id={id}
-      className={`scroll-mt-32 rounded-2xl px-3.5 sm:px-5 py-5 space-y-4 min-w-0 max-w-full transition-all duration-300 ${
+      className={`scroll-mt-32 rounded-2xl px-3.5 sm:px-5 py-5 space-y-4 min-w-0 max-w-full overflow-x-clip transition-all duration-300 ${
         isActiveSection
-          ? 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
+          ? nestedTheme
+            ? `${nestedTheme.cardFrame} opacity-100`
+            : 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
           : dimInactive
-            ? 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
-            : 'bg-white/70 border border-stone-200/90 opacity-100'
+            ? layer === 'nested'
+              ? 'bg-white/80 border border-stone-200/90 opacity-75 hover:opacity-100'
+              : 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
+            : 'bg-white/75 border border-stone-200/90 opacity-100'
       }`}
     >
       {/* Editorial Section Header */}
@@ -223,7 +289,9 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           <span
             className={`font-mono-tabular text-sm font-bold transition-all ${
               isActiveSection
-                ? `px-2.5 py-0.5 rounded-md ${accentBarClass} text-white shadow-2xs`
+                ? `px-2.5 py-0.5 rounded-md ${
+                    nestedTheme ? nestedTheme.badgeBg : accentBarClass
+                  } text-white shadow-2xs`
                 : accentTextClass
             }`}
           >
@@ -234,7 +302,11 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           </h3>
           {isActiveSection && (
             <span
-              className={`text-[11px] font-bold tracking-wide px-2 py-0.5 rounded bg-[#1E3A8A]/10 ${accentTextClass}`}
+              className={`text-[11px] font-bold tracking-wide px-2 py-0.5 rounded ${
+                nestedTheme
+                  ? nestedTheme.statusTag
+                  : `bg-[#1E3A8A]/10 ${accentTextClass}`
+              }`}
             >
               目前顯示
             </span>
@@ -256,12 +328,12 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0 max-w-full">
           {onOpenQuickSwipe && itemCount > 0 && (
             <button
               type="button"
               onClick={() => onOpenQuickSwipe(activeCardIdx)}
-              className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+              className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
             >
               <GalleryHorizontalEnd className="w-3.5 h-3.5" />
               <span>{quickSwipeLabel}</span>
@@ -270,7 +342,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           {headerActions}
 
           {itemCount > 1 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => scrollToCard(activeCardIdx - 1, true)}
@@ -309,7 +381,9 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
         }}
         className={`border rounded-2xl p-3 sm:p-5 relative min-w-0 max-w-full overflow-hidden transition-colors duration-300 ${
           isActiveSection
-            ? 'bg-[#EBF0FA]/80 border-[#1E3A8A]/25'
+            ? nestedTheme
+              ? nestedTheme.traySurface
+              : 'bg-[#EBF0FA]/80 border-[#1E3A8A]/25'
             : 'bg-[#EFECE4]/90 border-stone-200/90'
         }`}
       >

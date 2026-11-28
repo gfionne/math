@@ -88,6 +88,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
               id={`swipe-topic-${topicIndex}`}
               sectionIndex={topicIndex + 1}
               title={group.topic}
+              layer="nested"
               isActiveSection={isJournalActive && topicIndex === activeTopicIdx}
               dimInactive={isJournalActive && groups.length > 1}
               accentTextClass={accent.textClass}
