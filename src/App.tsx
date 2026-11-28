@@ -7,6 +7,7 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
   AlertTriangle,
+  Bell,
   BellRing,
   CalendarCheck,
   Check,
@@ -4094,6 +4095,55 @@ function MainKnowledgeBaseApp() {
                 : siteSettings.siteTitle}
           </p>
         </aside>
+      )}
+
+      {/* Minimalist Floating Teacher Meeting Check-In Notification Button */}
+      {!meetingCheckinState.isOpen && (
+        <button
+          type="button"
+          onClick={() =>
+            setMeetingCheckinState({
+              isOpen: true,
+              audienceMode: 'teacher',
+              meetingId:
+                uncheckedOpenTeacherSessions[0]?.id ??
+                activeOpenTeacherSessions[0]?.id,
+            })
+          }
+          aria-label={
+            uncheckedOpenTeacherSessions.length > 0
+              ? `有 ${uncheckedOpenTeacherSessions.length} 場教師會議尚未簽到，點擊開啟會議簽到`
+              : '開啟教師會議簽到通知'
+          }
+          title={
+            uncheckedOpenTeacherSessions.length > 0
+              ? `尚有 ${uncheckedOpenTeacherSessions.length} 場未簽到教師會議：${
+                  uncheckedOpenTeacherSessions[0]?.title || ''
+                }`
+              : '教師會議簽到'
+          }
+          className={`fixed bottom-4 sm:bottom-6 ${
+            siteQrMode === 'pinned' &&
+            !(
+              interactiveStage.isOpen &&
+              interactiveStage.url.includes('class-403.html')
+            )
+              ? 'right-52 sm:right-56'
+              : 'right-4 sm:right-6'
+          } z-40 w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-white/95 backdrop-blur-sm border shadow-md hover:shadow-lg active:scale-95 inline-flex items-center justify-center transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3A8A] focus-visible:ring-offset-2 print:hidden ${
+            uncheckedOpenTeacherSessions.length > 0
+              ? 'border-[#1E3A8A]/35 text-[#1E3A8A] hover:border-[#1E3A8A]'
+              : 'border-stone-200/90 text-stone-600 hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40'
+          }`}
+        >
+          <Bell className="w-5 h-5" />
+          {uncheckedOpenTeacherSessions.length > 0 && (
+            <span
+              aria-hidden="true"
+              className="absolute top-0.5 right-0.5 w-3 h-3 rounded-full bg-red-600 ring-2 ring-white"
+            />
+          )}
+        </button>
       )}
     </div>
   );
