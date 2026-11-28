@@ -77,6 +77,9 @@ interface AssessmentBankModalProps {
     folderName?: string,
   ) => Promise<DriveUploadResult>;
   onOpenShareQr: (url: string, title: string) => void;
+  initialGradeFilter?: string | null;
+  initialQuestionId?: string | null;
+  onConsumeInitialGrade?: () => void;
   disableEscapeClose?: boolean;
 }
 
@@ -151,6 +154,9 @@ export const AssessmentBankModal: React.FC<AssessmentBankModalProps> = ({
   onDeleteQuestion,
   onUploadDiagramFile,
   onOpenShareQr,
+  initialGradeFilter = null,
+  initialQuestionId = null,
+  onConsumeInitialGrade,
   disableEscapeClose = false,
 }) => {
   const [mode, setMode] = useState<ModalMode>('practice');
@@ -204,6 +210,35 @@ export const AssessmentBankModal: React.FC<AssessmentBankModalProps> = ({
       );
     }
   }, [isTeacherAdmin, mode]);
+
+  useEffect(() => {
+    if (!isOpen || (!initialGradeFilter && !initialQuestionId)) return;
+    setMode('practice');
+    const targetGrade = initialGradeFilter || '全部年級';
+    setGradeFilter(targetGrade);
+    setCognitiveFilter('全部層次');
+    setTypeFilter('全部題型');
+    setWrongOnlyMode(false);
+    setShowSummaryReport(false);
+    if (initialQuestionId) {
+      const pool = questions.filter(
+        (item) =>
+          item.isPublished &&
+          (targetGrade === '全部年級' || item.grade === targetGrade),
+      );
+      const foundIdx = pool.findIndex((item) => item.id === initialQuestionId);
+      setCurrentIdx(foundIdx >= 0 ? foundIdx : 0);
+    } else {
+      setCurrentIdx(0);
+    }
+    onConsumeInitialGrade?.();
+  }, [
+    isOpen,
+    initialGradeFilter,
+    initialQuestionId,
+    questions,
+    onConsumeInitialGrade,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -701,7 +736,7 @@ export const AssessmentBankModal: React.FC<AssessmentBankModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-40 bg-[#FBF9F5] flex flex-col overflow-hidden"
+      className="fixed inset-0 z-[45] bg-[#FBF9F5] flex flex-col overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-label="學力檢測互動題庫"

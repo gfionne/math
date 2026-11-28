@@ -7,32 +7,20 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
   AlertTriangle,
-  ArrowUpRight,
   BellRing,
-  BookOpen,
   CalendarCheck,
   Check,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardCheck,
   Clock,
   Copy,
   Download,
   ExternalLink,
-  FileText,
   GalleryHorizontalEnd,
-  GraduationCap,
-  Layers,
-  LayoutGrid,
-  List,
   Lock,
   Maximize2,
-  MonitorPlay,
   PenTool,
   Pin,
   QrCode,
-  RefreshCw,
   Search,
   Sheet,
   ShieldCheck,
@@ -40,7 +28,6 @@ import {
   X,
 } from 'lucide-react';
 import QRCode from 'qrcode';
-import {ArticleCard} from './components/ArticleCard';
 import {ArticleDeckModal} from './components/ArticleDeckModal';
 import {ArticleReaderModal} from './components/ArticleReaderModal';
 import {ConfirmActionModal} from './components/ConfirmActionModal';
@@ -53,16 +40,24 @@ import {
 } from './components/InteractiveEmbedModal';
 import {MeetingCheckinModal} from './components/MeetingCheckinModal';
 import {MeetingMinutesModal} from './components/MeetingMinutesModal';
+import {
+  PORTAL_MAJOR_CHANNELS,
+  PortalChannelShowcase,
+  PortalMajorChannel,
+} from './components/PortalChannelShowcase';
+import {PresentationModeModal} from './components/PresentationModeModal';
 import {SchoolAccessModal} from './components/SchoolAccessModal';
 import {DrawerTab, SheetsCmsDrawer} from './components/SheetsCmsDrawer';
 import {StandaloneParentCheckinPage} from './components/StandaloneParentCheckinPage';
 import {TeachingResourcesHubModal} from './components/TeachingResourcesHubModal';
 import {AssessmentBankModal} from './components/AssessmentBankModal';
 import {TopicSwipeDeckModal} from './components/TopicSwipeDeckModal';
-import {TopicSwipeFeed} from './components/TopicSwipeFeed';
 import {updateDynamicFavicon} from './utils/dynamicFavicon';
 import {
-  formatCategoryDisplay,
+  buildChannelSwipeDeck,
+  SwipeDeckGroup,
+} from './utils/swipeDeckBuilder';
+import {
   groupPostsByTopic,
   isPostLocked,
   normalizeAcademicYear,
@@ -154,6 +149,7 @@ import {
   ConfirmActionState,
   DataSourceMode,
   JournalPost,
+  ResourceGradeBand,
   SiteSettings,
   SpreadsheetMeta,
   TeachingResource,
@@ -198,7 +194,6 @@ function MainKnowledgeBaseApp() {
   });
   const lastCloudSheetKeyRef = useRef<string>('');
   const lastFocusRefreshRef = useRef<number>(0);
-  const categoryBarRef = useRef<HTMLDivElement | null>(null);
 
   // Auth State (Access token kept strictly in memory via googleAuth.ts)
   const [user, setUser] = useState<User | null>(null);
@@ -211,16 +206,26 @@ function MainKnowledgeBaseApp() {
   );
 
   // Filter & View State
+  const [activePortalChannel, setActivePortalChannel] =
+    useState<PortalMajorChannel>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>('全部年度');
   const [selectedCategory, setSelectedCategory] = useState<string>('全部分類');
   const [viewMode, setViewMode] = useState<'swipe' | 'grid' | 'list'>('swipe');
   const [includeDrafts, setIncludeDrafts] = useState(false);
 
+  const [resourceGradeFilter, setResourceGradeFilter] = useState<
+    '全部年段' | ResourceGradeBand
+  >('全部年段');
+  const [assessmentGradeFilter, setAssessmentGradeFilter] =
+    useState<string>('全部年級');
+
   // Modals & Drawers
   const [activePost, setActivePost] = useState<JournalPost | null>(null);
   const [immersiveSwipe, setImmersiveSwipe] = useState<{
     isOpen: boolean;
+    scopeLabel?: string;
+    groups?: SwipeDeckGroup[];
     topicIndex: number;
     cardIndex: number;
   }>({
@@ -294,6 +299,8 @@ function MainKnowledgeBaseApp() {
   );
   const [hasRemoteResourcesTab, setHasRemoteResourcesTab] = useState(false);
   const [isResourcesHubOpen, setIsResourcesHubOpen] = useState(false);
+  const [pendingOpenResource, setPendingOpenResource] =
+    useState<TeachingResource | null>(null);
   const [assessmentTabName, setAssessmentTabName] = useState<string>(() =>
     readSelectedAssessmentTabPreference(DEFAULT_PUBLIC_SHEET_ID),
   );
@@ -310,6 +317,12 @@ function MainKnowledgeBaseApp() {
   });
   const [hasRemoteAssessmentTab, setHasRemoteAssessmentTab] = useState(false);
   const [isAssessmentBankOpen, setIsAssessmentBankOpen] = useState(false);
+  const [pendingAssessmentGrade, setPendingAssessmentGrade] = useState<
+    string | null
+  >(null);
+  const [pendingAssessmentQuestionId, setPendingAssessmentQuestionId] =
+    useState<string | null>(null);
+  const [isPresentationModeOpen, setIsPresentationModeOpen] = useState(false);
   const handledQueryStageRef = useRef(false);
 
   const isSchoolAuthorized = useMemo(
@@ -980,19 +993,6 @@ function MainKnowledgeBaseApp() {
     searchQuery,
   ]);
 
-  useEffect(() => {
-    const bar = categoryBarRef.current;
-    if (!bar) return;
-    const activeEl = bar.querySelector('[data-active="true"]') as HTMLElement | null;
-    if (!activeEl) return;
-    const targetLeft =
-      activeEl.offsetLeft - (bar.clientWidth - activeEl.offsetWidth) / 2;
-    bar.scrollTo({
-      left: Math.max(0, targetLeft),
-      behavior: 'smooth',
-    });
-  }, [selectedCategory]);
-
   // Deep-link hash support (#post=slug)
   useEffect(() => {
     const hash = window.location.hash;
@@ -1085,14 +1085,125 @@ function MainKnowledgeBaseApp() {
     return pool.slice(0, 4);
   }, [posts]);
 
-  const embedCount = useMemo(
-    () => posts.filter((p) => Boolean(p.embedUrl)).length,
-    [posts],
-  );
-
   const topicGroups = useMemo(
     () => groupPostsByTopic(filteredPosts, selectedCategory),
     [filteredPosts, selectedCategory],
+  );
+
+  const visibleResources = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return resources
+      .filter((r) => isTeacherAdmin || r.isPublic)
+      .filter((r) => {
+        if (
+          activePortalChannel === 'resources' &&
+          resourceGradeFilter !== '全部年段' &&
+          r.gradeBand !== resourceGradeFilter
+        ) {
+          return false;
+        }
+        if (q) {
+          const hay = [
+            r.title,
+            r.summary,
+            r.topicTags,
+            r.gradeBand,
+            r.resourceType,
+            r.author,
+          ]
+            .join(' ')
+            .toLowerCase();
+          return hay.includes(q);
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return b.publishedAt.localeCompare(a.publishedAt);
+      });
+  }, [
+    resources,
+    isTeacherAdmin,
+    activePortalChannel,
+    resourceGradeFilter,
+    searchQuery,
+  ]);
+
+  const publishedAssessmentQuestions = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return assessmentQuestions
+      .filter((item) => item.isPublished)
+      .filter((item) => {
+        if (!q) return true;
+        const hay = [
+          item.grade,
+          item.unitTitle,
+          item.domainTopic,
+          item.stem,
+          item.cognitiveLevel,
+        ]
+          .join(' ')
+          .toLowerCase();
+        return hay.includes(q);
+      });
+  }, [assessmentQuestions, searchQuery]);
+
+  const handleOpenResourcesHub = useCallback(
+    (initialResource?: TeachingResource) => {
+      setPendingOpenResource(initialResource ?? null);
+      setIsResourcesHubOpen(true);
+    },
+    [],
+  );
+
+  const handleOpenAssessmentBank = useCallback(
+    (initialGrade?: string | null, initialQuestionId?: string | null) => {
+      setPendingAssessmentGrade(initialGrade ?? null);
+      setPendingAssessmentQuestionId(initialQuestionId ?? null);
+      setIsAssessmentBankOpen(true);
+    },
+    [],
+  );
+
+  const activeChannelSwipeDeck = useMemo(
+    () =>
+      buildChannelSwipeDeck({
+        activeChannel: activePortalChannel,
+        featuredPosts: featuredSpotlightPosts,
+        topicGroups,
+        checkPostLocked,
+        visibleResources,
+        publishedAssessmentQuestions,
+        assessmentGradeFilter,
+        assessmentTabName,
+        searchQuery,
+        selectedCategory,
+        isXimenLocked,
+        isClass403Locked,
+        onSelectPost: setActivePost,
+        onOpenResourcesHub: handleOpenResourcesHub,
+        onOpenAssessmentBank: handleOpenAssessmentBank,
+        onOpenXimenStage: openXimenStage,
+        onOpenClass403Stage: openClass403Stage,
+      }),
+    [
+      activePortalChannel,
+      featuredSpotlightPosts,
+      topicGroups,
+      checkPostLocked,
+      visibleResources,
+      publishedAssessmentQuestions,
+      assessmentGradeFilter,
+      assessmentTabName,
+      searchQuery,
+      selectedCategory,
+      isXimenLocked,
+      isClass403Locked,
+      handleOpenResourcesHub,
+      handleOpenAssessmentBank,
+      openXimenStage,
+      openClass403Stage,
+    ],
   );
 
   const categoryCounts = useMemo(() => {
@@ -2527,18 +2638,17 @@ function MainKnowledgeBaseApp() {
     }
   };
 
-  const dataSourceLabel =
-    dataSourceMode === 'sheets-api'
-      ? `Google Sheets API (${sheetMeta?.title || '已連線'})`
-      : dataSourceMode === 'sheets-public'
-      ? '公開 Google Sheet (唯讀即時同步)'
-      : dataSourceMode === 'local-json'
-      ? '匯入 JSON 靜態資料集'
-      : '內建示範資料庫 (可即時切換試算表)';
+  const selectPortalChannel = (channel: PortalMajorChannel) => {
+    setActivePortalChannel(channel);
+    if (channel === 'journal') {
+      setSelectedCategory('全部分類');
+    }
+    requestAnimationFrame(() => scrollToSection('portal-showcase'));
+  };
 
   return (
     <div className="min-h-screen flex flex-col bg-[#FBF9F5] text-[#1C1917] overflow-x-clip">
-      {/* Responsive Navigation Bar (Single-row on lg+, 2-row compact on mobile/tablet) */}
+      {/* Strictly Single-Row Responsive Navigation Bar */}
       <header className="sticky top-0 z-30 bg-[#FBF9F5]/95 backdrop-blur-sm border-b border-stone-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <div className="h-14 lg:h-16 flex items-center justify-between gap-3 min-w-0">
@@ -2547,6 +2657,7 @@ function MainKnowledgeBaseApp() {
               href="#top"
               onClick={(e) => {
                 e.preventDefault();
+                setActivePortalChannel('all');
                 setSelectedYear('全部年度');
                 setSelectedCategory('全部分類');
                 setViewMode('swipe');
@@ -2557,19 +2668,45 @@ function MainKnowledgeBaseApp() {
               {siteSettings.siteTitle}
             </a>
 
-            {/* Zone 2: Desktop Single-line Text Nav Links */}
-            <nav className="hidden lg:flex items-center gap-1.5 text-sm font-medium text-stone-600 shrink-0">
+            {/* Zone 2: Desktop Single-line Major Channel Nav Links */}
+            <nav
+              aria-label="主頻道切換"
+              className="hidden lg:flex items-center gap-1 text-xs xl:text-sm font-medium text-stone-600 shrink-0"
+            >
+              {PORTAL_MAJOR_CHANNELS.map((ch) => {
+                const isActive = activePortalChannel === ch.id;
+                const locked =
+                  (ch.id === 'ximen' && isXimenLocked) ||
+                  (ch.id === 'class403' && isClass403Locked);
+                return (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => selectPortalChannel(ch.id)}
+                    className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                      isActive
+                        ? 'text-[#1E3A8A] bg-[#1E3A8A]/10 font-semibold'
+                        : 'text-stone-700 hover:bg-stone-200/60 hover:text-stone-950'
+                    }`}
+                  >
+                    {locked && <Lock className="w-3 h-3 text-amber-700 shrink-0" />}
+                    <span>{ch.label}</span>
+                  </button>
+                );
+              })}
               <button
                 type="button"
                 onClick={() => {
-                  setSelectedYear('全部年度');
-                  setSelectedCategory('全部分類');
-                  setSearchQuery('');
-                  setViewMode('swipe');
-                  setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0});
+                  setImmersiveSwipe({
+                    isOpen: true,
+                    scopeLabel: activeChannelSwipeDeck.scopeLabel,
+                    groups: activeChannelSwipeDeck.groups,
+                    topicIndex: 0,
+                    cardIndex: 0,
+                  });
                 }}
-                title="像 LINE 新聞一樣：左右滑看同主題文章，上下滑切換不同主題"
-                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
+                title="針對目前架構分區開啟滑動快覽：左右滑看同組內容、上下滑切換分組"
+                className={`ml-0.5 px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                   immersiveSwipe.isOpen
                     ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
                     : 'text-stone-800 font-medium'
@@ -2577,69 +2714,6 @@ function MainKnowledgeBaseApp() {
               >
                 <GalleryHorizontalEnd className="w-3.5 h-3.5 text-[#1E3A8A]" />
                 <span>滑動快覽</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCategory('全部分類');
-                  setViewMode('grid');
-                  scrollToSection('journal-catalog');
-                }}
-                className="px-2.5 py-1.5 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-              >
-                期刊專欄
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsResourcesHubOpen(true)}
-                className={`px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                  isResourcesHubOpen
-                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                    : ''
-                }`}
-              >
-                教學資源
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsAssessmentBankOpen(true)}
-                className={`px-2.5 py-1.5 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                  isAssessmentBankOpen
-                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                    : ''
-                }`}
-              >
-                檢測題庫
-              </button>
-              <button
-                type="button"
-                onClick={() => openXimenStage('map')}
-                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                  interactiveStage.isOpen &&
-                  interactiveStage.url.includes('ximen-scratch.html')
-                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                    : ''
-                }`}
-              >
-                {isXimenLocked && <Lock className="w-3 h-3 text-amber-700" />}
-                <span>互動專題</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => openClass403Stage('agenda')}
-                className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                  interactiveStage.isOpen &&
-                  interactiveStage.url.includes('class-403.html')
-                    ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                    : 'text-stone-700'
-                }`}
-              >
-                {isClass403Locked ? (
-                  <Lock className="w-3.5 h-3.5 text-amber-700" />
-                ) : (
-                  <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
-                )}
-                <span>403 班級網站</span>
               </button>
             </nav>
 
@@ -2754,94 +2828,6 @@ function MainKnowledgeBaseApp() {
               )}
             </div>
           </div>
-
-          {/* Mobile & Tablet Compact Scrollable Quick Nav */}
-          <nav
-            aria-label="行動版快速導覽"
-            className="flex lg:hidden items-center gap-1.5 overflow-x-auto pb-2 pt-1.5 border-t border-stone-200/70 text-xs sm:text-sm font-medium text-stone-600"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedYear('全部年度');
-                setSelectedCategory('全部分類');
-                setSearchQuery('');
-                setViewMode('swipe');
-                setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0});
-              }}
-              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                immersiveSwipe.isOpen
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : 'text-stone-800 font-medium'
-              }`}
-            >
-              <GalleryHorizontalEnd className="w-3.5 h-3.5 text-[#1E3A8A]" />
-              <span>滑動快覽</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openClass403Stage('agenda')}
-              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                interactiveStage.isOpen &&
-                interactiveStage.url.includes('class-403.html')
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : 'text-stone-700'
-              }`}
-            >
-              {isClass403Locked ? (
-                <Lock className="w-3 h-3 text-amber-700" />
-              ) : (
-                <GraduationCap className="w-3.5 h-3.5 text-[#1E3A8A]" />
-              )}
-              <span>403 班網</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => openXimenStage('map')}
-              className={`px-2.5 py-1 rounded-lg inline-flex items-center gap-1 hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                interactiveStage.isOpen &&
-                interactiveStage.url.includes('ximen-scratch.html')
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : ''
-              }`}
-            >
-              {isXimenLocked && <Lock className="w-3 h-3 text-amber-700" />}
-              <span>互動專題</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedCategory('全部分類');
-                setViewMode('grid');
-                scrollToSection('journal-catalog');
-              }}
-              className="px-2.5 py-1 rounded-lg hover:bg-stone-200/60 hover:text-stone-950 active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-            >
-              期刊專欄
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsResourcesHubOpen(true)}
-              className={`px-2.5 py-1 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                isResourcesHubOpen
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : ''
-              }`}
-            >
-              教學資源
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsAssessmentBankOpen(true)}
-              className={`px-2.5 py-1 rounded-lg hover:bg-[#1E3A8A]/8 hover:text-[#1E3A8A] active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
-                isAssessmentBankOpen
-                  ? 'text-[#1E3A8A] bg-[#1E3A8A]/8 font-semibold'
-                  : ''
-              }`}
-            >
-              檢測題庫
-            </button>
-          </nav>
         </div>
       </header>
 
@@ -3265,19 +3251,19 @@ function MainKnowledgeBaseApp() {
           </section>
         )}
 
-        {/* Editorial Masthead + Prominent First-Screen Search + Compact Featured Spotlight */}
+        {/* Compact Editorial Masthead + Search + Desktop Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-7 lg:py-9">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 lg:py-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
-              {/* Left Column: Brand Masthead, Prominent Search & Top Topic Quick Links */}
-              <div className="lg:col-span-7 min-w-0 flex flex-col justify-center gap-5">
-                <div className="space-y-2.5 min-w-0">
+              {/* Left Column: Brand Masthead & Unified Search Bar */}
+              <div className="lg:col-span-7 min-w-0 flex flex-col justify-center gap-4">
+                <div className="space-y-2 min-w-0">
                   {siteSettings.siteSubtitle.trim() && (
                     <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500 break-words">
                       {siteSettings.siteSubtitle}
                     </p>
                   )}
-                  <h1 className="font-editorial text-2xl sm:text-4xl lg:text-[42px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
+                  <h1 className="font-editorial text-2xl sm:text-4xl lg:text-[40px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
                     {siteSettings.heroHeading}
                   </h1>
                   {siteSettings.heroDescription.trim() && (
@@ -3288,11 +3274,17 @@ function MainKnowledgeBaseApp() {
                 </div>
 
                 {/* First-Screen Unified Search & Academic Year Bar */}
-                <div className="space-y-3 min-w-0">
+                <div className="space-y-2.5 min-w-0">
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      scrollToSection('journal-catalog');
+                      if (
+                        activePortalChannel !== 'all' &&
+                        activePortalChannel !== 'journal'
+                      ) {
+                        setActivePortalChannel('journal');
+                      }
+                      scrollToSection('portal-showcase');
                     }}
                     className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all min-w-0"
                   >
@@ -3331,38 +3323,6 @@ function MainKnowledgeBaseApp() {
                     </div>
                   </form>
 
-                  {/* Quick Topic Shortcuts (Populates Left Column Purposefully & Speeds Discovery) */}
-                  {availableCategories.length > 1 && (
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                      <span className="text-stone-500 mr-1">常用分類：</span>
-                      {availableCategories
-                        .filter((cat) => cat !== '全部分類')
-                        .sort(
-                          (a, b) =>
-                            (categoryCounts.get(b) ?? 0) -
-                            (categoryCounts.get(a) ?? 0),
-                        )
-                        .slice(0, 5)
-                        .map((cat) => (
-                          <button
-                            key={cat}
-                            type="button"
-                            onClick={() => {
-                              setSelectedCategory(cat);
-                              scrollToSection('journal-catalog');
-                            }}
-                            className={`px-2.5 py-1 rounded-md border transition-all duration-150 active:scale-[0.97] whitespace-nowrap ${
-                              selectedCategory === cat
-                                ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] shadow-xs'
-                                : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:-translate-y-0.5 hover:border-[#1E3A8A]/50 hover:bg-white hover:text-[#1E3A8A] hover:shadow-xs'
-                            }`}
-                          >
-                            {cat} ({categoryCounts.get(cat) ?? 0})
-                          </button>
-                        ))}
-                    </div>
-                  )}
-
                   {(searchQuery.trim() !== '' ||
                     selectedYear !== '全部年度' ||
                     selectedCategory !== '全部分類') && (
@@ -3372,7 +3332,15 @@ function MainKnowledgeBaseApp() {
                       </span>
                       <button
                         type="button"
-                        onClick={() => scrollToSection('journal-catalog')}
+                        onClick={() => {
+                          if (
+                            activePortalChannel !== 'all' &&
+                            activePortalChannel !== 'journal'
+                          ) {
+                            setActivePortalChannel('journal');
+                          }
+                          scrollToSection('portal-showcase');
+                        }}
                         className="font-medium text-[#1E3A8A] hover:underline"
                       >
                         查看篩選結果 ↓
@@ -3393,9 +3361,9 @@ function MainKnowledgeBaseApp() {
                 </div>
               </div>
 
-              {/* Right Column: Curated Featured Spotlight Showcase */}
+              {/* Right Column: Curated Featured Spotlight Showcase (Desktop lg+ only to keep mobile channel bar above the fold) */}
               {featuredSpotlightPosts.length > 0 ? (
-                <div className="lg:col-span-5 min-w-0 flex">
+                <div className="hidden lg:flex lg:col-span-5 min-w-0">
                   <FeaturedSpotlight
                     posts={featuredSpotlightPosts}
                     onSelectPost={(post) => setActivePost(post)}
@@ -3404,616 +3372,67 @@ function MainKnowledgeBaseApp() {
                 </div>
               ) : null}
             </div>
-
-            {/* Compact 4-Column Operational Utility Strip */}
-            <div className="mt-7 pt-6 border-t border-stone-200 grid grid-cols-2 lg:grid-cols-4 gap-6">
-              <div>
-                <div className="text-xs text-stone-500">收錄期刊與紀錄</div>
-                <div className="font-mono-tabular text-xl sm:text-2xl font-semibold text-stone-950 mt-0.5">
-                  {posts.length} 篇
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-stone-500">涵蓋學年度跨距</div>
-                <div className="font-mono-tabular text-xl sm:text-2xl font-semibold text-stone-950 mt-0.5">
-                  {Math.max(1, availableYears.length - 1)} 個學年
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-stone-500">雲端附件與表單</div>
-                <div className="font-mono-tabular text-xl sm:text-2xl font-semibold text-stone-950 mt-0.5">
-                  {embedCount} 筆資源
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-stone-500 flex items-center justify-between gap-2">
-                  <span>{user && hasAccessToken ? '資料庫來源狀態' : '資料庫狀態'}</span>
-                  {user &&
-                    hasAccessToken &&
-                    (dataSourceMode === 'sheets-api' ||
-                      dataSourceMode === 'sheets-public') && (
-                      <button
-                        type="button"
-                        onClick={handleRefreshSync}
-                        disabled={isSyncing}
-                        className="text-[#1E3A8A] hover:underline inline-flex items-center gap-1 text-xs font-medium"
-                      >
-                        <RefreshCw
-                          className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`}
-                        />
-                        <span>同步</span>
-                      </button>
-                    )}
-                </div>
-                <div className="text-sm font-semibold text-stone-900 mt-1 truncate">
-                  {user && hasAccessToken
-                    ? dataSourceLabel
-                    : '雲端即時連線（最新期刊）'}
-                </div>
-              </div>
-            </div>
           </div>
         </section>
 
-        {/* Integrated Interactive Topic, Class 403 & Community Meeting Check-In Hub */}
+        {/* Top Major Channel Bar + Vertical Sections × Horizontal Swipeable Card Trays */}
         <section
-          aria-label="跨域互動專題與社群會議入口展示"
-          className="border-b border-stone-200 bg-[#F7F4EE]"
+          id="portal-showcase"
+          aria-label="分區知識頻道與卡片展示"
+          className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0"
         >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-4">
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {/* Left Hub: Ximen Scratch Interactive Learning Site */}
-              <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
-                <div className="space-y-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                    <span className="font-semibold text-[#1E3A8A]">
-                      跨領域互動學習專題
-                    </span>
-                    <span aria-hidden="true" className="text-stone-400">
-                      ·
-                    </span>
-                    <span className="font-mono-tabular text-stone-600">
-                      401–404 年段實作資源
-                    </span>
-                    {isXimenLocked && (
-                      <>
-                        <span aria-hidden="true" className="text-stone-400">
-                          ·
-                        </span>
-                        <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
-                          <Lock className="w-3 h-3" />
-                          <span>限 @hmes.tp.edu.tw</span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  <h2 className="font-editorial text-lg font-bold text-stone-950">
-                    百年西門 Scratch 舞台秀互動學習網
-                  </h2>
-                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                    提供西門町互動商圈地圖座標微調、標準圖庫匯出、Scratch 3.0 積木步驟與分班命名檢核表。
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {(
-                      [
-                        {id: 'map', label: '互動地圖'},
-                        {id: 'gallery', label: '專案圖庫'},
-                        {id: 'blocks', label: '積木教學'},
-                        {id: 'naming', label: '命名檢核'},
-                      ] as const
-                    ).map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => openXimenStage(tab.id)}
-                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5 max-w-full">
-                    <button
-                      type="button"
-                      onClick={() => openXimenStage('map')}
-                      className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                    >
-                      {isXimenLocked ? (
-                        <Lock className="w-3.5 h-3.5" />
-                      ) : (
-                        <MonitorPlay className="w-3.5 h-3.5" />
-                      )}
-                      <span>{isXimenLocked ? '登入解鎖' : '開啟學習網'}</span>
-                    </button>
-
-                    {!isXimenLocked && (
-                      <a
-                        href="./ximen-scratch.html"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                      >
-                        <span>獨立分頁</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Hub: Class 403 Website (Pes Class 115) */}
-              <div className="min-w-0 bg-white/85 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
-                <div className="space-y-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                    <span className="font-semibold text-[#1E3A8A]">
-                      四年 3 班專屬班務系統
-                    </span>
-                    <span aria-hidden="true" className="text-stone-400">
-                      ·
-                    </span>
-                    <span className="font-mono-tabular text-stone-600">
-                      Pes Class 115 · 分機 5207
-                    </span>
-                    {isClass403Locked && (
-                      <>
-                        <span aria-hidden="true" className="text-stone-400">
-                          ·
-                        </span>
-                        <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
-                          <Lock className="w-3 h-3" />
-                          <span>限 @hmes.tp.edu.tw</span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  <h2 className="font-editorial text-lg font-bold text-stone-950">
-                    403 班級網站與互動聯絡簿
-                  </h2>
-                  <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                    每日作業與服裝提醒、雙模式行事曆、線上學習資源與請假表單下載、每週課表及班級交流留言板。
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {(
-                      [
-                        {id: 'agenda', label: '互動聯絡簿'},
-                        {id: 'news', label: '公告行事曆'},
-                        {id: 'resources', label: '學習資源庫'},
-                        {id: 'contact', label: '課表與聯絡'},
-                      ] as const
-                    ).map((tab) => (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => openClass403Stage(tab.id)}
-                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-[#FBF9F5] border border-stone-200 rounded-lg hover:-translate-y-0.5 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:bg-white hover:shadow-xs active:scale-[0.97] transition-all whitespace-nowrap shrink-0"
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-1.5 max-w-full">
-                    <button
-                      type="button"
-                      onClick={() => openClass403Stage('agenda')}
-                      className="min-h-[34px] px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                    >
-                      {isClass403Locked ? (
-                        <Lock className="w-3.5 h-3.5" />
-                      ) : (
-                        <GraduationCap className="w-3.5 h-3.5" />
-                      )}
-                      <span>{isClass403Locked ? '登入解鎖' : '開啟 403 班網'}</span>
-                    </button>
-
-                    {!isClass403Locked && (
-                      <a
-                        href="./class-403.html"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="min-h-[34px] px-2.5 py-1 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:-translate-y-0.5 hover:bg-stone-50 hover:border-stone-400 hover:shadow-xs active:scale-[0.97] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                      >
-                        <span>獨立分頁</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Interactive Math Assessment Question Bank Banner */}
-            <div className="bg-white/90 border border-stone-200 rounded-xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:border-[#1E3A8A]/40 hover:shadow-sm transition-all">
-              <div className="space-y-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                  <span className="font-semibold text-[#1E3A8A]">
-                    學力檢測互動練習與題庫系統
-                  </span>
-                  <span aria-hidden="true" className="text-stone-400">
-                    ·
-                  </span>
-                  <span className="font-mono-tabular text-stone-600">
-                    收錄 {assessmentQuestions.filter((q) => q.isPublished).length} 題（單選題／建構反應題）
-                  </span>
-                  <span aria-hidden="true" className="text-stone-400">
-                    ·
-                  </span>
-                  <span className="text-stone-500">
-                    同步分頁：{assessmentTabName}
-                  </span>
-                </div>
-                <h2 className="font-editorial text-lg font-bold text-stone-950">
-                  國小數學學力檢測題庫（即時批改回饋 × Google Sheet 教師題庫管理）
-                </h2>
-                <p className="text-xs sm:text-sm text-stone-600 leading-relaxed">
-                  依年級與「概念理解／程序執行／情境應用」認知層次篩選練習，作答後立即顯示迷思診斷解析與錯題複習；教師可綁定 Google Sheet 指定分頁即時維護題庫。
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsAssessmentBankOpen(true)}
-                  className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:-translate-y-0.5 hover:bg-[#172554] hover:shadow-sm active:scale-[0.97] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                >
-                  <ClipboardCheck className="w-4 h-4 shrink-0" />
-                  <span>進入互動題庫練習</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Journal Catalog & Single-Line Channel Bar */}
-        <section id="journal-catalog" className="max-w-7xl mx-auto px-4 sm:px-6 py-8 lg:py-10 space-y-6 min-w-0">
-          {/* Unified Channel Tabs + View Mode Switcher Row (No Redundant Middle Search Box) */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2 min-w-0">
-            {/* Horizontal Scrollable Topic Channel Strip */}
-            <div className="flex-1 min-w-0 flex items-center">
-              <button
-                type="button"
-                onClick={() =>
-                  categoryBarRef.current?.scrollBy({left: -220, behavior: 'smooth'})
-                }
-                aria-label="向左捲動專欄分類"
-                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-
-              <div
-                ref={categoryBarRef}
-                className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
-              >
-                {availableCategories.map((cat) => {
-                  const isActive = selectedCategory === cat;
-                  const count = categoryCounts.get(cat) ?? 0;
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      data-active={isActive ? 'true' : undefined}
-                      onClick={() => setSelectedCategory(cat)}
-                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
-                        isActive
-                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
-                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
-                      }`}
-                    >
-                      <span>{cat === '全部分類' ? '全部主題' : cat}</span>
-                      <span
-                        className={`font-mono-tabular text-xs ${
-                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
-                        }`}
-                      >
-                        {count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <button
-                type="button"
-                onClick={() =>
-                  categoryBarRef.current?.scrollBy({left: 220, behavior: 'smooth'})
-                }
-                aria-label="向右捲動專欄分類"
-                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center rounded-md text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 transition-colors shrink-0"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Right Controls: Draft Toggle + View Mode Switcher */}
-            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3 min-w-0 pb-1 lg:pb-0">
-              {user && hasAccessToken && (
-                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
-                  <input
-                    type="checkbox"
-                    checked={includeDrafts}
-                    onChange={(e) => setIncludeDrafts(e.target.checked)}
-                    className="rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
-                  />
-                  <span>顯示草稿</span>
-                </label>
-              )}
-
-              <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg max-w-full overflow-x-auto no-scrollbar">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('swipe')}
-                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
-                    viewMode === 'swipe'
-                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
-                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
-                  }`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>主題滑動</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('grid')}
-                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
-                    viewMode === 'grid'
-                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
-                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                  <span>卡片排版</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('list')}
-                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
-                    viewMode === 'list'
-                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
-                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
-                  }`}
-                >
-                  <List className="w-3.5 h-3.5" />
-                  <span>目錄清單</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Results Header */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-baseline gap-3">
-              <h2 className="font-editorial text-xl font-semibold text-stone-900">
-                {selectedCategory === '全部分類' ? '所有期刊文章' : selectedCategory}
-                {selectedYear !== '全部年度' ? ` · ${selectedYear}` : ''}
-              </h2>
-              <span className="text-xs font-mono-tabular text-stone-500">
-                共 {filteredPosts.length} 篇
-              </span>
-              {(selectedCategory !== '全部分類' ||
-                selectedYear !== '全部年度' ||
-                searchQuery.trim() !== '') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedYear('全部年度');
-                    setSelectedCategory('全部分類');
-                  }}
-                  className="text-xs font-medium text-[#1E3A8A] hover:underline"
-                >
-                  重設篩選
-                </button>
-              )}
-            </div>
-
-            {viewMode === 'swipe' && filteredPosts.length > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setImmersiveSwipe({isOpen: true, topicIndex: 0, cardIndex: 0})
-                }
-                className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <GalleryHorizontalEnd className="w-3.5 h-3.5" />
-                <span>開啟大卡片滑動模式</span>
-              </button>
-            )}
-          </div>
-
-          {selectedCategory === '學力檢測' && (
-            <div className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="text-xs font-semibold text-[#1E3A8A]">
-                  學力檢測線上互動練習
-                </div>
-                <p className="text-sm text-stone-700">
-                  除了閱讀學力檢測分析文章，也可讓學生直接開啟「學力檢測互動題庫」進行即時練習與診斷。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAssessmentBankOpen(true)}
-                className="min-h-[38px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <ClipboardCheck className="w-3.5 h-3.5" />
-                <span>開啟學力檢測互動題庫</span>
-              </button>
-            </div>
-          )}
-
-          {/* Empty State */}
-          {filteredPosts.length === 0 ? (
-            posts.length === 0 ? (
-              <div className="bg-white border border-stone-200 rounded-xl p-12 text-center space-y-4">
-                <BookOpen className="w-8 h-8 text-[#1E3A8A] mx-auto" />
-                <h3 className="font-editorial text-lg font-medium text-stone-900">
-                  此資料庫目前尚未建立文章
-                </h3>
-                <p className="text-sm text-stone-600 max-w-md mx-auto">
-                  您的專屬試算表結構已就緒，現在可以立即撰寫第一篇期刊文章，或透過管理後台批次匯入既有文章。
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => openDrawer('editor')}
-                    className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
-                  >
-                    立即新增第一篇文章
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openDrawer('rss')}
-                    className="px-4 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors"
-                  >
-                    從 RSS / Blogger 匯入
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white border border-stone-200 rounded-xl p-12 text-center space-y-3">
-                <BookOpen className="w-8 h-8 text-stone-400 mx-auto" />
-                <h3 className="font-editorial text-lg font-medium text-stone-900">
-                  找不到符合條件的期刊文章
-                </h3>
-                <p className="text-sm text-stone-600 max-w-md mx-auto">
-                  請嘗試清除關鍵字或切換其他學年度與分類標籤。
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setSelectedYear('全部年度');
-                    setSelectedCategory('全部分類');
-                  }}
-                  className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
-                >
-                  重設所有篩選條件
-                </button>
-              </div>
-            )
-          ) : viewMode === 'swipe' ? (
-            <TopicSwipeFeed
-              groups={topicGroups}
-              onSelectPost={(p) => setActivePost(p)}
-              onOpenImmersive={(topicIndex, cardIndex) =>
-                setImmersiveSwipe({isOpen: true, topicIndex, cardIndex})
-              }
-              isFilteredToSingleCategory={selectedCategory !== '全部分類'}
-              onResetCategoryFilter={() => setSelectedCategory('全部分類')}
-              checkPostLocked={checkPostLocked}
-            />
-          ) : viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredPosts.map((post, idx) => (
-                <ArticleCard
-                  key={`${post.slug}-${post.rowIndex ?? idx}`}
-                  post={post}
-                  onSelect={(p) => setActivePost(p)}
-                  isLocked={checkPostLocked(post)}
-                />
-              ))}
-            </div>
-          ) : (
-            /* Chronological Archive Table View */
-            <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-[#F7F4EE] border-b border-stone-200 text-xs font-semibold text-stone-700">
-                      <th className="py-3.5 px-5 whitespace-nowrap">學年度</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap">發布日期</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap">分類</th>
-                      <th className="py-3.5 px-4">文章標題</th>
-                      <th className="py-3.5 px-4 whitespace-nowrap">雲端資源</th>
-                      <th className="py-3.5 px-5 text-right whitespace-nowrap">
-                        操作
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100 text-sm">
-                    {filteredPosts.map((post, idx) => {
-                      const locked = checkPostLocked(post);
-                      return (
-                        <tr
-                          key={`${post.slug}-${post.rowIndex ?? idx}`}
-                          onClick={() => setActivePost(post)}
-                          className="group cursor-pointer hover:bg-[#F3EFE6] transition-colors"
-                        >
-                          <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">
-                            {post.academicYear}
-                          </td>
-                          <td className="py-3.5 px-4 font-mono-tabular text-xs text-stone-500 whitespace-nowrap">
-                            {post.publishedAt}
-                          </td>
-                          <td className="py-3.5 px-4 text-xs text-stone-700 whitespace-nowrap">
-                            {formatCategoryDisplay(post.category)}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActivePost(post);
-                              }}
-                              className="text-left font-medium text-stone-900 group-hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-colors"
-                            >
-                              {locked && (
-                                <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                              )}
-                              <span>{post.title}</span>
-                            </button>
-                          </td>
-                          <td className="py-3.5 px-4 text-xs text-stone-500 whitespace-nowrap">
-                            {locked ? (
-                              <span className="inline-flex items-center gap-1 text-amber-800 font-medium">
-                                <Lock className="w-3 h-3" />
-                                <span>校內限定</span>
-                              </span>
-                            ) : post.embedUrl ? (
-                              <a
-                                href={post.embedUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center gap-1 text-[#1E3A8A] hover:underline"
-                              >
-                                <FileText className="w-3.5 h-3.5" />
-                                <span>開啟附件</span>
-                              </a>
-                            ) : (
-                              <span>—</span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActivePost(post);
-                              }}
-                              className="text-xs font-semibold text-[#1E3A8A] px-2.5 py-1 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 transition-all"
-                            >
-                              {locked && <Lock className="w-3 h-3" />}
-                              <span>{locked ? '登入解鎖' : '閱讀全文'}</span>
-                              <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          <PortalChannelShowcase
+            activeChannel={activePortalChannel}
+            onSelectChannel={setActivePortalChannel}
+            posts={posts}
+            filteredPosts={filteredPosts}
+            featuredPosts={featuredSpotlightPosts}
+            topicGroups={topicGroups}
+            availableCategories={availableCategories}
+            categoryCounts={categoryCounts}
+            selectedCategory={selectedCategory}
+            onSelectCategory={setSelectedCategory}
+            selectedYear={selectedYear}
+            searchQuery={searchQuery}
+            onResetFilters={() => {
+              setSearchQuery('');
+              setSelectedYear('全部年度');
+              setSelectedCategory('全部分類');
+            }}
+            viewMode={viewMode}
+            onChangeViewMode={setViewMode}
+            onSelectPost={(p) => setActivePost(p)}
+            checkPostLocked={checkPostLocked}
+            onOpenQuickSwipeDeck={(scopeLabel, groups, topicIndex, cardIndex) =>
+              setImmersiveSwipe({
+                isOpen: true,
+                scopeLabel,
+                groups,
+                topicIndex,
+                cardIndex,
+              })
+            }
+            onOpenPresentationMode={() => setIsPresentationModeOpen(true)}
+            includeDrafts={includeDrafts}
+            onToggleIncludeDrafts={setIncludeDrafts}
+            canShowDraftsToggle={Boolean(user && hasAccessToken)}
+            onOpenEditor={() => openDrawer('editor')}
+            onOpenRssImport={() => openDrawer('rss')}
+            resources={resources}
+            resourceGradeFilter={resourceGradeFilter}
+            onChangeResourceGradeFilter={setResourceGradeFilter}
+            isTeacherAdmin={isTeacherAdmin}
+            onOpenResourcesHub={handleOpenResourcesHub}
+            assessmentQuestions={assessmentQuestions}
+            assessmentGradeFilter={assessmentGradeFilter}
+            onChangeAssessmentGradeFilter={setAssessmentGradeFilter}
+            assessmentTabName={assessmentTabName}
+            onOpenAssessmentBank={handleOpenAssessmentBank}
+            isXimenLocked={isXimenLocked}
+            isClass403Locked={isClass403Locked}
+            onOpenXimenStage={(tab) => openXimenStage(tab)}
+            onOpenClass403Stage={(tab) => openClass403Stage(tab)}
+          />
         </section>
       </main>
 
@@ -4124,9 +3543,12 @@ function MainKnowledgeBaseApp() {
           interactiveStage.isOpen ||
           isResourcesHubOpen ||
           isAssessmentBankOpen ||
+          isPresentationModeOpen ||
           schoolAccessPrompt.isOpen ||
           meetingCheckinState.isOpen
         }
+        scopeLabel={immersiveSwipe.scopeLabel}
+        deckGroups={immersiveSwipe.groups}
         groups={topicGroups}
         initialTopicIndex={immersiveSwipe.topicIndex}
         initialCardIndex={immersiveSwipe.cardIndex}
@@ -4367,6 +3789,7 @@ function MainKnowledgeBaseApp() {
         isOpen={isResourcesHubOpen}
         onClose={() => {
           setCustomQrTarget(null);
+          setPendingOpenResource(null);
           setIsResourcesHubOpen(false);
           if (window.location.hash === '#resources') {
             history.replaceState(
@@ -4412,6 +3835,8 @@ function MainKnowledgeBaseApp() {
           setSiteQrTargetMode('current');
           setSiteQrMode('modal');
         }}
+        initialOpenResource={pendingOpenResource}
+        onConsumeInitialResource={() => setPendingOpenResource(null)}
         disableEscapeClose={
           siteQrMode === 'modal' ||
           Boolean(activePost) ||
@@ -4425,6 +3850,8 @@ function MainKnowledgeBaseApp() {
         isOpen={isAssessmentBankOpen}
         onClose={() => {
           setCustomQrTarget(null);
+          setPendingAssessmentGrade(null);
+          setPendingAssessmentQuestionId(null);
           setIsAssessmentBankOpen(false);
           if (window.location.hash === '#assessment') {
             history.replaceState(
@@ -4459,9 +3886,31 @@ function MainKnowledgeBaseApp() {
           setSiteQrTargetMode('current');
           setSiteQrMode('modal');
         }}
+        initialGradeFilter={pendingAssessmentGrade}
+        initialQuestionId={pendingAssessmentQuestionId}
+        onConsumeInitialGrade={() => {
+          setPendingAssessmentGrade(null);
+          setPendingAssessmentQuestionId(null);
+        }}
         disableEscapeClose={
           siteQrMode === 'modal' || Boolean(confirmState?.isOpen)
         }
+      />
+
+      <PresentationModeModal
+        isOpen={isPresentationModeOpen}
+        posts={
+          featuredSpotlightPosts.length > 0
+            ? featuredSpotlightPosts
+            : filteredPosts
+        }
+        siteTitle={siteSettings.siteTitle}
+        checkPostLocked={checkPostLocked}
+        onClose={() => setIsPresentationModeOpen(false)}
+        onSelectPost={(targetPost) => {
+          setIsPresentationModeOpen(false);
+          setActivePost(targetPost);
+        }}
       />
 
       {/* Mandatory Explicit Confirmation Dialog for Mutating / Destructive Operations */}

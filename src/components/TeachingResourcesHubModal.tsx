@@ -85,6 +85,8 @@ interface TeachingResourcesHubModalProps {
   onOpenPost: (post: JournalPost) => void;
   onOpenEmbedStage: (url: string, title: string) => void;
   onOpenShareQr: (url: string, title: string) => void;
+  initialOpenResource?: TeachingResource | null;
+  onConsumeInitialResource?: () => void;
   disableEscapeClose?: boolean;
 }
 
@@ -375,6 +377,8 @@ export const TeachingResourcesHubModal: React.FC<
   onOpenPost,
   onOpenEmbedStage,
   onOpenShareQr,
+  initialOpenResource = null,
+  onConsumeInitialResource,
   disableEscapeClose = false,
 }) => {
   const [gradeFilter, setGradeFilter] = useState<GradeFilter>('全部年段');
@@ -442,6 +446,23 @@ export const TeachingResourcesHubModal: React.FC<
     readingResource,
     onClose,
   ]);
+
+  useEffect(() => {
+    if (!isOpen || !initialOpenResource) return;
+    const enriched = enrichTeachingResourceMetadata(initialOpenResource);
+    const isPdfOrEbook =
+      enriched.resourceType === '電子書' ||
+      /\.pdf(\?|#|$)/i.test(enriched.resourceUrl || '');
+    if (isPdfOrEbook) {
+      setReadingResource(null);
+      setViewingEbookInitialPage(null);
+      setViewingEbook(enriched);
+    } else {
+      setViewingEbook(null);
+      setReadingResource(enriched);
+    }
+    onConsumeInitialResource?.();
+  }, [isOpen, initialOpenResource, onConsumeInitialResource]);
 
   // Filter journal posts belonging to Teaching Resources category
   const journalTeachingPosts = useMemo(() => {
@@ -1213,7 +1234,7 @@ export const TeachingResourcesHubModal: React.FC<
 
   return (
     <div
-      className="fixed inset-0 z-40 bg-[#FBF9F5] flex flex-col overflow-hidden"
+      className="fixed inset-0 z-[45] bg-[#FBF9F5] flex flex-col overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-labelledby="resources-hub-title"

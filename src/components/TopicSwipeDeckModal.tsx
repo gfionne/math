@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -21,22 +21,27 @@ import {
   normalizeDriveImageUrl,
   TopicGroup,
 } from '../utils/postFormatting';
+import {SwipeDeckCard, SwipeDeckGroup} from '../utils/swipeDeckBuilder';
 
 interface TopicSwipeDeckModalProps {
   isOpen: boolean;
   isSuspended?: boolean;
-  groups: TopicGroup[];
+  scopeLabel?: string;
+  deckGroups?: SwipeDeckGroup[];
+  groups?: TopicGroup[];
   initialTopicIndex: number;
   initialCardIndex: number;
   onClose: () => void;
-  onSelectPost: (post: JournalPost) => void;
+  onSelectPost?: (post: JournalPost) => void;
   checkPostLocked?: (post: JournalPost) => boolean;
 }
 
 export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
   isOpen,
   isSuspended = false,
-  groups,
+  scopeLabel,
+  deckGroups,
+  groups = [],
   initialTopicIndex,
   initialCardIndex,
   onClose,
@@ -49,10 +54,56 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
   const desktopTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [activeTopicIdx, setActiveTopicIdx] = useState(initialTopicIndex);
   const [activeCardIdx, setActiveCardIdx] = useState(initialCardIndex);
-  const [topicTransitionDir, setTopicTransitionDir] = useState<'up' | 'down' | null>(null);
+  const [topicTransitionDir, setTopicTransitionDir] = useState<
+    'up' | 'down' | null
+  >(null);
   const [isDragging, setIsDragging] = useState(false);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const lastTopicSwitchRef = useRef<number>(0);
+
+  const resolvedGroups = useMemo<SwipeDeckGroup[]>(() => {
+    if (deckGroups && deckGroups.length > 0) return deckGroups;
+    return groups.map((g) => {
+      const topicAccent = getCategoryAccent(g.topic);
+      return {
+        id: `legacy-${g.topic}`,
+        topic: g.topic,
+        accentBarClass: topicAccent.barClass,
+        accentTextClass: topicAccent.textClass,
+        cards: g.posts.map((post, idx) => {
+          const isLocked = checkPostLocked ? checkPostLocked(post) : false;
+          const cardAccent = getCategoryAccent(post.category || g.topic);
+          const readMins = estimateReadMinutes(post.content || post.summary);
+          const embedMeta = post.embedUrl
+            ? inferEmbedProvider(post.embedUrl)
+            : null;
+          return {
+            id: `${post.slug}-${post.rowIndex ?? idx}`,
+            accentBarClass: cardAccent.barClass,
+            accentTextClass: cardAccent.textClass,
+            categoryLabel: formatCategoryDisplay(post.category, g.topic),
+            metaPrimary: post.academicYear,
+            metaSecondary: isLocked ? '校內限定' : `${readMins} 分鐘閱讀`,
+            title: post.title,
+            summary: isLocked
+              ? '此篇文章為社群／校內限定內容，已暫時隱藏完整內文與雲端附件，請登入 @hmes.tp.edu.tw 帳號解鎖觀看。'
+              : post.summary ||
+                '點擊「閱讀全文」檢視完整教案內容、數學探究脈絡與社群紀錄。',
+            footerLeft: `${post.author} · ${post.publishedAt}`,
+            actionLabel: isLocked ? '登入解鎖' : '閱讀全文',
+            isLocked,
+            lockedTitle: '校內限定 · @hmes.tp.edu.tw',
+            lockedSubtitle: '需登入學校社群帳號方可解鎖閱讀',
+            coverImageUrl: post.coverImageUrl,
+            embedUrl: post.embedUrl,
+            embedLabel: post.embedLabel || '檢視雲端教案與附件',
+            embedProvider: embedMeta?.provider,
+            onAction: () => onSelectPost?.(post),
+          };
+        }),
+      };
+    });
+  }, [deckGroups, groups, checkPostLocked, onSelectPost]);
 
   const dragRef = useRef<{
     isDown: boolean;
@@ -70,10 +121,16 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
 
   const touchStartRef = useRef<{x: number; y: number} | null>(null);
 
-  const safeTopicIdx = Math.max(0, Math.min(groups.length - 1, activeTopicIdx));
-  const currentGroup = groups[safeTopicIdx];
-  const currentPosts = currentGroup?.posts || [];
-  const safeCardIdx = Math.max(0, Math.min(currentPosts.length - 1, activeCardIdx));
+  const safeTopicIdx = Math.max(
+    0,
+    Math.min(resolvedGroups.length - 1, activeTopicIdx),
+  );
+  const currentGroup = resolvedGroups[safeTopicIdx];
+  const currentCards: SwipeDeckCard[] = currentGroup?.cards || [];
+  const safeCardIdx = Math.max(
+    0,
+    Math.min(currentCards.length - 1, activeCardIdx),
+  );
 
   const scrollToCard = useCallback(
     (cardIdx: number, behavior: ScrollBehavior = 'smooth') => {
@@ -96,7 +153,10 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
 
   const switchTopic = useCallback(
     (nextTopicIdx: number) => {
-      const clamped = Math.max(0, Math.min(groups.length - 1, nextTopicIdx));
+      const clamped = Math.max(
+        0,
+        Math.min(resolvedGroups.length - 1, nextTopicIdx),
+      );
       if (clamped === safeTopicIdx) return;
       const now = Date.now();
       lastTopicSwitchRef.current = now;
@@ -107,7 +167,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
         scrollToCard(0, 'auto');
       });
     },
-    [groups.length, safeTopicIdx, scrollToCard],
+    [resolvedGroups.length, safeTopicIdx, scrollToCard],
   );
 
   useEffect(() => {
@@ -117,9 +177,12 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
 
     const clampedTopic = Math.max(
       0,
-      Math.min(groups.length - 1, initialTopicIndex),
+      Math.min(resolvedGroups.length - 1, initialTopicIndex),
     );
-    const maxCard = Math.max(0, (groups[clampedTopic]?.posts.length ?? 1) - 1);
+    const maxCard = Math.max(
+      0,
+      (resolvedGroups[clampedTopic]?.cards.length ?? 1) - 1,
+    );
     const clampedCard = Math.max(0, Math.min(maxCard, initialCardIndex));
 
     setTopicTransitionDir(null);
@@ -134,7 +197,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
       cancelAnimationFrame(raf);
       document.body.style.overflow = prevOverflow;
     };
-  }, [isOpen, initialTopicIndex, initialCardIndex, groups, scrollToCard]);
+  }, [isOpen, initialTopicIndex, initialCardIndex, resolvedGroups, scrollToCard]);
 
   // Keep active topic tab smoothly centered in mobile strip and visible in desktop sidebar
   useEffect(() => {
@@ -188,7 +251,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     switchTopic,
   ]);
 
-  if (!isOpen || groups.length === 0 || !currentGroup) return null;
+  if (!isOpen || resolvedGroups.length === 0 || !currentGroup) return null;
 
   const handleRailScroll = () => {
     const rail = railRef.current;
@@ -290,7 +353,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     touchStartRef.current = null;
 
     if (Math.abs(dy) > 45 && Math.abs(dy) > Math.abs(dx) * 1.25) {
-      if (dy < 0 && safeTopicIdx < groups.length - 1) {
+      if (dy < 0 && safeTopicIdx < resolvedGroups.length - 1) {
         switchTopic(safeTopicIdx + 1);
       } else if (dy > 0 && safeTopicIdx > 0) {
         switchTopic(safeTopicIdx - 1);
@@ -305,7 +368,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     ) {
       const now = Date.now();
       if (now - lastTopicSwitchRef.current < 450) return;
-      if (e.deltaY > 0 && safeTopicIdx < groups.length - 1) {
+      if (e.deltaY > 0 && safeTopicIdx < resolvedGroups.length - 1) {
         switchTopic(safeTopicIdx + 1);
       } else if (e.deltaY < 0 && safeTopicIdx > 0) {
         switchTopic(safeTopicIdx - 1);
@@ -323,33 +386,40 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     return <FileText className="w-5 h-5 text-[#1E3A8A]" />;
   };
 
-  const topicAccent = getCategoryAccent(currentGroup.topic);
-  const prevTopic = safeTopicIdx > 0 ? groups[safeTopicIdx - 1] : null;
+  const prevTopic = safeTopicIdx > 0 ? resolvedGroups[safeTopicIdx - 1] : null;
   const nextTopic =
-    safeTopicIdx < groups.length - 1 ? groups[safeTopicIdx + 1] : null;
+    safeTopicIdx < resolvedGroups.length - 1
+      ? resolvedGroups[safeTopicIdx + 1]
+      : null;
+  const hasMultipleTopics = resolvedGroups.length > 1;
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="主題卡片快覽模式"
+      aria-label={scopeLabel || '滑動快覽模式'}
       className="fixed inset-0 z-40 bg-[#EAE5DB] flex flex-col"
     >
       {/* Top Bar */}
       <header className="h-14 shrink-0 border-b border-stone-200 bg-white px-3.5 sm:px-6 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <span
-            className={`font-mono-tabular text-xs font-bold whitespace-nowrap shrink-0 ${topicAccent.textClass}`}
+            className={`font-mono-tabular text-xs font-bold whitespace-nowrap shrink-0 ${currentGroup.accentTextClass}`}
           >
             {String(safeTopicIdx + 1).padStart(2, '0')} /{' '}
-            {String(groups.length).padStart(2, '0')}
+            {String(resolvedGroups.length).padStart(2, '0')}
           </span>
           <h2 className="font-editorial text-base sm:text-lg font-bold text-stone-950 truncate">
             {currentGroup.topic}
           </h2>
           <span className="text-xs font-mono-tabular text-stone-500 whitespace-nowrap shrink-0">
-            · {safeCardIdx + 1}/{currentPosts.length} 篇
+            · {safeCardIdx + 1}/{currentCards.length} 張
           </span>
+          {scopeLabel && (
+            <span className="hidden md:inline text-xs text-stone-500 whitespace-nowrap shrink-0">
+              · {scopeLabel}
+            </span>
+          )}
         </div>
 
         <button
@@ -358,53 +428,53 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-800 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
         >
           <X className="w-4 h-4" />
-          <span>回到首頁</span>
+          <span>回到頁面</span>
         </button>
       </header>
 
-      {/* Mobile / Tablet Topic Channel Strip (auto-centers active tab) */}
-      <div
-        ref={mobileStripRef}
-        className="lg:hidden shrink-0 bg-white border-b border-stone-200 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth"
-      >
-        {groups.map((g, idx) => {
-          const isAct = idx === safeTopicIdx;
-          const acc = getCategoryAccent(g.topic);
-          return (
-            <button
-              key={g.topic}
-              ref={(el) => {
-                mobileTabRefs.current[idx] = el;
-              }}
-              type="button"
-              onClick={() => switchTopic(idx)}
-              aria-current={isAct ? 'true' : undefined}
-              className={`min-h-[36px] px-3 py-1.5 text-xs rounded-lg transition-all whitespace-nowrap shrink-0 ${
-                isAct
-                  ? `${acc.barClass} text-white font-semibold shadow-sm ring-2 ring-offset-1 ring-[#1E3A8A]/25`
-                  : 'bg-[#F7F4EE] text-stone-700 hover:bg-stone-200/70 font-medium'
-              }`}
-            >
-              {g.topic} ({g.posts.length})
-            </button>
-          );
-        })}
-      </div>
+      {/* Mobile / Tablet Group Strip (when multiple groups exist) */}
+      {hasMultipleTopics && (
+        <div
+          ref={mobileStripRef}
+          className="lg:hidden shrink-0 bg-white border-b border-stone-200 px-3 py-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth"
+        >
+          {resolvedGroups.map((g, idx) => {
+            const isAct = idx === safeTopicIdx;
+            return (
+              <button
+                key={g.id}
+                ref={(el) => {
+                  mobileTabRefs.current[idx] = el;
+                }}
+                type="button"
+                onClick={() => switchTopic(idx)}
+                aria-current={isAct ? 'true' : undefined}
+                className={`min-h-[36px] px-3 py-1.5 text-xs rounded-lg transition-all whitespace-nowrap shrink-0 ${
+                  isAct
+                    ? `${g.accentBarClass} text-white font-semibold shadow-sm ring-2 ring-offset-1 ring-[#1E3A8A]/25`
+                    : 'bg-[#F7F4EE] text-stone-700 hover:bg-stone-200/70 font-medium'
+                }`}
+              >
+                {g.topic} ({g.cards.length})
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Main 2-Pane Body */}
       <div className="flex-1 min-h-0 flex">
-        {/* Desktop Left Topic Channel Rail */}
+        {/* Desktop Left Group Rail */}
         <aside className="hidden lg:flex w-64 shrink-0 border-r border-stone-200 bg-white flex-col justify-between p-4">
           <div className="space-y-1 overflow-y-auto pr-1">
             <div className="px-3 pb-2 text-xs font-semibold text-stone-500">
-              所有專欄主題（上下切換）
+              {scopeLabel || '架構分區瀏覽'}
             </div>
-            {groups.map((g, idx) => {
+            {resolvedGroups.map((g, idx) => {
               const isActive = idx === safeTopicIdx;
-              const acc = getCategoryAccent(g.topic);
               return (
                 <button
-                  key={g.topic}
+                  key={g.id}
                   ref={(el) => {
                     desktopTabRefs.current[idx] = el;
                   }}
@@ -412,7 +482,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                   onClick={() => switchTopic(idx)}
                   className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex items-center justify-between gap-2 ${
                     isActive
-                      ? `bg-[#F7F4EE] ${acc.textClass} font-bold`
+                      ? `bg-[#F7F4EE] ${g.accentTextClass} font-bold`
                       : 'text-stone-700 hover:bg-stone-50 font-medium'
                   }`}
                 >
@@ -423,7 +493,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                     {g.topic}
                   </span>
                   <span className="font-mono-tabular text-xs text-stone-500 shrink-0">
-                    {g.posts.length}
+                    {g.cards.length}
                   </span>
                 </button>
               );
@@ -431,8 +501,8 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           </div>
 
           <div className="pt-4 border-t border-stone-100 text-xs text-stone-500 space-y-1 px-2">
-            <div>← → 左右拖曳或滑動同主題文章</div>
-            <div>↑ ↓ 上下滾動或點擊切換主題</div>
+            <div>← → 左右拖曳或滑動卡片</div>
+            {hasMultipleTopics && <div>↑ ↓ 上下滾動或點擊切換分區</div>}
           </div>
         </aside>
 
@@ -444,62 +514,62 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           className="flex-1 min-w-0 flex flex-col justify-between relative overflow-hidden"
         >
           <div
-            key={currentGroup.topic}
+            key={currentGroup.id}
             className={`flex-1 min-h-0 flex flex-col justify-between ${
               topicTransitionDir === 'up'
                 ? 'animate-topic-slide-up'
                 : topicTransitionDir === 'down'
-                ? 'animate-topic-slide-down'
-                : ''
+                  ? 'animate-topic-slide-down'
+                  : ''
             }`}
           >
             {/* Story-Style Progress Bars + Compact Card Controls */}
             <div className="max-w-2xl w-full mx-auto px-4 sm:px-5 pt-3 pb-1 shrink-0 space-y-1.5">
               <div className="flex items-center gap-1.5">
-                {currentPosts.map((p, idx) => (
+                {currentCards.map((c, idx) => (
                   <button
-                    key={`${p.slug}-bar-${p.rowIndex ?? idx}`}
+                    key={`${c.id}-bar-${idx}`}
                     type="button"
                     onClick={() => scrollToCard(idx)}
-                    aria-label={`跳至第 ${idx + 1} 篇：${p.title}`}
+                    aria-label={`跳至第 ${idx + 1} 張：${c.title}`}
                     className="flex-1 py-1.5 focus-visible:outline-none group"
                   >
                     <span
                       className={`block h-1.5 w-full rounded-full transition-all ${
                         idx === safeCardIdx
-                          ? `${topicAccent.barClass} scale-y-125`
+                          ? `${currentGroup.accentBarClass} scale-y-125`
                           : idx < safeCardIdx
-                          ? 'bg-stone-500/60'
-                          : 'bg-stone-400/40 group-hover:bg-stone-400'
+                            ? 'bg-stone-500/60'
+                            : 'bg-stone-400/40 group-hover:bg-stone-400'
                       }`}
                     />
                   </button>
                 ))}
               </div>
 
-              {currentPosts.length > 1 && (
+              {currentCards.length > 1 && (
                 <div className="flex items-center justify-between text-[11px] text-stone-600">
                   <span className="font-medium truncate">
-                    左右滑動切換同主題文章（共 {currentPosts.length} 篇）
+                    左右滑動切換卡片（共 {currentCards.length} 張）
                   </span>
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={() => scrollToCard(safeCardIdx - 1)}
                       disabled={safeCardIdx <= 0}
-                      aria-label="上一篇"
+                      aria-label="上一張卡片"
                       className="w-7 h-7 rounded-md bg-white/85 border border-stone-300/80 text-stone-800 flex items-center justify-center disabled:opacity-35 hover:bg-white transition-colors"
                     >
                       <ChevronLeft className="w-3.5 h-3.5" />
                     </button>
                     <span className="font-mono-tabular px-1.5 font-semibold text-stone-800">
-                      {safeCardIdx + 1}/{currentPosts.length}
+                      {safeCardIdx + 1}/{currentCards.length}
                     </span>
                     <button
                       type="button"
                       onClick={() => scrollToCard(safeCardIdx + 1)}
-                      disabled={safeCardIdx >= currentPosts.length - 1}
-                      aria-label="下一篇"
+                      disabled={safeCardIdx >= currentCards.length - 1}
+                      aria-label="下一張卡片"
                       className="w-7 h-7 rounded-md bg-white/85 border border-stone-300/80 text-stone-800 flex items-center justify-center disabled:opacity-35 hover:bg-white transition-colors"
                     >
                       <ChevronRight className="w-3.5 h-3.5" />
@@ -525,24 +595,25 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                     : 'snap-x snap-mandatory scroll-smooth cursor-grab'
                 }`}
               >
-                {currentPosts.map((post, idx) => {
+                {currentCards.map((card, idx) => {
                   const isActive = idx === safeCardIdx;
-                  const isLocked = checkPostLocked ? checkPostLocked(post) : false;
-                  const normalizedCover = normalizeDriveImageUrl(post.coverImageUrl);
+                  const normalizedCover = normalizeDriveImageUrl(
+                    card.coverImageUrl,
+                  );
                   const hasCover = Boolean(
-                    !isLocked && normalizedCover && !failedImages[post.slug],
+                    !card.isLocked &&
+                      normalizedCover &&
+                      !failedImages[card.id],
                   );
-                  const embedMeta = post.embedUrl
-                    ? inferEmbedProvider(post.embedUrl)
+                  const embedMeta = card.embedUrl
+                    ? inferEmbedProvider(card.embedUrl)
                     : null;
-                  const readMins = estimateReadMinutes(
-                    post.content || post.summary,
-                  );
-                  const cardAccent = getCategoryAccent(post.category || currentGroup.topic);
+                  const providerLabel =
+                    card.embedProvider || embedMeta?.provider;
 
                   return (
                     <div
-                      key={`${post.slug}-card-${post.rowIndex ?? idx}`}
+                      key={`${card.id}-card-${idx}`}
                       onClick={() => {
                         if (!isActive) {
                           scrollToCard(idx);
@@ -554,194 +625,203 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                           : 'opacity-60 scale-[0.92] hover:opacity-85 cursor-pointer'
                       }`}
                     >
-                    <article className="w-full h-full bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-lg flex flex-col">
-                      {/* Distinct Top Category Accent Bar */}
-                      <div className={`h-1.5 w-full shrink-0 ${cardAccent.barClass}`} />
+                      <article className="w-full h-full bg-white border border-stone-300 rounded-2xl overflow-hidden shadow-lg flex flex-col">
+                        {/* Top Category / Channel Accent Bar */}
+                        <div
+                          className={`h-1.5 w-full shrink-0 ${card.accentBarClass}`}
+                        />
 
-                      {/* Crisp Image OR Attachment Banner OR Lock Banner */}
-                      {isLocked ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isActive) onSelectPost(post);
-                          }}
-                          className="w-full bg-[#F7F4EE] border-b border-stone-200 px-6 py-4 flex items-center gap-3.5 text-left shrink-0 hover:bg-[#EFEAE0] transition-colors"
-                        >
-                          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
-                            <Lock className="w-4 h-4 text-[#1E3A8A]" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
-                              校內限定 · @hmes.tp.edu.tw
-                            </div>
-                            <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
-                              需登入學校社群帳號方可解鎖閱讀
-                            </div>
-                          </div>
-                        </button>
-                      ) : hasCover ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isActive) onSelectPost(post);
-                          }}
-                          className="h-[36%] min-h-[160px] max-h-[250px] w-full bg-stone-100 border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
-                        >
-                          <img
-                            src={normalizedCover}
-                            alt={post.title}
-                            draggable={false}
-                            referrerPolicy="no-referrer"
-                            onError={() =>
-                              setFailedImages((prev) => ({
-                                ...prev,
-                                [post.slug]: true,
-                              }))
-                            }
-                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
-                          />
-                        </button>
-                      ) : post.embedUrl && embedMeta ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isActive) onSelectPost(post);
-                          }}
-                          className="w-full bg-[#F7F4EE] border-b border-stone-200 px-6 py-4 flex items-center gap-3.5 text-left shrink-0 hover:bg-[#EFEAE0] transition-colors"
-                        >
-                          <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
-                            {renderEmbedIcon(embedMeta.provider)}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
-                              {embedMeta.provider}
-                            </div>
-                            <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
-                              {post.embedLabel || '檢視雲端教案與附件'}
-                            </div>
-                          </div>
-                          <ExternalLink className="w-4 h-4 text-stone-400 shrink-0" />
-                        </button>
-                      ) : null}
-
-                      <div className="p-6 sm:p-7 flex-1 min-h-0 flex flex-col justify-between gap-4 overflow-y-auto">
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-2.5 border-b border-stone-100 text-xs">
-                            <span className={`font-bold tracking-wide truncate min-w-0 ${cardAccent.textClass}`}>
-                              {formatCategoryDisplay(post.category, currentGroup.topic)}
-                            </span>
-                            <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">
-                              <span>{post.academicYear}</span>
-                              <span aria-hidden="true">·</span>
-                              <span className="font-sans">
-                                {isLocked ? '校內限定' : `${readMins} 分鐘閱讀`}
-                              </span>
-                              <span aria-hidden="true">·</span>
-                              <span>
-                                {idx + 1} / {currentPosts.length}
-                              </span>
-                            </div>
-                          </div>
-
-                          <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 leading-snug text-balance">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (isActive) onSelectPost(post);
-                              }}
-                              className="text-left hover:text-[#1E3A8A] transition-colors"
-                            >
-                              {post.title}
-                            </button>
-                          </h3>
-
-                          <p
-                            className={`text-sm sm:text-base text-stone-700 leading-[1.7] ${
-                              hasCover ? 'line-clamp-4' : 'line-clamp-6'
-                            }`}
+                        {/* Lock Banner OR Cover Image OR Cloud Attachment Banner */}
+                        {card.isLocked ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isActive) card.onAction();
+                            }}
+                            className="w-full bg-[#F7F4EE] border-b border-stone-200 px-6 py-4 flex items-center gap-3.5 text-left shrink-0 hover:bg-[#EFEAE0] transition-colors"
                           >
-                            {isLocked
-                              ? '此篇文章為社群／校內限定內容，已暫時隱藏完整內文與雲端附件，請登入 @hmes.tp.edu.tw 帳號解鎖觀看。'
-                              : post.summary ||
-                                '點擊「閱讀全文」檢視完整教案內容、數學探究脈絡與社群紀錄。'}
-                          </p>
-                        </div>
+                            <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+                              <Lock className="w-4 h-4 text-[#1E3A8A]" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
+                                {card.lockedTitle || '校內限定 · @hmes.tp.edu.tw'}
+                              </div>
+                              <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
+                                {card.lockedSubtitle ||
+                                  '需登入學校社群帳號方可解鎖閱讀'}
+                              </div>
+                            </div>
+                          </button>
+                        ) : hasCover ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isActive) card.onAction();
+                            }}
+                            className="h-[36%] min-h-[160px] max-h-[250px] w-full bg-stone-100 border-b border-stone-200 overflow-hidden text-left shrink-0 group focus-visible:outline-none"
+                          >
+                            <img
+                              src={normalizedCover}
+                              alt={card.title}
+                              draggable={false}
+                              referrerPolicy="no-referrer"
+                              onError={() =>
+                                setFailedImages((prev) => ({
+                                  ...prev,
+                                  [card.id]: true,
+                                }))
+                              }
+                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                            />
+                          </button>
+                        ) : card.embedUrl && providerLabel ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isActive) card.onAction();
+                            }}
+                            className="w-full bg-[#F7F4EE] border-b border-stone-200 px-6 py-4 flex items-center gap-3.5 text-left shrink-0 hover:bg-[#EFEAE0] transition-colors"
+                          >
+                            <div className="w-10 h-10 rounded-lg bg-white border border-stone-200 flex items-center justify-center shrink-0">
+                              {renderEmbedIcon(providerLabel)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-stone-500">
+                                {providerLabel}
+                              </div>
+                              <div className="text-sm font-semibold text-stone-900 truncate mt-0.5">
+                                {card.embedLabel || '檢視雲端教案與附件'}
+                              </div>
+                            </div>
+                            <ExternalLink className="w-4 h-4 text-stone-400 shrink-0" />
+                          </button>
+                        ) : null}
 
-                        <div className="pt-4 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
-                          <div className="text-xs text-stone-500">
-                            <span className="font-medium text-stone-700">
-                              {post.author}
-                            </span>
-                            <span className="mx-1.5" aria-hidden="true">
-                              ·
-                            </span>
-                            <span className="font-mono-tabular">
-                              {post.publishedAt}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2">
-                            {!isLocked && post.embedUrl && isActive && (
-                              <a
-                                href={post.embedUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="min-h-[40px] px-3 py-2 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                        <div className="p-6 sm:p-7 flex-1 min-h-0 flex flex-col justify-between gap-4 overflow-y-auto">
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 pb-2.5 border-b border-stone-100 text-xs">
+                              <span
+                                className={`font-bold tracking-wide truncate min-w-0 ${card.accentTextClass}`}
                               >
-                                <span>雲端附件</span>
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (isActive) {
-                                  onSelectPost(post);
-                                } else {
-                                  scrollToCard(idx);
-                                }
-                              }}
-                              className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-                            >
-                              {isLocked && isActive && <Lock className="w-3.5 h-3.5" />}
-                              <span>
-                                {isActive ? (isLocked ? '登入解鎖' : '閱讀全文') : '看這篇'}
+                                {card.categoryLabel}
                               </span>
-                              <ArrowUpRight className="w-3.5 h-3.5" />
-                            </button>
+                              <div className="flex items-center gap-1.5 text-stone-500 font-mono-tabular whitespace-nowrap shrink-0">
+                                {card.metaPrimary && (
+                                  <span>{card.metaPrimary}</span>
+                                )}
+                                {card.metaPrimary && card.metaSecondary && (
+                                  <span aria-hidden="true">·</span>
+                                )}
+                                {card.metaSecondary && (
+                                  <span className="font-sans">
+                                    {card.metaSecondary}
+                                  </span>
+                                )}
+                                {(card.metaPrimary || card.metaSecondary) && (
+                                  <span aria-hidden="true">·</span>
+                                )}
+                                <span>
+                                  {idx + 1} / {currentCards.length}
+                                </span>
+                              </div>
+                            </div>
+
+                            <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 leading-snug text-balance">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isActive) card.onAction();
+                                }}
+                                className="text-left hover:text-[#1E3A8A] transition-colors"
+                              >
+                                {card.title}
+                              </button>
+                            </h3>
+
+                            <p
+                              className={`text-sm sm:text-base text-stone-700 leading-[1.7] whitespace-pre-line ${
+                                hasCover ? 'line-clamp-4' : 'line-clamp-6'
+                              }`}
+                            >
+                              {card.summary}
+                            </p>
+                          </div>
+
+                          <div className="pt-4 border-t border-stone-200/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                            <div className="text-xs text-stone-500 truncate max-w-[60%]">
+                              <span className="font-medium text-stone-700">
+                                {card.footerLeft}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              {!card.isLocked &&
+                                card.embedUrl &&
+                                /^https?:\/\//i.test(card.embedUrl) &&
+                                isActive && (
+                                  <a
+                                    href={card.embedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="min-h-[40px] px-3 py-2 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                                  >
+                                    <span>雲端附件</span>
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isActive) {
+                                    card.onAction();
+                                  } else {
+                                    scrollToCard(idx);
+                                  }
+                                }}
+                                className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                              >
+                                {card.isLocked && isActive && (
+                                  <Lock className="w-3.5 h-3.5" />
+                                )}
+                                <span>
+                                  {isActive ? card.actionLabel : '看這張'}
+                                </span>
+                                <ArrowUpRight className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </article>
-                  </div>
-                );
-              })}
-            </div>
+                      </article>
+                    </div>
+                  );
+                })}
+              </div>
 
-            {safeCardIdx > 0 && (
-              <button
-                type="button"
-                onClick={() => scrollToCard(safeCardIdx - 1)}
-                aria-label="同主題上一篇"
-                className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md hover:bg-stone-50 transition-all"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-            )}
-            {safeCardIdx < currentPosts.length - 1 && (
-              <button
-                type="button"
-                onClick={() => scrollToCard(safeCardIdx + 1)}
-                aria-label="同主題下一篇"
-                className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md hover:bg-stone-50 transition-all"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            )}
+              {safeCardIdx > 0 && (
+                <button
+                  type="button"
+                  onClick={() => scrollToCard(safeCardIdx - 1)}
+                  aria-label="上一張卡片"
+                  className="hidden sm:flex absolute left-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md hover:bg-stone-50 transition-all"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+              )}
+              {safeCardIdx < currentCards.length - 1 && (
+                <button
+                  type="button"
+                  onClick={() => scrollToCard(safeCardIdx + 1)}
+                  aria-label="下一張卡片"
+                  className="hidden sm:flex absolute right-4 top-1/2 -translate-y-1/2 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md hover:bg-stone-50 transition-all"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Bottom Topic Switcher Dock */}
+          {/* Bottom Topic / Architecture Switcher Dock */}
           <div className="shrink-0 border-t border-stone-200 bg-white px-3 sm:px-6 py-2.5 flex items-center justify-between gap-2 sm:gap-3 min-w-0">
             {prevTopic ? (
               <button
@@ -750,14 +830,17 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 className="min-h-[40px] max-w-[48%] min-w-0 px-2.5 sm:px-3 py-1.5 text-xs font-medium text-stone-700 bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5"
               >
                 <ArrowUp className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">上個主題：{prevTopic.topic}</span>
+                <span className="truncate">上個分區：{prevTopic.topic}</span>
               </button>
             ) : (
-              <span className="text-xs text-stone-400 truncate">已是第一個主題</span>
+              <span className="text-xs text-stone-400 truncate">
+                {hasMultipleTopics ? '已是第一個分區' : currentGroup.topic}
+              </span>
             )}
 
             <span className="hidden md:inline text-xs text-stone-500 font-mono-tabular shrink-0">
-              {currentGroup.topic} · 第 {safeCardIdx + 1} / {currentPosts.length} 篇
+              {currentGroup.topic} · 第 {safeCardIdx + 1} / {currentCards.length}{' '}
+              張
             </span>
 
             {nextTopic ? (
@@ -767,12 +850,14 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
                 className="min-h-[40px] max-w-[48%] min-w-0 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-[#F7F4EE] border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-colors"
               >
                 <span className="truncate">
-                  下個主題：{nextTopic.topic}（{nextTopic.posts.length} 篇）
+                  下個分區：{nextTopic.topic}（{nextTopic.cards.length} 張）
                 </span>
                 <ArrowDown className="w-3.5 h-3.5 shrink-0" />
               </button>
             ) : (
-              <span className="text-xs text-stone-400 truncate">已是最後一個主題</span>
+              <span className="text-xs text-stone-400 truncate">
+                {hasMultipleTopics ? '已是最後一個分區' : '左右滑動即可瀏覽'}
+              </span>
             )}
           </div>
         </div>
