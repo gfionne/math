@@ -27,7 +27,7 @@ export interface PortalChannelTabMeta {
 
 export const PORTAL_MAJOR_CHANNELS: PortalChannelTabMeta[] = [
   {id: 'all', label: '全部精選'},
-  {id: 'journal', label: '期刊專欄'},
+  {id: 'journal', label: '領域社群'},
   {id: 'resources', label: '教學資源'},
   {id: 'assessment', label: '檢測題庫'},
   {id: 'ximen', label: '互動專題'},
@@ -193,10 +193,11 @@ export interface BuiltChannelSwipeDeck {
   groups: SwipeDeckGroup[];
   allChannelOffsets: {
     featuredIdx: number | null;
+    journalStartIdx: number;
     resourcesIdx: number | null;
     assessmentIdx: number | null;
-    interactiveIdx: number | null;
-    journalStartIdx: number;
+    ximenIdx: number | null;
+    class403Idx: number | null;
   };
 }
 
@@ -384,10 +385,11 @@ export function buildChannelSwipeDeck(
 
   const emptyOffsets = {
     featuredIdx: null,
+    journalStartIdx: 0,
     resourcesIdx: null,
     assessmentIdx: null,
-    interactiveIdx: null,
-    journalStartIdx: 0,
+    ximenIdx: null,
+    class403Idx: null,
   };
 
   if (activeChannel === 'journal') {
@@ -404,7 +406,7 @@ export function buildChannelSwipeDeck(
       };
     });
     return {
-      scopeLabel: '期刊專欄 · 滑動快覽',
+      scopeLabel: '領域社群 · 滑動快覽',
       groups,
       allChannelOffsets: emptyOffsets,
     };
@@ -521,14 +523,15 @@ export function buildChannelSwipeDeck(
     };
   }
 
-  // Default: 'all' overview spanning every architecture section
+  // Default: 'all' overview spanning every architecture section in exact PORTAL_MAJOR_CHANNELS order
   const groups: SwipeDeckGroup[] = [];
   const offsets = {
     featuredIdx: null as number | null,
+    journalStartIdx: 0,
     resourcesIdx: null as number | null,
     assessmentIdx: null as number | null,
-    interactiveIdx: null as number | null,
-    journalStartIdx: 0,
+    ximenIdx: null as number | null,
+    class403Idx: null as number | null,
   };
 
   if (featuredPosts.length > 0) {
@@ -540,6 +543,20 @@ export function buildChannelSwipeDeck(
       accentTextClass: 'text-[#1E3A8A]',
       cards: featuredPosts.map((p) =>
         mapJournalPostToDeckCard(p, '本期焦點', checkPostLocked, onSelectPost),
+      ),
+    });
+  }
+
+  offsets.journalStartIdx = groups.length;
+  for (const g of topicGroups) {
+    const acc = getCategoryAccent(g.topic);
+    groups.push({
+      id: `all-journal-${g.topic}`,
+      topic: g.topic,
+      accentBarClass: acc.barClass,
+      accentTextClass: acc.textClass,
+      cards: g.posts.map((p) =>
+        mapJournalPostToDeckCard(p, g.topic, checkPostLocked, onSelectPost),
       ),
     });
   }
@@ -604,45 +621,37 @@ export function buildChannelSwipeDeck(
     });
   }
 
-  offsets.interactiveIdx = groups.length;
+  offsets.ximenIdx = groups.length;
   groups.push({
-    id: 'all-interactive',
-    topic: '互動專題 × 403 班網',
+    id: 'all-ximen',
+    topic: '百年西門 Scratch 互動專題',
     accentBarClass: 'bg-sky-700',
     accentTextClass: 'text-sky-800',
-    cards: [
-      ...XIMEN_CARDS.map((c) =>
-        mapInteractiveModuleToDeckCard(
-          c,
-          '百年西門 Scratch',
-          isXimenLocked,
-          () => onOpenXimenStage(c.id),
-        ),
+    cards: XIMEN_CARDS.map((c) =>
+      mapInteractiveModuleToDeckCard(
+        c,
+        '百年西門 Scratch',
+        isXimenLocked,
+        () => onOpenXimenStage(c.id),
       ),
-      ...CLASS403_CARDS.map((c) =>
-        mapInteractiveModuleToDeckCard(
-          c,
-          '403 班級網站',
-          isClass403Locked,
-          () => onOpenClass403Stage(c.id),
-        ),
-      ),
-    ],
+    ),
   });
 
-  offsets.journalStartIdx = groups.length;
-  for (const g of topicGroups) {
-    const acc = getCategoryAccent(g.topic);
-    groups.push({
-      id: `all-journal-${g.topic}`,
-      topic: g.topic,
-      accentBarClass: acc.barClass,
-      accentTextClass: acc.textClass,
-      cards: g.posts.map((p) =>
-        mapJournalPostToDeckCard(p, g.topic, checkPostLocked, onSelectPost),
+  offsets.class403Idx = groups.length;
+  groups.push({
+    id: 'all-class403',
+    topic: '403 班級網站與聯絡簿',
+    accentBarClass: 'bg-[#1E3A8A]',
+    accentTextClass: 'text-[#1E3A8A]',
+    cards: CLASS403_CARDS.map((c) =>
+      mapInteractiveModuleToDeckCard(
+        c,
+        '403 班級網站',
+        isClass403Locked,
+        () => onOpenClass403Stage(c.id),
       ),
-    });
-  }
+    ),
+  });
 
   return {
     scopeLabel: '全部精選 · 全架構快覽',

@@ -151,7 +151,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   return (
     <section
       id={id}
-      className="scroll-mt-36 sm:scroll-mt-40 border-t-2 border-stone-900 pt-5 space-y-4 min-w-0 max-w-full"
+      className="scroll-mt-32 border-t border-stone-200/90 pt-5 space-y-4 min-w-0 max-w-full"
     >
       {/* Editorial Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">

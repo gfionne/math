@@ -343,7 +343,7 @@ const CATEGORY_META: Array<{
   {id: '數位互動工具', shortLabel: '互動工具', fullLabel: '數位互動工具'},
   {id: '研習心得筆記', shortLabel: '研習筆記', fullLabel: '研習心得筆記'},
   {id: '公開好站精選', shortLabel: '公開好站', fullLabel: '公開好站精選'},
-  {id: '期刊教學資源', shortLabel: '期刊專欄', fullLabel: '期刊教學資源專欄'},
+  {id: '期刊教學資源', shortLabel: '領域社群', fullLabel: '領域社群教學資源'},
 ];
 
 function getShortGradeLabel(grade: ResourceGradeBand): string {
@@ -1128,7 +1128,7 @@ export const TeachingResourcesHubModal: React.FC<
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-2 py-0.5 text-[11px] font-bold rounded border bg-[#14532D]/8 text-[#14532D] border-[#14532D]/25 shrink-0">
-              期刊
+              領域社群
             </span>
             <span className="text-xs font-semibold text-stone-700 shrink-0">
               {post.academicYear}
@@ -1259,7 +1259,7 @@ export const TeachingResourcesHubModal: React.FC<
                 國小數學教學資源平台
               </h1>
               <p className="text-xs text-stone-500 hidden sm:block truncate">
-                公開免登入瀏覽 · 整合自製教案、數位互動工具、研習心得筆記與期刊教學資源
+                公開免登入瀏覽 · 整合自製教案、數位互動工具、研習心得筆記與領域社群教學資源
               </p>
             </div>
           </div>
@@ -1863,7 +1863,7 @@ export const TeachingResourcesHubModal: React.FC<
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-stone-500">
                         <span className="text-[#14532D] font-semibold">
-                          期刊教學資源文章
+                          領域社群教學資源文章
                         </span>
                         <span aria-hidden="true">·</span>
                         <span>{post.academicYear}</span>

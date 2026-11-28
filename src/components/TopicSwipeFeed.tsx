@@ -26,7 +26,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
       {isFilteredToSingleCategory && (
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-xs text-stone-700">
           <span>
-            目前僅顯示單一專欄主題，切換回全部主題即可瀏覽所有期刊專欄。
+            目前僅顯示單一主題，切換回全部主題即可瀏覽所有領域社群文章。
           </span>
           <button
             type="button"

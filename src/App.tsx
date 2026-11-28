@@ -207,6 +207,10 @@ function MainKnowledgeBaseApp() {
   // Filter & View State
   const [activePortalChannel, setActivePortalChannel] =
     useState<PortalMajorChannel>('all');
+  const [channelJumpRequest, setChannelJumpRequest] = useState<{
+    channel: PortalMajorChannel;
+    nonce: number;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState<string>('全部年度');
   const [selectedCategory, setSelectedCategory] = useState<string>('全部分類');
@@ -1094,7 +1098,6 @@ function MainKnowledgeBaseApp() {
       .filter((r) => isTeacherAdmin || r.isPublic)
       .filter((r) => {
         if (
-          activePortalChannel === 'resources' &&
           resourceGradeFilter !== '全部年段' &&
           r.gradeBand !== resourceGradeFilter
         ) {
@@ -1106,7 +1109,7 @@ function MainKnowledgeBaseApp() {
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return b.publishedAt.localeCompare(a.publishedAt);
       });
-  }, [resources, isTeacherAdmin, activePortalChannel, resourceGradeFilter]);
+  }, [resources, isTeacherAdmin, resourceGradeFilter]);
 
   const publishedAssessmentQuestions = useMemo(
     () => assessmentQuestions.filter((item) => item.isPublished),
@@ -2592,19 +2595,15 @@ function MainKnowledgeBaseApp() {
     setIsDrawerOpen(true);
   };
 
-  const scrollToSection = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.scrollIntoView({behavior: 'smooth', block: 'start'});
-    }
-  };
-
   const selectPortalChannel = (channel: PortalMajorChannel) => {
     setActivePortalChannel(channel);
     if (channel === 'journal') {
       setSelectedCategory('全部分類');
     }
-    requestAnimationFrame(() => scrollToSection('portal-showcase'));
+    setChannelJumpRequest((prev) => ({
+      channel,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
   };
 
   return (
@@ -3252,14 +3251,10 @@ function MainKnowledgeBaseApp() {
         </section>
 
         {/* Top Major Channel Bar + Vertical Sections × Horizontal Swipeable Card Trays */}
-        <section
-          id="portal-showcase"
-          aria-label="分區知識頻道與卡片展示"
-          className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0"
-        >
-          <PortalChannelShowcase
-            activeChannel={activePortalChannel}
-            onSelectChannel={setActivePortalChannel}
+        <PortalChannelShowcase
+          activeChannel={activePortalChannel}
+          onSelectChannel={setActivePortalChannel}
+          channelJumpRequest={channelJumpRequest}
             posts={posts}
             filteredPosts={filteredPosts}
             featuredPosts={featuredSpotlightPosts}
@@ -3313,7 +3308,6 @@ function MainKnowledgeBaseApp() {
             onOpenXimenStage={(tab) => openXimenStage(tab)}
             onOpenClass403Stage={(tab) => openClass403Stage(tab)}
           />
-        </section>
       </main>
 
       {/* Clean Institutional Footer */}

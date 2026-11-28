@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
+  ArrowUp,
   ArrowUpRight,
   BookOpen,
   CalendarDays,
@@ -53,6 +54,7 @@ export type {PortalMajorChannel};
 interface PortalChannelShowcaseProps {
   activeChannel: PortalMajorChannel;
   onSelectChannel: (channel: PortalMajorChannel) => void;
+  channelJumpRequest?: {channel: PortalMajorChannel; nonce: number} | null;
   // Journal state
   posts: JournalPost[];
   filteredPosts: JournalPost[];
@@ -141,6 +143,7 @@ function renderInteractiveIcon(
 export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
   activeChannel,
   onSelectChannel,
+  channelJumpRequest,
   posts,
   filteredPosts,
   featuredPosts,
@@ -182,58 +185,26 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
   onOpenXimenStage,
   onOpenClass403Stage,
 }) => {
+  const stickyBarRef = useRef<HTMLDivElement | null>(null);
+  const channelListRef = useRef<HTMLDivElement | null>(null);
   const categoryBarRef = useRef<HTMLDivElement | null>(null);
   const channelTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const headerTouchStartRef = useRef<{x: number; y: number} | null>(null);
-  const prevChannelIdxRef = useRef<number>(
-    Math.max(
-      0,
-      PORTAL_MAJOR_CHANNELS.findIndex((c) => c.id === activeChannel),
-    ),
-  );
+  const activeChannelRef = useRef<PortalMajorChannel>(activeChannel);
+  const programmaticScrollLockUntilRef = useRef<number>(0);
+  const lastHandledJumpNonceRef = useRef<number>(0);
 
-  const [channelTransitionDir, setChannelTransitionDir] = useState<
-    'next' | 'prev' | null
-  >(null);
-  const [activeOverviewSectionIdx, setActiveOverviewSectionIdx] = useState(0);
+  activeChannelRef.current = activeChannel;
 
   const activeChannelIndex = Math.max(
     0,
     PORTAL_MAJOR_CHANNELS.findIndex((c) => c.id === activeChannel),
   );
 
-  const handleSwitchChannel = useCallback(
-    (nextChannel: PortalMajorChannel) => {
-      if (nextChannel === activeChannel) return;
-      const nextIdx = PORTAL_MAJOR_CHANNELS.findIndex(
-        (c) => c.id === nextChannel,
-      );
-      const prevIdx = prevChannelIdxRef.current;
-      setChannelTransitionDir(nextIdx >= prevIdx ? 'next' : 'prev');
-      prevChannelIdxRef.current = nextIdx;
-      onSelectChannel(nextChannel);
-    },
-    [activeChannel, onSelectChannel],
-  );
-
-  useEffect(() => {
-    prevChannelIdxRef.current = activeChannelIndex;
-    const activeTabEl = channelTabRefs.current[activeChannel];
-    if (activeTabEl) {
-      activeTabEl.scrollIntoView({
-        behavior: 'smooth',
-        inline: 'center',
-        block: 'nearest',
-      });
-    }
-  }, [activeChannel, activeChannelIndex]);
-
   const visibleResources = useMemo(() => {
     return resources
       .filter((r) => isTeacherAdmin || r.isPublic)
       .filter((r) => {
         if (
-          activeChannel === 'resources' &&
           resourceGradeFilter !== '全部年段' &&
           r.gradeBand !== resourceGradeFilter
         ) {
@@ -245,18 +216,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return b.publishedAt.localeCompare(a.publishedAt);
       });
-  }, [resources, isTeacherAdmin, activeChannel, resourceGradeFilter]);
-
-  const resourceTypeGroups = useMemo(() => {
-    const map = new Map<string, TeachingResource[]>();
-    for (const res of visibleResources) {
-      const key = res.resourceType || '其他資源';
-      const arr = map.get(key);
-      if (arr) arr.push(res);
-      else map.set(key, [res]);
-    }
-    return Array.from(map.entries()).map(([type, items]) => ({type, items}));
-  }, [visibleResources]);
+  }, [resources, isTeacherAdmin, resourceGradeFilter]);
 
   const publishedAssessmentQuestions = useMemo(
     () => assessmentQuestions.filter((item) => item.isPublished),
@@ -276,7 +236,44 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
     return groupAssessmentByCognitive(filtered);
   }, [publishedAssessmentQuestions, assessmentGradeFilter]);
 
-  const channelDeck = useMemo(
+  const fullOverviewDeck = useMemo(
+    () =>
+      buildChannelSwipeDeck({
+        activeChannel: 'all',
+        featuredPosts,
+        topicGroups,
+        checkPostLocked,
+        visibleResources,
+        publishedAssessmentQuestions,
+        assessmentGradeFilter,
+        assessmentTabName,
+        isXimenLocked,
+        isClass403Locked,
+        onSelectPost,
+        onOpenResourcesHub,
+        onOpenAssessmentBank,
+        onOpenXimenStage,
+        onOpenClass403Stage,
+      }),
+    [
+      featuredPosts,
+      topicGroups,
+      checkPostLocked,
+      visibleResources,
+      publishedAssessmentQuestions,
+      assessmentGradeFilter,
+      assessmentTabName,
+      isXimenLocked,
+      isClass403Locked,
+      onSelectPost,
+      onOpenResourcesHub,
+      onOpenAssessmentBank,
+      onOpenXimenStage,
+      onOpenClass403Stage,
+    ],
+  );
+
+  const currentChannelDeck = useMemo(
     () =>
       buildChannelSwipeDeck({
         activeChannel,
@@ -314,87 +311,140 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
     ],
   );
 
-  const overviewSections = useMemo(() => {
-    const list: Array<{
-      domId: string;
-      label: string;
-      linkedChannel: PortalMajorChannel;
-    }> = [];
+  const sectionDescriptors = useMemo(() => {
+    const list: Array<{domId: string; channel: PortalMajorChannel}> = [];
     if (featuredPosts.length > 0) {
-      list.push({
-        domId: 'all-sec-featured',
-        label: '本期焦點精選',
-        linkedChannel: 'all',
-      });
+      list.push({domId: 'sec-all', channel: 'all'});
     }
-    if (visibleResources.length > 0) {
-      list.push({
-        domId: 'all-sec-resources',
-        label: '教學資源與電子書',
-        linkedChannel: 'resources',
-      });
-    }
-    if (publishedAssessmentQuestions.length > 0) {
-      list.push({
-        domId: 'all-sec-assessment',
-        label: '學力檢測互動題庫',
-        linkedChannel: 'assessment',
-      });
-    }
-    list.push({
-      domId: 'all-sec-interactive',
-      label: '互動專題 × 403 班網',
-      linkedChannel: 'ximen',
-    });
-    list.push({
-      domId: 'journal-catalog',
-      label: '期刊專欄分區瀏覽',
-      linkedChannel: 'journal',
-    });
+    list.push({domId: 'sec-journal', channel: 'journal'});
+    list.push({domId: 'sec-resources', channel: 'resources'});
+    list.push({domId: 'sec-assessment', channel: 'assessment'});
+    list.push({domId: 'sec-ximen', channel: 'ximen'});
+    list.push({domId: 'sec-class403', channel: 'class403'});
     return list;
-  }, [
-    featuredPosts.length,
-    visibleResources.length,
-    publishedAssessmentQuestions.length,
-  ]);
+  }, [featuredPosts.length]);
 
+  const scrollToChannel = useCallback(
+    (channel: PortalMajorChannel) => {
+      programmaticScrollLockUntilRef.current = Date.now() + 750;
+      onSelectChannel(channel);
+
+      const fallbackId =
+        channel === 'all' && featuredPosts.length === 0
+          ? 'sec-journal'
+          : `sec-${channel}`;
+      const targetEl =
+        document.getElementById(fallbackId) ||
+        document.getElementById('portal-showcase');
+      if (!targetEl) return;
+
+      const showcaseEl = document.getElementById('portal-showcase');
+      const isLg = window.matchMedia('(min-width: 1024px)').matches;
+      const headerHeight = isLg ? 64 : 56;
+      const stickyBarHeight = stickyBarRef.current?.offsetHeight ?? 45;
+      const dockTop = headerHeight + stickyBarHeight + 16;
+
+      const targetY =
+        targetEl.getBoundingClientRect().top + window.scrollY - dockTop;
+      const showcaseDockY = showcaseEl
+        ? showcaseEl.getBoundingClientRect().top + window.scrollY - headerHeight
+        : 0;
+
+      const finalY = Math.max(0, Math.max(showcaseDockY, targetY));
+      window.scrollTo({
+        top: finalY,
+        behavior: 'smooth',
+      });
+    },
+    [featuredPosts.length, onSelectChannel],
+  );
+
+  // Sync desktop header channel clicks through the exact same smooth docking scroll
   useEffect(() => {
-    if (activeChannel !== 'all' || overviewSections.length === 0) return;
+    if (
+      !channelJumpRequest ||
+      channelJumpRequest.nonce === lastHandledJumpNonceRef.current
+    ) {
+      return;
+    }
+    lastHandledJumpNonceRef.current = channelJumpRequest.nonce;
+    scrollToChannel(channelJumpRequest.channel);
+  }, [channelJumpRequest, scrollToChannel]);
+
+  // Keep the active tab cleanly centered inside the horizontal tab bar ONLY (never touching vertical scroll)
+  useEffect(() => {
+    const list = channelListRef.current;
+    const activeTabEl = channelTabRefs.current[activeChannel];
+    if (!list || !activeTabEl) return;
+
+    const targetLeft =
+      activeTabEl.offsetLeft - list.clientWidth / 2 + activeTabEl.offsetWidth / 2;
+    list.scrollTo({
+      left: Math.max(0, targetLeft),
+      behavior: 'smooth',
+    });
+  }, [activeChannel]);
+
+  // Bi-directional scroll-spy: vertical scrolling updates activeChannel in real time
+  useEffect(() => {
+    if (sectionDescriptors.length === 0) return;
+
     let rafId = 0;
-    const updateFromScroll = () => {
+
+    const updateActiveFromScroll = () => {
       rafId = 0;
-      let matchedIdx = 0;
-      for (let i = 0; i < overviewSections.length; i++) {
-        const el = document.getElementById(overviewSections[i].domId);
+      if (Date.now() < programmaticScrollLockUntilRef.current) return;
+
+      const scrollBottom = window.innerHeight + window.scrollY;
+      const docHeight = document.documentElement.scrollHeight;
+      if (docHeight > window.innerHeight && scrollBottom >= docHeight - 36) {
+        const lastChannel =
+          sectionDescriptors[sectionDescriptors.length - 1].channel;
+        if (activeChannelRef.current !== lastChannel) {
+          onSelectChannel(lastChannel);
+        }
+        return;
+      }
+
+      const stickyBottom =
+        stickyBarRef.current?.getBoundingClientRect().bottom ?? 108;
+      const triggerLine = stickyBottom + 60;
+
+      let matchedChannel: PortalMajorChannel = sectionDescriptors[0].channel;
+      for (let i = 0; i < sectionDescriptors.length; i++) {
+        const el = document.getElementById(sectionDescriptors[i].domId);
         if (!el) continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.top <= 245) {
-          matchedIdx = i;
+        if (el.getBoundingClientRect().top <= triggerLine) {
+          matchedChannel = sectionDescriptors[i].channel;
         }
       }
-      setActiveOverviewSectionIdx((prev) =>
-        prev === matchedIdx ? prev : matchedIdx,
-      );
+
+      if (matchedChannel !== activeChannelRef.current) {
+        onSelectChannel(matchedChannel);
+      }
     };
+
     const onScroll = () => {
       if (rafId) return;
-      rafId = window.requestAnimationFrame(updateFromScroll);
+      rafId = window.requestAnimationFrame(updateActiveFromScroll);
     };
+
+    const cancelProgrammaticLock = () => {
+      programmaticScrollLockUntilRef.current = 0;
+    };
+
     window.addEventListener('scroll', onScroll, {passive: true});
+    window.addEventListener('touchstart', cancelProgrammaticLock, {passive: true});
+    window.addEventListener('wheel', cancelProgrammaticLock, {passive: true});
+
     return () => {
       window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('touchstart', cancelProgrammaticLock);
+      window.removeEventListener('wheel', cancelProgrammaticLock);
       if (rafId) window.cancelAnimationFrame(rafId);
     };
-  }, [activeChannel, overviewSections]);
+  }, [sectionDescriptors, onSelectChannel]);
 
-  const safeOverviewSectionIdx = Math.min(
-    activeOverviewSectionIdx,
-    Math.max(0, overviewSections.length - 1),
-  );
-  const currentOverviewSection = overviewSections[safeOverviewSectionIdx];
-  const scrollSpyLinkedChannel =
-    activeChannel === 'all' ? currentOverviewSection?.linkedChannel : undefined;
-  const activeChannelMeta = PORTAL_MAJOR_CHANNELS[activeChannelIndex];
   const prevChannelMeta =
     activeChannelIndex > 0 ? PORTAL_MAJOR_CHANNELS[activeChannelIndex - 1] : null;
   const nextChannelMeta =
@@ -563,104 +613,75 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
     </div>
   );
 
-  const renderJournalSubControlsAndContent = () => (
-    <div className="space-y-6">
-      {/* Journal-Scoped Search & Academic Year Filter Bar */}
-      <div className="bg-white border border-stone-200 rounded-2xl p-2.5 sm:p-3 shadow-2xs">
-        <form
-          onSubmit={(e) => e.preventDefault()}
-          className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all min-w-0"
-        >
-          <div className="relative flex-1 min-w-0">
-            <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => onSearchQueryChange(e.target.value)}
-              placeholder={`搜尋 ${posts.length} 篇期刊專欄文章、教案、會議紀錄或作者...`}
-              aria-label="搜尋期刊專欄文章"
-              className="w-full h-10 pl-9 pr-3 text-sm text-stone-900 placeholder:text-stone-400 bg-transparent focus:outline-none min-w-0"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 sm:border-l sm:border-stone-200 sm:pl-2 min-w-0 shrink-0">
-            <select
-              id="academic-year-select"
-              aria-label="篩選期刊學年度"
-              value={selectedYear}
-              onChange={(e) => onSelectYear(e.target.value)}
-              className="flex-1 sm:flex-initial min-w-0 h-10 pl-2.5 pr-7 text-xs font-medium text-stone-800 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
-            >
-              {availableYears.map((yr) => (
-                <option key={yr} value={yr}>
-                  {yr} ({yearCounts.get(yr) ?? 0})
-                </option>
-              ))}
-            </select>
-
-            {(searchQuery.trim() !== '' ||
-              selectedYear !== '全部年度' ||
-              selectedCategory !== '全部分類') && (
-              <button
-                type="button"
-                onClick={onResetFilters}
-                className="h-10 px-3 text-xs font-medium text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 transition-colors whitespace-nowrap shrink-0"
-              >
-                清除條件
-              </button>
-            )}
-
-            <button
-              type="submit"
-              className="h-10 px-4 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors whitespace-nowrap shrink-0"
-            >
-              搜尋文章
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* Journal Topic Sub-Bar + View Mode Switcher */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2 min-w-0">
-        <div className="flex-1 min-w-0 flex items-center">
-          <button
-            type="button"
-            onClick={() =>
-              categoryBarRef.current?.scrollBy({left: -220, behavior: 'smooth'})
-            }
-            aria-label="向左捲動專欄分類"
-            className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
+  return (
+    <section
+      id="portal-showcase"
+      aria-label="分區知識頻道與卡片展示"
+      className="max-w-7xl mx-auto px-4 sm:px-6 pt-0 pb-8 space-y-5 sm:space-y-6 min-w-0 scroll-mt-[56px] lg:scroll-mt-[64px]"
+    >
+      {/* Sleek Single-Row Sticky Major Channel Bar — docks flush under <header> when scrolling up */}
+      <div
+        ref={stickyBarRef}
+        className="sticky top-[56px] lg:top-[64px] -mt-px z-20 -mx-4 sm:mx-0 px-4 sm:px-0 bg-[#FBF9F5]/95 backdrop-blur-md border-b border-stone-200"
+      >
+        <div className="flex items-center justify-between gap-3 min-w-0">
           <div
-            ref={categoryBarRef}
-            className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
+            ref={channelListRef}
+            role="tablist"
+            aria-label="網站主要大類項"
+            className="flex-1 flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar scroll-smooth min-w-0"
           >
-            {availableCategories.map((cat) => {
-              const isActive = selectedCategory === cat;
-              const count = categoryCounts.get(cat) ?? 0;
+            {PORTAL_MAJOR_CHANNELS.map((tab) => {
+              const isActive = activeChannel === tab.id;
+              const tabCount =
+                tab.id === 'journal'
+                  ? filteredPosts.length
+                  : tab.id === 'resources'
+                    ? visibleResources.length
+                    : tab.id === 'assessment'
+                      ? publishedAssessmentQuestions.length
+                      : null;
+
               return (
                 <button
-                  key={cat}
+                  key={tab.id}
+                  ref={(el) => {
+                    channelTabRefs.current[tab.id] = el;
+                  }}
                   type="button"
-                  data-active={isActive ? 'true' : undefined}
-                  onClick={() => onSelectCategory(cat)}
-                  className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => scrollToChannel(tab.id)}
+                  className={`min-h-[44px] px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm border-b-2 transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
                     isActive
-                      ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
-                      : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
+                      ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/[0.06] font-bold'
+                      : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:border-stone-300 font-medium'
                   }`}
                 >
-                  <span>{cat === '全部分類' ? '全部主題' : cat}</span>
-                  <span
-                    className={`font-mono-tabular text-xs ${
-                      isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
-                    }`}
-                  >
-                    {count}
-                  </span>
+                  {tab.id === 'ximen' && isXimenLocked && (
+                    <Lock
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        isActive ? 'text-[#1E3A8A]' : 'text-amber-700'
+                      }`}
+                    />
+                  )}
+                  {tab.id === 'class403' && isClass403Locked && (
+                    <Lock
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        isActive ? 'text-[#1E3A8A]' : 'text-amber-700'
+                      }`}
+                    />
+                  )}
+                  <span>{tab.label}</span>
+                  {tabCount !== null && (
+                    <span
+                      className={`font-mono-tabular text-[11px] ${
+                        isActive ? 'text-[#1E3A8A]/85' : 'text-stone-400'
+                      }`}
+                    >
+                      {tabCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -669,574 +690,481 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
           <button
             type="button"
             onClick={() =>
-              categoryBarRef.current?.scrollBy({left: 220, behavior: 'smooth'})
-            }
-            aria-label="向右捲動專欄分類"
-            className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center rounded-md text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 transition-colors shrink-0"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3 min-w-0 pb-1 lg:pb-0">
-          {canShowDraftsToggle && (
-            <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
-              <input
-                type="checkbox"
-                checked={includeDrafts}
-                onChange={(e) => onToggleIncludeDrafts(e.target.checked)}
-                className="rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
-              />
-              <span>顯示草稿</span>
-            </label>
-          )}
-
-          <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg max-w-full overflow-x-auto no-scrollbar">
-            <button
-              type="button"
-              onClick={() => onChangeViewMode('swipe')}
-              className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
-                viewMode === 'swipe'
-                  ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
-                  : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>主題滑動</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeViewMode('grid')}
-              className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
-                viewMode === 'grid'
-                  ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
-                  : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              <span>卡片排版</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onChangeViewMode('list')}
-              className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
-                viewMode === 'list'
-                  ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
-                  : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>目錄清單</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Results Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h2 className="font-editorial text-xl font-semibold text-stone-900">
-            {selectedCategory === '全部分類' ? '所有期刊文章' : selectedCategory}
-            {selectedYear !== '全部年度' ? ` · ${selectedYear}` : ''}
-          </h2>
-          <span className="text-xs font-mono-tabular text-stone-500">
-            共 {filteredPosts.length} 篇
-          </span>
-          {(selectedCategory !== '全部分類' ||
-            selectedYear !== '全部年度' ||
-            searchQuery.trim() !== '') && (
-            <button
-              type="button"
-              onClick={onResetFilters}
-              className="text-xs font-medium text-[#1E3A8A] hover:underline"
-            >
-              重設篩選
-            </button>
-          )}
-        </div>
-
-        {viewMode === 'swipe' && filteredPosts.length > 0 && (
-          <button
-            type="button"
-            onClick={() =>
               onOpenQuickSwipeDeck(
-                channelDeck.scopeLabel,
-                channelDeck.groups,
+                currentChannelDeck.scopeLabel,
+                currentChannelDeck.groups,
                 0,
                 0,
               )
             }
-            className="min-h-[40px] px-3.5 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            disabled={currentChannelDeck.groups.length === 0}
+            title={`開啟「${currentChannelDeck.scopeLabel}」大卡片滑動瀏覽`}
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-200 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] disabled:opacity-40 transition-all whitespace-nowrap shrink-0"
           >
-            <GalleryHorizontalEnd className="w-3.5 h-3.5" />
-            <span>開啟大卡片滑動模式</span>
+            <GalleryHorizontalEnd className="w-3.5 h-3.5 shrink-0" />
+            <span>滑動快覽</span>
           </button>
-        )}
+        </div>
       </div>
 
-      {selectedCategory === '學力檢測' && (
-        <div className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <div className="text-xs font-semibold text-[#1E3A8A]">
-              學力檢測線上互動練習
-            </div>
-            <p className="text-sm text-stone-700">
-              除了閱讀學力檢測分析文章，也可讓學生直接開啟「學力檢測互動題庫」進行即時練習與診斷。
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => onOpenAssessmentBank(null)}
-            className="min-h-[38px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-          >
-            <ClipboardCheck className="w-3.5 h-3.5" />
-            <span>開啟學力檢測互動題庫</span>
-          </button>
-        </div>
-      )}
-
-      {/* Journal Feed Output */}
-      {filteredPosts.length === 0 ? (
-        posts.length === 0 ? (
-          <div className="bg-white border border-stone-200 rounded-xl p-12 text-center space-y-4">
-            <BookOpen className="w-8 h-8 text-[#1E3A8A] mx-auto" />
-            <h3 className="font-editorial text-lg font-medium text-stone-900">
-              此資料庫目前尚未建立文章
-            </h3>
-            <p className="text-sm text-stone-600 max-w-md mx-auto">
-              您的專屬試算表結構已就緒，現在可以立即撰寫第一篇期刊文章，或透過管理後台批次匯入既有文章。
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={onOpenEditor}
-                className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
-              >
-                立即新增第一篇文章
-              </button>
-              <button
-                type="button"
-                onClick={onOpenRssImport}
-                className="px-4 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors"
-              >
-                從 RSS / Blogger 匯入
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="bg-white border border-stone-200 rounded-xl p-12 text-center space-y-3">
-            <BookOpen className="w-8 h-8 text-stone-400 mx-auto" />
-            <h3 className="font-editorial text-lg font-medium text-stone-900">
-              找不到符合條件的期刊文章
-            </h3>
-            <p className="text-sm text-stone-600 max-w-md mx-auto">
-              請嘗試清除關鍵字或切換其他學年度與分類標籤。
-            </p>
-            <button
-              type="button"
-              onClick={onResetFilters}
-              className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
+      {/* Unified Vertical Sections in exact PORTAL_MAJOR_CHANNELS order */}
+      <div className="space-y-10 sm:space-y-12">
+        {/* 01: 全部精選 — Featured Spotlight Cards */}
+        {featuredPosts.length > 0 && (
+          <div id="sec-all" className="scroll-mt-[114px] lg:scroll-mt-[122px]">
+            <HorizontalCardTray
+              sectionIndex={1}
+              title="本期焦點精選"
+              subtitle="左右滑動瀏覽推薦"
+              itemCount={featuredPosts.length}
+              itemUnitLabel="篇焦點"
+              onOpenQuickSwipe={(cardIdx) =>
+                onOpenQuickSwipeDeck(
+                  fullOverviewDeck.scopeLabel,
+                  fullOverviewDeck.groups,
+                  fullOverviewDeck.allChannelOffsets.featuredIdx ?? 0,
+                  cardIdx,
+                )
+              }
+              headerActions={
+                <>
+                  <button
+                    type="button"
+                    onClick={onOpenPresentationMode}
+                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <Presentation className="w-3.5 h-3.5" />
+                    <span>簡報模式</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => scrollToChannel('journal')}
+                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <span>領域社群</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              }
             >
-              重設所有篩選條件
-            </button>
+              {featuredPosts.map((post, idx) => (
+                <div
+                  key={`spotlight-${post.slug}-${post.rowIndex ?? idx}`}
+                  className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex"
+                >
+                  <div className="w-full flex flex-col">
+                    <ArticleCard
+                      post={post}
+                      onSelect={onSelectPost}
+                      isLocked={checkPostLocked(post)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </HorizontalCardTray>
           </div>
-        )
-      ) : viewMode === 'swipe' ? (
-        <TopicSwipeFeed
-          groups={topicGroups}
-          onSelectPost={onSelectPost}
-          onOpenImmersive={(topicIndex, cardIndex) =>
-            onOpenQuickSwipeDeck(
-              channelDeck.scopeLabel,
-              channelDeck.groups,
-              topicIndex,
-              cardIndex,
-            )
-          }
-          isFilteredToSingleCategory={selectedCategory !== '全部分類'}
-          onResetCategoryFilter={() => onSelectCategory('全部分類')}
-          checkPostLocked={checkPostLocked}
-        />
-      ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredPosts.map((post, idx) => (
-            <ArticleCard
-              key={`${post.slug}-${post.rowIndex ?? idx}`}
-              post={post}
-              onSelect={onSelectPost}
-              isLocked={checkPostLocked(post)}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-[#F7F4EE] border-b border-stone-200 text-xs font-semibold text-stone-700">
-                  <th className="py-3.5 px-5 whitespace-nowrap">學年度</th>
-                  <th className="py-3.5 px-4 whitespace-nowrap">發布日期</th>
-                  <th className="py-3.5 px-4 whitespace-nowrap">分類</th>
-                  <th className="py-3.5 px-4">文章標題</th>
-                  <th className="py-3.5 px-4 whitespace-nowrap">雲端資源</th>
-                  <th className="py-3.5 px-5 text-right whitespace-nowrap">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-stone-100 text-sm">
-                {filteredPosts.map((post, idx) => {
-                  const locked = checkPostLocked(post);
+        )}
+
+        {/* 02: 領域社群 — Scoped Search + Topic Card Trays */}
+        <section
+          id="sec-journal"
+          className="scroll-mt-[114px] lg:scroll-mt-[122px] border-t border-stone-200/90 pt-6 space-y-5"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="font-mono-tabular text-sm font-bold text-[#1E3A8A]">
+                02
+              </span>
+              <h2 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
+                領域社群
+              </h2>
+              <span className="text-xs font-mono-tabular text-stone-500">
+                共 {filteredPosts.length} 篇文章 · 分區滑動與搜尋篩選
+              </span>
+            </div>
+
+            {viewMode === 'swipe' && filteredPosts.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  onOpenQuickSwipeDeck(
+                    fullOverviewDeck.scopeLabel,
+                    fullOverviewDeck.groups,
+                    fullOverviewDeck.allChannelOffsets.journalStartIdx,
+                    0,
+                  )
+                }
+                className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <GalleryHorizontalEnd className="w-3.5 h-3.5" />
+                <span>開啟大卡片滑動模式</span>
+              </button>
+            )}
+          </div>
+
+          {/* Journal-Scoped Search & Academic Year Filter Bar */}
+          <div className="bg-white border border-stone-200 rounded-2xl p-2.5 sm:p-3 shadow-2xs">
+            <form
+              onSubmit={(e) => e.preventDefault()}
+              className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all min-w-0"
+            >
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(e) => onSearchQueryChange(e.target.value)}
+                  placeholder={`搜尋 ${posts.length} 篇領域社群文章、教案、會議紀錄或作者...`}
+                  aria-label="搜尋領域社群文章"
+                  className="w-full h-10 pl-9 pr-3 text-sm text-stone-900 placeholder:text-stone-400 bg-transparent focus:outline-none min-w-0"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 sm:border-l sm:border-stone-200 sm:pl-2 min-w-0 shrink-0">
+                <select
+                  id="academic-year-select"
+                  aria-label="篩選領域社群學年度"
+                  value={selectedYear}
+                  onChange={(e) => onSelectYear(e.target.value)}
+                  className="flex-1 sm:flex-initial min-w-0 h-10 pl-2.5 pr-7 text-xs font-medium text-stone-800 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
+                >
+                  {availableYears.map((yr) => (
+                    <option key={yr} value={yr}>
+                      {yr} ({yearCounts.get(yr) ?? 0})
+                    </option>
+                  ))}
+                </select>
+
+                {(searchQuery.trim() !== '' ||
+                  selectedYear !== '全部年度' ||
+                  selectedCategory !== '全部分類') && (
+                  <button
+                    type="button"
+                    onClick={onResetFilters}
+                    className="h-10 px-3 text-xs font-medium text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 transition-colors whitespace-nowrap shrink-0"
+                  >
+                    清除條件
+                  </button>
+                )}
+
+                <button
+                  type="submit"
+                  className="h-10 px-4 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors whitespace-nowrap shrink-0"
+                >
+                  搜尋文章
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Journal Topic Sub-Bar + View Mode Switcher */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stone-200 pb-2 min-w-0">
+            <div className="flex-1 min-w-0 flex items-center">
+              <button
+                type="button"
+                onClick={() =>
+                  categoryBarRef.current?.scrollBy({left: -220, behavior: 'smooth'})
+                }
+                aria-label="向左捲動領域社群分類"
+                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center text-stone-500 hover:text-stone-900 shrink-0"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div
+                ref={categoryBarRef}
+                className="flex-1 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
+              >
+                {availableCategories.map((cat) => {
+                  const isActive = selectedCategory === cat;
+                  const count = categoryCounts.get(cat) ?? 0;
                   return (
-                    <tr
-                      key={`${post.slug}-${post.rowIndex ?? idx}`}
-                      onClick={() => onSelectPost(post)}
-                      className="group cursor-pointer hover:bg-[#F3EFE6] transition-colors"
+                    <button
+                      key={cat}
+                      type="button"
+                      data-active={isActive ? 'true' : undefined}
+                      onClick={() => onSelectCategory(cat)}
+                      className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-baseline gap-1.5 active:scale-[0.98] ${
+                        isActive
+                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-semibold'
+                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/50 hover:border-stone-300 font-medium'
+                      }`}
                     >
-                      <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">
-                        {post.academicYear}
-                      </td>
-                      <td className="py-3.5 px-4 font-mono-tabular text-xs text-stone-500 whitespace-nowrap">
-                        {post.publishedAt}
-                      </td>
-                      <td className="py-3.5 px-4 text-xs text-stone-700 whitespace-nowrap">
-                        {formatCategoryDisplay(post.category)}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectPost(post);
-                          }}
-                          className="text-left font-medium text-stone-900 group-hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-colors"
-                        >
-                          {locked && (
-                            <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                          )}
-                          <span>{post.title}</span>
-                        </button>
-                      </td>
-                      <td className="py-3.5 px-4 text-xs text-stone-500 whitespace-nowrap">
-                        {locked ? (
-                          <span className="inline-flex items-center gap-1 text-amber-800 font-medium">
-                            <Lock className="w-3 h-3" />
-                            <span>校內限定</span>
-                          </span>
-                        ) : post.embedUrl ? (
-                          <a
-                            href={post.embedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-1 text-[#1E3A8A] hover:underline"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>開啟附件</span>
-                          </a>
-                        ) : (
-                          <span>—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-5 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectPost(post);
-                          }}
-                          className="text-xs font-semibold text-[#1E3A8A] px-2.5 py-1 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 transition-all"
-                        >
-                          {locked && <Lock className="w-3 h-3" />}
-                          <span>{locked ? '登入解鎖' : '閱讀全文'}</span>
-                          <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-                        </button>
-                      </td>
-                    </tr>
+                      <span>{cat === '全部分類' ? '全部主題' : cat}</span>
+                      <span
+                        className={`font-mono-tabular text-xs ${
+                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  return (
-    <section
-      id="portal-showcase"
-      className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6 space-y-6 sm:space-y-8 min-w-0"
-    >
-      {/* Sticky Synced Top Major Channels Bar ("上面大類項" + live location sync) */}
-      <div className="sticky top-[57px] lg:top-[65px] z-20 -mx-4 sm:mx-0 px-4 sm:px-0 py-1.5 bg-[#FBF9F5]/92 backdrop-blur-md">
-        <div className="bg-white border border-stone-200/95 rounded-2xl shadow-[0_6px_22px_-6px_rgba(28,25,23,0.10)] overflow-hidden min-w-0">
-          {/* Pinned Always-Visible Location Strip (swipeable left/right to switch channels) */}
-          <div
-            onTouchStart={(e) => {
-              if (e.touches.length !== 1) return;
-              headerTouchStartRef.current = {
-                x: e.touches[0].clientX,
-                y: e.touches[0].clientY,
-              };
-            }}
-            onTouchEnd={(e) => {
-              const start = headerTouchStartRef.current;
-              headerTouchStartRef.current = null;
-              if (!start || e.changedTouches.length !== 1) return;
-              const dx = e.changedTouches[0].clientX - start.x;
-              const dy = e.changedTouches[0].clientY - start.y;
-              if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.25) {
-                if (dx < 0 && nextChannelMeta) {
-                  handleSwitchChannel(nextChannelMeta.id);
-                } else if (dx > 0 && prevChannelMeta) {
-                  handleSwitchChannel(prevChannelMeta.id);
-                }
-              }
-            }}
-            className="px-3 sm:px-4 py-2 border-b border-stone-100 bg-[#FBF9F5]/75 flex items-center justify-between gap-2 min-w-0"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="font-mono-tabular text-[11px] font-bold text-[#1E3A8A] bg-[#1E3A8A]/10 px-2 py-0.5 rounded-md whitespace-nowrap shrink-0">
-                {activeChannel === 'all' && overviewSections.length > 0
-                  ? `${String(safeOverviewSectionIdx + 1).padStart(2, '0')}/${String(overviewSections.length).padStart(2, '0')}`
-                  : `${String(activeChannelIndex + 1).padStart(2, '0')}/${String(PORTAL_MAJOR_CHANNELS.length).padStart(2, '0')}`}
-              </span>
-              <span className="text-xs sm:text-sm font-semibold text-stone-900 truncate">
-                {activeChannel === 'all' && currentOverviewSection
-                  ? `全部精選 · ${currentOverviewSection.label}`
-                  : activeChannelMeta?.label}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5 shrink-0">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => prevChannelMeta && handleSwitchChannel(prevChannelMeta.id)}
-                  disabled={!prevChannelMeta}
-                  aria-label="切換至上一個大類專區"
-                  title={prevChannelMeta ? `上一專區：${prevChannelMeta.label}` : '已是第一個專區'}
-                  className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg bg-white border border-stone-200 text-stone-700 hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => nextChannelMeta && handleSwitchChannel(nextChannelMeta.id)}
-                  disabled={!nextChannelMeta}
-                  aria-label="切換至下一個大類專區"
-                  title={nextChannelMeta ? `下一專區：${nextChannelMeta.label}` : '已是最後一個專區'}
-                  className="min-h-[32px] min-w-[32px] flex items-center justify-center rounded-lg bg-white border border-stone-200 text-stone-700 hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
               </div>
 
               <button
                 type="button"
                 onClick={() =>
-                  onOpenQuickSwipeDeck(
-                    channelDeck.scopeLabel,
-                    channelDeck.groups,
-                    0,
-                    0,
-                  )
+                  categoryBarRef.current?.scrollBy({left: 220, behavior: 'smooth'})
                 }
-                disabled={channelDeck.groups.length === 0}
-                title={`開啟「${channelDeck.scopeLabel}」大卡片滑動瀏覽`}
-                className="min-h-[34px] px-2.5 sm:px-3 py-1 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] disabled:opacity-40 inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                aria-label="向右捲動領域社群分類"
+                className="hidden sm:flex min-h-[40px] min-w-[32px] items-center justify-center rounded-md text-stone-500 hover:text-stone-900 hover:bg-stone-200/50 transition-colors shrink-0"
               >
-                <GalleryHorizontalEnd className="w-3.5 h-3.5 shrink-0" />
-                <span>滑動快覽</span>
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-          </div>
 
-          {/* Horizontally Scrollable Major Channel Tabs (auto-centers active tab) */}
-          <div className="px-2 sm:px-2.5 py-2 flex items-center gap-1.5 min-w-0 relative">
-            <div
-              role="tablist"
-              aria-label="網站主要大類項"
-              className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth min-w-0"
-            >
-              {PORTAL_MAJOR_CHANNELS.map((tab) => {
-                const isActive = activeChannel === tab.id;
-                const isScrollSpyMatch =
-                  activeChannel === 'all' &&
-                  tab.id !== 'all' &&
-                  scrollSpyLinkedChannel === tab.id;
-                const tabCount =
-                  tab.id === 'journal'
-                    ? filteredPosts.length
-                    : tab.id === 'resources'
-                      ? visibleResources.length
-                      : tab.id === 'assessment'
-                        ? publishedAssessmentQuestions.length
-                        : null;
+            <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3 min-w-0 pb-1 lg:pb-0">
+              {canShowDraftsToggle && (
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-stone-600 cursor-pointer whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={includeDrafts}
+                    onChange={(e) => onToggleIncludeDrafts(e.target.checked)}
+                    className="rounded border-stone-300 text-[#1E3A8A] focus:ring-[#1E3A8A]"
+                  />
+                  <span>顯示草稿</span>
+                </label>
+              )}
 
-                return (
-                  <button
-                    key={tab.id}
-                    ref={(el) => {
-                      channelTabRefs.current[tab.id] = el;
-                    }}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    onClick={() => handleSwitchChannel(tab.id)}
-                    className={`min-h-[38px] px-3 sm:px-3.5 py-1.5 text-xs sm:text-sm rounded-xl transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.97] ${
-                      isActive
-                        ? 'bg-[#1E3A8A] text-white font-semibold shadow-xs'
-                        : isScrollSpyMatch
-                          ? 'bg-[#1E3A8A]/10 text-[#1E3A8A] font-semibold border border-[#1E3A8A]/30'
-                          : 'text-stone-700 hover:bg-[#F7F4EE] hover:text-[#1E3A8A] font-medium'
-                    }`}
-                  >
-                    {tab.id === 'ximen' && isXimenLocked && (
-                      <Lock
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          isActive ? 'text-amber-200' : 'text-amber-700'
-                        }`}
-                      />
-                    )}
-                    {tab.id === 'class403' && isClass403Locked && (
-                      <Lock
-                        className={`w-3.5 h-3.5 shrink-0 ${
-                          isActive ? 'text-amber-200' : 'text-amber-700'
-                        }`}
-                      />
-                    )}
-                    <span>{tab.label}</span>
-                    {tabCount !== null && (
-                      <span
-                        className={`font-mono-tabular text-[11px] ${
-                          isActive
-                            ? 'text-blue-100'
-                            : isScrollSpyMatch
-                              ? 'text-[#1E3A8A]/80'
-                              : 'text-stone-400'
-                        }`}
-                      >
-                        {tabCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+              <div className="flex items-center gap-1 p-1 bg-[#F7F4EE] border border-stone-200 rounded-lg max-w-full overflow-x-auto no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => onChangeViewMode('swipe')}
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                    viewMode === 'swipe'
+                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
+                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>主題滑動</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeViewMode('grid')}
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                    viewMode === 'grid'
+                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
+                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span>卡片排版</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChangeViewMode('list')}
+                  className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
+                    viewMode === 'list'
+                      ? 'bg-white text-[#1E3A8A] font-semibold shadow-xs'
+                      : 'text-stone-600 hover:text-stone-950 hover:bg-white/70'
+                  }`}
+                >
+                  <List className="w-3.5 h-3.5" />
+                  <span>目錄清單</span>
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Continuous Progress Strip Along Sticky Bar Bottom */}
-          <div className="flex items-center gap-1.5 px-3 pb-2">
-            {activeChannel === 'all' && overviewSections.length > 0
-              ? overviewSections.map((sec, idx) => (
-                  <button
-                    key={sec.domId}
-                    type="button"
-                    onClick={() => {
-                      const el = document.getElementById(sec.domId);
-                      if (el) el.scrollIntoView({behavior: 'smooth', block: 'start'});
-                    }}
-                    aria-label={`跳至 ${sec.label}`}
-                    className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${
-                      idx === safeOverviewSectionIdx
-                        ? 'bg-[#1E3A8A]'
-                        : idx < safeOverviewSectionIdx
-                          ? 'bg-[#1E3A8A]/35'
-                          : 'bg-stone-200 hover:bg-stone-300'
-                    }`}
-                  />
-                ))
-              : PORTAL_MAJOR_CHANNELS.map((ch, idx) => (
-                  <button
-                    key={`prog-${ch.id}`}
-                    type="button"
-                    onClick={() => handleSwitchChannel(ch.id)}
-                    aria-label={`切換至 ${ch.label}`}
-                    className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${
-                      idx === activeChannelIndex
-                        ? 'bg-[#1E3A8A]'
-                        : 'bg-stone-200 hover:bg-stone-300'
-                    }`}
-                  />
-                ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Directionally Animated Channel Content Area */}
-      <div
-        key={activeChannel}
-        className={
-          channelTransitionDir === 'next'
-            ? 'animate-channel-slide-next'
-            : channelTransitionDir === 'prev'
-              ? 'animate-channel-slide-prev'
-              : ''
-        }
-      >
-      {/* CHANNEL 1: ALL OVERVIEW (Vertical Sections × Horizontal Swipeable Card Trays) */}
-      {activeChannel === 'all' && (
-        <div className="space-y-11">
-          {/* 01 Featured Spotlight Cards */}
-          {featuredPosts.length > 0 && (
-              <HorizontalCardTray
-                id="all-sec-featured"
-                sectionIndex={1}
-                title="本期焦點精選"
-                subtitle="左右滑動瀏覽推薦"
-                itemCount={featuredPosts.length}
-                itemUnitLabel="篇焦點"
-                onOpenQuickSwipe={(cardIdx) =>
-                  onOpenQuickSwipeDeck(
-                    channelDeck.scopeLabel,
-                    channelDeck.groups,
-                    channelDeck.allChannelOffsets.featuredIdx ?? 0,
-                    cardIdx,
-                  )
-                }
-                headerActions={
-                  <>
-                    <button
-                      type="button"
-                      onClick={onOpenPresentationMode}
-                      className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                    >
-                      <Presentation className="w-3.5 h-3.5" />
-                      <span>簡報模式</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onSelectChannel('journal')}
-                      className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                    >
-                      <span>全部專欄</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                }
+          {selectedCategory === '學力檢測' && (
+            <div className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <div className="text-xs font-semibold text-[#1E3A8A]">
+                  學力檢測線上互動練習
+                </div>
+                <p className="text-sm text-stone-700">
+                  除了閱讀學力檢測分析文章，也可讓學生直接開啟「學力檢測互動題庫」進行即時練習與診斷。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onOpenAssessmentBank(null)}
+                className="min-h-[38px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
               >
-                {featuredPosts.map((post, idx) => (
-                  <div
-                    key={`spotlight-${post.slug}-${post.rowIndex ?? idx}`}
-                    className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex"
-                  >
-                    <div className="w-full flex flex-col">
-                      <ArticleCard
-                        post={post}
-                        onSelect={onSelectPost}
-                        isLocked={checkPostLocked(post)}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </HorizontalCardTray>
-            )}
+                <ClipboardCheck className="w-3.5 h-3.5" />
+                <span>開啟學力檢測互動題庫</span>
+              </button>
+            </div>
+          )}
 
-          {/* 02 Teaching Resources & Ebooks */}
-          {visibleResources.length > 0 && (
+          {/* Journal Feed Output */}
+          {filteredPosts.length === 0 ? (
+            posts.length === 0 ? (
+              <div className="bg-white border border-stone-200 rounded-xl p-12 text-center space-y-4">
+                <BookOpen className="w-8 h-8 text-[#1E3A8A] mx-auto" />
+                <h3 className="font-editorial text-lg font-medium text-stone-900">
+                  此資料庫目前尚未建立文章
+                </h3>
+                <p className="text-sm text-stone-600 max-w-md mx-auto">
+                  您的專屬試算表結構已就緒，現在可以立即撰寫第一篇領域社群文章，或透過管理後台批次匯入既有文章。
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={onOpenEditor}
+                    className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
+                  >
+                    立即新增第一篇文章
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onOpenRssImport}
+                    className="px-4 py-2 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors"
+                  >
+                    從 RSS / Blogger 匯入
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-white border border-stone-200 rounded-xl p-12 text-center space-y-3">
+                <BookOpen className="w-8 h-8 text-stone-400 mx-auto" />
+                <h3 className="font-editorial text-lg font-medium text-stone-900">
+                  找不到符合條件的領域社群文章
+                </h3>
+                <p className="text-sm text-stone-600 max-w-md mx-auto">
+                  請嘗試清除關鍵字或切換其他學年度與分類標籤。
+                </p>
+                <button
+                  type="button"
+                  onClick={onResetFilters}
+                  className="px-4 py-2 text-xs font-medium text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
+                >
+                  重設所有篩選條件
+                </button>
+              </div>
+            )
+          ) : viewMode === 'swipe' ? (
+            <TopicSwipeFeed
+              groups={topicGroups}
+              onSelectPost={onSelectPost}
+              onOpenImmersive={(topicIndex, cardIndex) =>
+                onOpenQuickSwipeDeck(
+                  fullOverviewDeck.scopeLabel,
+                  fullOverviewDeck.groups,
+                  fullOverviewDeck.allChannelOffsets.journalStartIdx + topicIndex,
+                  cardIndex,
+                )
+              }
+              isFilteredToSingleCategory={selectedCategory !== '全部分類'}
+              onResetCategoryFilter={() => onSelectCategory('全部分類')}
+              checkPostLocked={checkPostLocked}
+            />
+          ) : viewMode === 'grid' ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredPosts.map((post, idx) => (
+                <ArticleCard
+                  key={`${post.slug}-${post.rowIndex ?? idx}`}
+                  post={post}
+                  onSelect={onSelectPost}
+                  isLocked={checkPostLocked(post)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-[#F7F4EE] border-b border-stone-200 text-xs font-semibold text-stone-700">
+                      <th className="py-3.5 px-5 whitespace-nowrap">學年度</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">發布日期</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">分類</th>
+                      <th className="py-3.5 px-4">文章標題</th>
+                      <th className="py-3.5 px-4 whitespace-nowrap">雲端資源</th>
+                      <th className="py-3.5 px-5 text-right whitespace-nowrap">
+                        操作
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100 text-sm">
+                    {filteredPosts.map((post, idx) => {
+                      const locked = checkPostLocked(post);
+                      return (
+                        <tr
+                          key={`${post.slug}-${post.rowIndex ?? idx}`}
+                          onClick={() => onSelectPost(post)}
+                          className="group cursor-pointer hover:bg-[#F3EFE6] transition-colors"
+                        >
+                          <td className="py-3.5 px-5 font-mono-tabular text-xs text-stone-600 whitespace-nowrap">
+                            {post.academicYear}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono-tabular text-xs text-stone-500 whitespace-nowrap">
+                            {post.publishedAt}
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-stone-700 whitespace-nowrap">
+                            {formatCategoryDisplay(post.category)}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectPost(post);
+                              }}
+                              className="text-left font-medium text-stone-900 group-hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-colors"
+                            >
+                              {locked && (
+                                <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                              )}
+                              <span>{post.title}</span>
+                            </button>
+                          </td>
+                          <td className="py-3.5 px-4 text-xs text-stone-500 whitespace-nowrap">
+                            {locked ? (
+                              <span className="inline-flex items-center gap-1 text-amber-800 font-medium">
+                                <Lock className="w-3 h-3" />
+                                <span>校內限定</span>
+                              </span>
+                            ) : post.embedUrl ? (
+                              <a
+                                href={post.embedUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center gap-1 text-[#1E3A8A] hover:underline"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>開啟附件</span>
+                              </a>
+                            ) : (
+                              <span>—</span>
+                            )}
+                          </td>
+                          <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectPost(post);
+                              }}
+                              className="text-xs font-semibold text-[#1E3A8A] px-2.5 py-1 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 transition-all"
+                            >
+                              {locked && <Lock className="w-3 h-3" />}
+                              <span>{locked ? '登入解鎖' : '閱讀全文'}</span>
+                              <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* 03: 教學資源 — Teaching Resources & Ebooks */}
+        <section
+          id="sec-resources"
+          className="scroll-mt-[114px] lg:scroll-mt-[122px] space-y-4"
+        >
+          {visibleResources.length > 0 ? (
             <HorizontalCardTray
-              id="all-sec-resources"
-              sectionIndex={2}
+              sectionIndex={3}
               title="教學資源與電子書"
               subtitle="教案、學習單與全本電子書"
               accentTextClass="text-amber-800"
@@ -1245,42 +1173,98 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               itemUnitLabel="項資源"
               onOpenQuickSwipe={(cardIdx) =>
                 onOpenQuickSwipeDeck(
-                  channelDeck.scopeLabel,
-                  channelDeck.groups,
-                  channelDeck.allChannelOffsets.resourcesIdx ?? 0,
+                  fullOverviewDeck.scopeLabel,
+                  fullOverviewDeck.groups,
+                  fullOverviewDeck.allChannelOffsets.resourcesIdx ?? 0,
                   cardIdx,
                 )
               }
               headerActions={
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onOpenResourcesHub()}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    <span>開啟資源庫</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelectChannel('resources')}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <span>看更多</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => onOpenResourcesHub()}
+                  className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>開啟資源庫與電子書索引</span>
+                </button>
               }
             >
               {visibleResources.map((res) => renderResourceCard(res))}
             </HorizontalCardTray>
+          ) : (
+            <div className="border-t border-stone-200/90 pt-5 space-y-4">
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono-tabular text-sm font-bold text-amber-800">
+                  03
+                </span>
+                <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
+                  教學資源與電子書
+                </h3>
+              </div>
+              <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
+                <BookOpen className="w-7 h-7 text-stone-400 mx-auto" />
+                <p className="text-sm text-stone-600">
+                  目前年段篩選條件下尚無教學資源。
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onChangeResourceGradeFilter('全部年段')}
+                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
+                >
+                  顯示全部教學資源
+                </button>
+              </div>
+            </div>
           )}
 
-          {/* 03 Elementary Math Assessment Bank */}
-          {publishedAssessmentQuestions.length > 0 && (
+          {/* Inline Grade-Band Filter Strip */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+            {RESOURCE_GRADE_OPTIONS.map((opt) => {
+              const active = resourceGradeFilter === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => onChangeResourceGradeFilter(opt)}
+                  className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                    active
+                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
+                  }`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 04: 檢測題庫 — Elementary Math Assessment Bank */}
+        <section
+          id="sec-assessment"
+          className="scroll-mt-[114px] lg:scroll-mt-[122px] space-y-4"
+        >
+          {publishedAssessmentQuestions.length === 0 ? (
+            <div className="border-t border-stone-200/90 pt-5 space-y-4">
+              <div className="flex items-baseline gap-3">
+                <span className="font-mono-tabular text-sm font-bold text-emerald-800">
+                  04
+                </span>
+                <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
+                  學力檢測互動題庫
+                </h3>
+              </div>
+              <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
+                <ClipboardCheck className="w-7 h-7 text-stone-400 mx-auto" />
+                <p className="text-sm text-stone-600">
+                  目前尚無已發佈的測驗題目。
+                </p>
+              </div>
+            </div>
+          ) : assessmentGradeFilter === '全部年級' ? (
             <HorizontalCardTray
-              id="all-sec-assessment"
-              sectionIndex={3}
+              sectionIndex={4}
               title="學力檢測互動題庫"
               subtitle={`同步分頁：${assessmentTabName}`}
               accentTextClass="text-emerald-800"
@@ -1289,31 +1273,21 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               itemUnitLabel="組練習卡片"
               onOpenQuickSwipe={(cardIdx) =>
                 onOpenQuickSwipeDeck(
-                  channelDeck.scopeLabel,
-                  channelDeck.groups,
-                  channelDeck.allChannelOffsets.assessmentIdx ?? 0,
+                  fullOverviewDeck.scopeLabel,
+                  fullOverviewDeck.groups,
+                  fullOverviewDeck.allChannelOffsets.assessmentIdx ?? 0,
                   cardIdx,
                 )
               }
               headerActions={
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onOpenAssessmentBank(null)}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <ClipboardCheck className="w-3.5 h-3.5" />
-                    <span>開始練習</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelectChannel('assessment')}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <span>題庫導覽</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => onOpenAssessmentBank(null)}
+                  className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                >
+                  <ClipboardCheck className="w-3.5 h-3.5" />
+                  <span>進入互動題庫開始練習</span>
+                </button>
               }
             >
               <div className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex">
@@ -1396,225 +1370,77 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 );
               })}
             </HorizontalCardTray>
-          )}
-
-          {/* 04 Interactive Topics & Class 403 Cards */}
-          <HorizontalCardTray
-              id="all-sec-interactive"
-              sectionIndex={4}
-              title="互動專題 × 403 班網"
-              subtitle="校園實作網與班務入口"
-              accentTextClass="text-sky-800"
-              accentBarClass="bg-sky-700"
-              itemCount={XIMEN_CARDS.length + CLASS403_CARDS.length}
-              itemUnitLabel="個互動模組"
-              onOpenQuickSwipe={(cardIdx) =>
-                onOpenQuickSwipeDeck(
-                  channelDeck.scopeLabel,
-                  channelDeck.groups,
-                  channelDeck.allChannelOffsets.interactiveIdx ?? 0,
-                  cardIdx,
-                )
-              }
-              headerActions={
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => onSelectChannel('ximen')}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <span>互動專題</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onSelectChannel('class403')}
-                    className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                  >
-                    <span>403 班網</span>
-                  </button>
-                </div>
-              }
-            >
-              {XIMEN_CARDS.map((card) =>
-                renderInteractiveStageCard(
-                  card,
-                  isXimenLocked,
-                  () => onOpenXimenStage(card.id),
-                  '百年西門 Scratch',
-                ),
-              )}
-              {CLASS403_CARDS.map((card) =>
-                renderInteractiveStageCard(
-                  card,
-                  isClass403Locked,
-                  () => onOpenClass403Stage(card.id),
-                  '403 班級網站',
-                ),
-              )}
-          </HorizontalCardTray>
-
-          {/* 05+ Journal Catalog Vertical Topic Feed */}
-          <div id="journal-catalog" className="pt-2 space-y-6">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <div className="text-xs font-mono-tabular font-semibold text-[#1E3A8A]">
-                  期刊專欄分區瀏覽
-                </div>
-                <h2 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
-                  各主題教學專欄與共備紀錄
-                </h2>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {(selectedCategory !== '全部分類' ||
-                  selectedYear !== '全部年度' ||
-                  searchQuery.trim() !== '') && (
-                  <button
-                    type="button"
-                    onClick={onResetFilters}
-                    className="min-h-[38px] px-3 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] transition-colors whitespace-nowrap shrink-0"
-                  >
-                    重設期刊篩選
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => onSelectChannel('journal')}
-                  className="min-h-[38px] px-3.5 py-2 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-                >
-                  <span>搜尋文章 / 依年度分類篩選</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-
-            {filteredPosts.length === 0 ? (
-              <div className="bg-white border border-stone-200 rounded-xl p-10 text-center space-y-3">
-                <BookOpen className="w-7 h-7 text-stone-400 mx-auto" />
-                <p className="text-sm text-stone-600">
-                  找不到符合「{searchQuery || selectedYear}」的期刊文章。
-                </p>
-                <button
-                  type="button"
-                  onClick={onResetFilters}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
-                >
-                  重設篩選條件
-                </button>
-              </div>
-            ) : (
-              <TopicSwipeFeed
-                groups={topicGroups}
-                onSelectPost={onSelectPost}
-                onOpenImmersive={(topicIndex, cardIndex) =>
-                  onOpenQuickSwipeDeck(
-                    channelDeck.scopeLabel,
-                    channelDeck.groups,
-                    channelDeck.allChannelOffsets.journalStartIdx + topicIndex,
-                    cardIndex,
-                  )
-                }
-                isFilteredToSingleCategory={selectedCategory !== '全部分類'}
-                onResetCategoryFilter={() => onSelectCategory('全部分類')}
-                checkPostLocked={checkPostLocked}
-              />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* CHANNEL 2: JOURNAL COLUMNS */}
-      {activeChannel === 'journal' && (
-        <div id="journal-catalog">{renderJournalSubControlsAndContent()}</div>
-      )}
-
-      {/* CHANNEL 3: TEACHING RESOURCES */}
-      {activeChannel === 'resources' && (
-        <div className="space-y-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-4">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-              {RESOURCE_GRADE_OPTIONS.map((opt) => {
-                const active = resourceGradeFilter === opt;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => onChangeResourceGradeFilter(opt)}
-                    className={`min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-                      active
-                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
-                        : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => onOpenResourcesHub()}
-              className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              <BookOpen className="w-4 h-4" />
-              <span>開啟完整教學資源庫與電子書索引</span>
-            </button>
-          </div>
-
-          {resourceTypeGroups.length === 0 ? (
-            <div className="bg-white border border-stone-200 rounded-xl p-10 text-center space-y-3">
-              <BookOpen className="w-7 h-7 text-stone-400 mx-auto" />
-              <p className="text-sm text-stone-600">
-                目前篩選條件下尚無教學資源。
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  onChangeResourceGradeFilter('全部年段');
-                  onResetFilters();
-                }}
-                className="px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554]"
-              >
-                顯示全部教學資源
-              </button>
-            </div>
           ) : (
-            <div className="space-y-10">
-              {resourceTypeGroups.map((grp, idx) => (
+            <div className="space-y-8">
+              {assessmentCognitiveGroups.map(({level, items}, idx) => (
                 <HorizontalCardTray
-                  key={grp.type}
-                  sectionIndex={idx + 1}
-                  title={grp.type}
-                  accentTextClass="text-amber-800"
-                  accentBarClass="bg-amber-700"
-                  itemCount={grp.items.length}
-                  itemUnitLabel="筆資源"
+                  key={`${assessmentGradeFilter}-${level}`}
+                  sectionIndex={4}
+                  title={`${assessmentGradeFilter} · ${level}`}
+                  subtitle={`同步分頁：${assessmentTabName}`}
+                  accentTextClass="text-emerald-800"
+                  accentBarClass="bg-emerald-700"
+                  itemCount={items.length}
+                  itemUnitLabel="題可練習"
                   onOpenQuickSwipe={(cardIdx) =>
                     onOpenQuickSwipeDeck(
-                      channelDeck.scopeLabel,
-                      channelDeck.groups,
+                      `${assessmentGradeFilter}檢測題庫 · 滑動快覽`,
+                      assessmentCognitiveGroups.map((g) => ({
+                        id: `assess-cog-${assessmentGradeFilter}-${g.level}`,
+                        topic: `${assessmentGradeFilter} · ${g.level}`,
+                        accentBarClass: 'bg-emerald-700',
+                        accentTextClass: 'text-emerald-800',
+                        cards: g.items.map((q, qIdx) => ({
+                          id: `assess-${q.id}`,
+                          accentBarClass: 'bg-emerald-700',
+                          accentTextClass: 'text-emerald-800',
+                          categoryLabel: `${q.grade} · ${q.domainTopic}`,
+                          metaPrimary: q.unitTitle || '數學素養評量',
+                          metaSecondary: `${
+                            q.questionType === 'single-choice'
+                              ? '單選題'
+                              : '建構反應題'
+                          } · ${q.cognitiveLevel}`,
+                          title: `第 ${qIdx + 1} 題｜${q.stem}`,
+                          summary: q.hint
+                            ? `解題提示：${q.hint}`
+                            : '點擊「前往作答練習」進入互動試題作答與即時解析診斷。',
+                          footerLeft: `難度：${q.difficulty} · ${q.author}`,
+                          actionLabel: '前往作答練習',
+                          coverImageUrl: q.imageUrl || undefined,
+                          onAction: () => onOpenAssessmentBank(q.grade, q.id),
+                        })),
+                      })),
                       idx,
                       cardIdx,
                     )
                   }
+                  headerActions={
+                    idx === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenAssessmentBank(assessmentGradeFilter)}
+                        className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                      >
+                        <ClipboardCheck className="w-3.5 h-3.5" />
+                        <span>練習 {assessmentGradeFilter}</span>
+                      </button>
+                    ) : undefined
+                  }
                 >
-                  {grp.items.map((res) => renderResourceCard(res))}
+                  {items.map((q, qIdx) => renderAssessmentQuestionCard(q, qIdx))}
                 </HorizontalCardTray>
               ))}
             </div>
           )}
-        </div>
-      )}
 
-      {/* CHANNEL 4: ASSESSMENT BANK */}
-      {activeChannel === 'assessment' && (
-        <div className="space-y-8">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-200 pb-4">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {/* Inline Grade Filter Strip */}
+          {publishedAssessmentQuestions.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
               <button
                 type="button"
                 onClick={() => onChangeAssessmentGradeFilter('全部年級')}
-                className={`min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
                   assessmentGradeFilter === '全部年級'
                     ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
                     : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
@@ -1627,7 +1453,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   key={grade}
                   type="button"
                   onClick={() => onChangeAssessmentGradeFilter(grade)}
-                  className={`min-h-[38px] px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                  className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
                     assessmentGradeFilter === grade
                       ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
@@ -1637,223 +1463,138 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 </button>
               ))}
             </div>
+          )}
+        </section>
 
-            <button
-              type="button"
-              onClick={() =>
-                onOpenAssessmentBank(
-                  assessmentGradeFilter === '全部年級'
-                    ? null
-                    : assessmentGradeFilter,
-                )
-              }
-              className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center justify-center gap-1.5 whitespace-nowrap shrink-0"
-            >
-              <ClipboardCheck className="w-4 h-4" />
-              <span>進入互動題庫開始練習</span>
-            </button>
-          </div>
-
-          {assessmentGradeFilter === '全部年級' ? (
-            assessmentGradeGroups.length === 0 ? (
-              <div className="bg-white border border-stone-200 rounded-xl p-10 text-center space-y-3">
-                <ClipboardCheck className="w-7 h-7 text-stone-400 mx-auto" />
-                <p className="text-sm text-stone-600">
-                  目前搜尋條件下尚無已發佈的測驗題目。
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-10">
-                {assessmentGradeGroups.map(({grade, items}, idx) => (
-                  <HorizontalCardTray
-                    key={grade}
-                    sectionIndex={idx + 1}
-                    title={`${grade}學力檢測`}
-                    subtitle={`同步分頁：${assessmentTabName}`}
-                    accentTextClass="text-emerald-800"
-                    accentBarClass="bg-emerald-700"
-                    itemCount={items.length}
-                    itemUnitLabel="題精選"
-                    onOpenQuickSwipe={(cardIdx) =>
-                      onOpenQuickSwipeDeck(
-                        channelDeck.scopeLabel,
-                        channelDeck.groups,
-                        idx,
-                        cardIdx,
-                      )
-                    }
-                    headerActions={
-                      <button
-                        type="button"
-                        onClick={() => onOpenAssessmentBank(grade)}
-                        className="min-h-[36px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                      >
-                        <span>開始練習 {grade}</span>
-                      </button>
-                    }
+        {/* 05: 互動專題 — Ximen Scratch Interactive Topics */}
+        <section
+          id="sec-ximen"
+          className="scroll-mt-[114px] lg:scroll-mt-[122px]"
+        >
+          <HorizontalCardTray
+            sectionIndex={5}
+            title="百年西門 Scratch 舞台秀互動學習網"
+            subtitle="401–404 年段實作資源"
+            accentTextClass="text-sky-800"
+            accentBarClass="bg-sky-700"
+            itemCount={XIMEN_CARDS.length}
+            itemUnitLabel="個功能模組"
+            onOpenQuickSwipe={(cardIdx) =>
+              onOpenQuickSwipeDeck(
+                fullOverviewDeck.scopeLabel,
+                fullOverviewDeck.groups,
+                fullOverviewDeck.allChannelOffsets.ximenIdx ?? 0,
+                cardIdx,
+              )
+            }
+            headerActions={
+              <>
+                <button
+                  type="button"
+                  onClick={() => onOpenXimenStage('map')}
+                  className="min-h-[36px] px-3.5 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                >
+                  {isXimenLocked ? (
+                    <Lock className="w-3.5 h-3.5" />
+                  ) : (
+                    <MonitorPlay className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isXimenLocked ? '登入解鎖' : '開啟學習網'}</span>
+                </button>
+                {!isXimenLocked && (
+                  <a
+                    href="./ximen-scratch.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
                   >
-                    {items.map((q, qIdx) =>
-                      renderAssessmentQuestionCard(q, qIdx),
-                    )}
-                  </HorizontalCardTray>
-                ))}
-              </div>
-            )
-          ) : (
-            <div className="space-y-10">
-              {assessmentCognitiveGroups.map(({level, items}, idx) => (
-                <HorizontalCardTray
-                  key={`${assessmentGradeFilter}-${level}`}
-                  sectionIndex={idx + 1}
-                  title={`${assessmentGradeFilter} · ${level}`}
-                  subtitle={`同步分頁：${assessmentTabName}`}
-                  accentTextClass="text-emerald-800"
-                  accentBarClass="bg-emerald-700"
-                  itemCount={items.length}
-                  itemUnitLabel="題可練習"
-                  onOpenQuickSwipe={(cardIdx) =>
-                    onOpenQuickSwipeDeck(
-                      channelDeck.scopeLabel,
-                      channelDeck.groups,
-                      idx,
-                      cardIdx,
-                    )
-                  }
-                >
-                  {items.map((q, qIdx) => renderAssessmentQuestionCard(q, qIdx))}
-                </HorizontalCardTray>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* CHANNEL 5: XIMEN SCRATCH INTERACTIVE TOPIC */}
-      {activeChannel === 'ximen' && (
-        <HorizontalCardTray
-          sectionIndex={1}
-          title="百年西門 Scratch 舞台秀互動學習網"
-          subtitle="401–404 年段實作資源"
-          itemCount={XIMEN_CARDS.length}
-          itemUnitLabel="個功能模組"
-          onOpenQuickSwipe={(cardIdx) =>
-            onOpenQuickSwipeDeck(
-              channelDeck.scopeLabel,
-              channelDeck.groups,
-              0,
-              cardIdx,
-            )
-          }
-          headerActions={
-            <>
-              <button
-                type="button"
-                onClick={() => onOpenXimenStage('map')}
-                className="min-h-[36px] px-3.5 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-              >
-                {isXimenLocked ? (
-                  <Lock className="w-3.5 h-3.5" />
-                ) : (
-                  <MonitorPlay className="w-3.5 h-3.5" />
+                    <span>獨立分頁</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
                 )}
-                <span>{isXimenLocked ? '登入解鎖' : '開啟學習網'}</span>
-              </button>
-              {!isXimenLocked && (
-                <a
-                  href="./ximen-scratch.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                >
-                  <span>獨立分頁</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </>
-          }
-        >
-          {XIMEN_CARDS.map((card) =>
-            renderInteractiveStageCard(
-              card,
-              isXimenLocked,
-              () => onOpenXimenStage(card.id),
-              '百年西門 Scratch',
-            ),
-          )}
-        </HorizontalCardTray>
-      )}
+              </>
+            }
+          >
+            {XIMEN_CARDS.map((card) =>
+              renderInteractiveStageCard(
+                card,
+                isXimenLocked,
+                () => onOpenXimenStage(card.id),
+                '百年西門 Scratch',
+              ),
+            )}
+          </HorizontalCardTray>
+        </section>
 
-      {/* CHANNEL 6: CLASS 403 WEBSITE */}
-      {activeChannel === 'class403' && (
-        <HorizontalCardTray
-          sectionIndex={1}
-          title="403 班級網站與互動聯絡簿"
-          subtitle="Pes Class 115 · 分機 5207"
-          itemCount={CLASS403_CARDS.length}
-          itemUnitLabel="項班務系統"
-          onOpenQuickSwipe={(cardIdx) =>
-            onOpenQuickSwipeDeck(
-              channelDeck.scopeLabel,
-              channelDeck.groups,
-              0,
-              cardIdx,
-            )
-          }
-          headerActions={
-            <>
-              <button
-                type="button"
-                onClick={() => onOpenClass403Stage('agenda')}
-                className="min-h-[36px] px-3.5 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
-              >
-                {isClass403Locked ? (
-                  <Lock className="w-3.5 h-3.5" />
-                ) : (
-                  <GraduationCap className="w-3.5 h-3.5" />
-                )}
-                <span>{isClass403Locked ? '登入解鎖' : '開啟 403 班網'}</span>
-              </button>
-              {!isClass403Locked && (
-                <a
-                  href="./class-403.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                >
-                  <span>獨立分頁</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </>
-          }
+        {/* 06: 403 班網 — Class 403 Website */}
+        <section
+          id="sec-class403"
+          className="scroll-mt-[114px] lg:scroll-mt-[122px]"
         >
-          {CLASS403_CARDS.map((card) =>
-            renderInteractiveStageCard(
-              card,
-              isClass403Locked,
-              () => onOpenClass403Stage(card.id),
-              '403 班級網站',
-            ),
-          )}
-        </HorizontalCardTray>
-      )}
+          <HorizontalCardTray
+            sectionIndex={6}
+            title="403 班級網站與互動聯絡簿"
+            subtitle="Pes Class 115 · 分機 5207"
+            itemCount={CLASS403_CARDS.length}
+            itemUnitLabel="項班務系統"
+            onOpenQuickSwipe={(cardIdx) =>
+              onOpenQuickSwipeDeck(
+                fullOverviewDeck.scopeLabel,
+                fullOverviewDeck.groups,
+                fullOverviewDeck.allChannelOffsets.class403Idx ?? 0,
+                cardIdx,
+              )
+            }
+            headerActions={
+              <>
+                <button
+                  type="button"
+                  onClick={() => onOpenClass403Stage('agenda')}
+                  className="min-h-[36px] px-3.5 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                >
+                  {isClass403Locked ? (
+                    <Lock className="w-3.5 h-3.5" />
+                  ) : (
+                    <GraduationCap className="w-3.5 h-3.5" />
+                  )}
+                  <span>{isClass403Locked ? '登入解鎖' : '開啟 403 班網'}</span>
+                </button>
+                {!isClass403Locked && (
+                  <a
+                    href="./class-403.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="min-h-[36px] px-3 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-300 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                  >
+                    <span>獨立分頁</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </>
+            }
+          >
+            {CLASS403_CARDS.map((card) =>
+              renderInteractiveStageCard(
+                card,
+                isClass403Locked,
+                () => onOpenClass403Stage(card.id),
+                '403 班級網站',
+              ),
+            )}
+          </HorizontalCardTray>
+        </section>
       </div>
 
-      {/* Bottom Channel Prev/Next Bar */}
+      {/* Bottom Theme Navigation Bar */}
       <div className="border-t border-stone-200 pt-5 flex items-center justify-between gap-3">
         {prevChannelMeta ? (
           <button
             type="button"
-            onClick={() => {
-              handleSwitchChannel(prevChannelMeta.id);
-              document
-                .getElementById('portal-showcase')
-                ?.scrollIntoView({behavior: 'smooth', block: 'start'});
-            }}
+            onClick={() => scrollToChannel(prevChannelMeta.id)}
             className="min-h-[42px] px-3.5 py-2 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-xl hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1.5 transition-all"
           >
             <ChevronLeft className="w-4 h-4 shrink-0" />
-            <span>上一專區：{prevChannelMeta.label}</span>
+            <span>上一主題：{prevChannelMeta.label}</span>
           </button>
         ) : (
           <span className="text-xs text-stone-400">
@@ -1862,27 +1603,28 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         )}
 
         <span className="text-xs font-mono-tabular text-stone-500">
-          {String(activeChannelIndex + 1).padStart(2, '0')} / {String(PORTAL_MAJOR_CHANNELS.length).padStart(2, '0')}
+          {String(activeChannelIndex + 1).padStart(2, '0')} /{' '}
+          {String(PORTAL_MAJOR_CHANNELS.length).padStart(2, '0')}
         </span>
 
         {nextChannelMeta ? (
           <button
             type="button"
-            onClick={() => {
-              handleSwitchChannel(nextChannelMeta.id);
-              document
-                .getElementById('portal-showcase')
-                ?.scrollIntoView({behavior: 'smooth', block: 'start'});
-            }}
+            onClick={() => scrollToChannel(nextChannelMeta.id)}
             className="min-h-[42px] px-3.5 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-xl hover:bg-[#172554] inline-flex items-center gap-1.5 transition-all"
           >
-            <span>下一專區：{nextChannelMeta.label}</span>
+            <span>下一主題：{nextChannelMeta.label}</span>
             <ChevronRight className="w-4 h-4 shrink-0" />
           </button>
         ) : (
-          <span className="text-xs text-stone-400">
-            已是最後一個專區
-          </span>
+          <button
+            type="button"
+            onClick={() => scrollToChannel('all')}
+            className="min-h-[42px] px-3.5 py-2 text-xs font-semibold text-[#1E3A8A] bg-white border border-[#1E3A8A]/35 rounded-xl hover:bg-[#1E3A8A] hover:text-white inline-flex items-center gap-1.5 transition-all"
+          >
+            <ArrowUp className="w-4 h-4 shrink-0" />
+            <span>回到全部精選</span>
+          </button>
         )}
       </div>
     </section>
