@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useMemo, useRef, useState} from 'react';
 import {marked} from 'marked';
 import {
   ArrowLeft,
@@ -191,6 +191,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [showInlineEmbed, setShowInlineEmbed] = useState(false);
   const [readingMode, setReadingMode] = useState<'scroll' | 'flipbook'>('scroll');
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     setShowInlineEmbed(false);
@@ -202,6 +203,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
     } else {
       setReadingMode('scroll');
     }
+    scrollBodyRef.current?.scrollTo({top: 0});
   }, [post?.slug, post?.title, post?.category]);
 
   const renderedHtml = useMemo(() => {
@@ -271,25 +273,25 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-stone-950/50 backdrop-blur-xs flex justify-center p-2.5 sm:p-6 md:p-10"
+      className="fixed inset-0 z-50 overflow-hidden bg-stone-950/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-6 md:p-10"
       role="dialog"
       aria-modal="true"
       aria-labelledby="reader-article-title"
       onClick={onClose}
     >
       <div
-        className={`w-full min-w-0 my-auto flex justify-center transition-all ${
+        className={`w-full min-w-0 max-h-[94dvh] sm:max-h-[92dvh] flex justify-center items-center transition-all ${
           readingMode === 'flipbook' && !isLocked ? 'max-w-5xl' : 'max-w-4xl'
         }`}
       >
         <article
-          className={`w-full min-w-0 bg-[#FBF9F5] border border-stone-200 rounded-xl shadow-2xl overflow-x-hidden overflow-y-auto flex flex-col max-h-[92vh] ${
+          className={`w-full min-w-0 max-h-[94dvh] sm:max-h-[92dvh] bg-[#FBF9F5] border border-stone-200 rounded-xl shadow-2xl overflow-hidden flex flex-col ${
             readingMode === 'flipbook' && !isLocked ? 'max-w-5xl' : 'max-w-4xl'
           }`}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Top Reader Utility Bar */}
-          <div className="px-4 sm:px-10 py-3 sm:py-4 bg-white border-b border-stone-200 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-2.5 sm:gap-4 shrink-0">
+          {/* Top Reader Utility Bar — pinned at top while body scrolls */}
+          <div className="px-3.5 sm:px-10 py-2.5 sm:py-3.5 bg-white border-b border-stone-200 flex flex-col sm:flex-row sm:flex-wrap sm:items-center justify-between gap-2 sm:gap-4 shrink-0 z-10">
             <div className="flex items-center justify-between gap-2 w-full sm:w-auto">
               <button
                 type="button"
@@ -420,8 +422,12 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
             </div>
           </div>
 
-          {/* Meeting Check-In Action Banner at Top of Domain Meeting Articles */}
-          {onOpenMeetingCheckin && post.category.includes('領域會議') && (
+          <div
+            ref={scrollBodyRef}
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain"
+          >
+            {/* Meeting Check-In Action Banner at Top of Domain Meeting Articles */}
+            {onOpenMeetingCheckin && post.category.includes('領域會議') && (
             <section
               aria-label="領域共備會議線上簽到"
               className="px-4 sm:px-12 py-3.5 sm:py-4 bg-[#F7F4EE] border-b border-[#1E3A8A]/20 min-w-0 shrink-0"
@@ -760,6 +766,7 @@ export const ArticleReaderModal: React.FC<ArticleReaderModalProps> = ({
               )}
             </div>
           </footer>
+          </div>
         </article>
       </div>
     </div>
