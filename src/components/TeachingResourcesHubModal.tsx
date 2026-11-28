@@ -1,9 +1,11 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ArrowLeft,
   BookOpen,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CloudUpload,
   Download,
@@ -108,6 +110,14 @@ type UnifiedResourceEntry =
       sortDate: string;
       post: JournalPost;
     };
+
+function getEntryCategory(
+  entry: UnifiedResourceEntry,
+): Exclude<TypeFilter, '全部類型'> {
+  return entry.kind === 'journal'
+    ? '期刊教學資源'
+    : entry.resource.resourceType;
+}
 
 function isSafeExternalOrLocalUrl(rawUrl?: string): boolean {
   if (!rawUrl) return false;
@@ -385,6 +395,14 @@ export const TeachingResourcesHubModal: React.FC<
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('全部類型');
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<HubViewMode>('directory');
+  const [activeCardIdx, setActiveCardIdx] = useState(0);
+  const [activeDirectoryCat, setActiveDirectoryCat] = useState<
+    Exclude<TypeFilter, '全部類型'> | null
+  >(null);
+  const [categorySwipeAnim, setCategorySwipeAnim] = useState<
+    'next' | 'prev' | null
+  >(null);
+  const [isDraggingCardsRail, setIsDraggingCardsRail] = useState(false);
 
   // Reader & Editor Sub-modals
   const [readingResource, setReadingResource] =
@@ -413,8 +431,26 @@ export const TeachingResourcesHubModal: React.FC<
   const [isSyncingSeedBatch, setIsSyncingSeedBatch] = useState(false);
   const [isUploadingFile, setIsUploadingFile] = useState(false);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
-  const resourceFileInputRef = React.useRef<HTMLInputElement | null>(null);
-  const quickDropFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const resourceFileInputRef = useRef<HTMLInputElement | null>(null);
+  const quickDropFileInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
+  const categoryStripRef = useRef<HTMLDivElement | null>(null);
+  const categoryTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const cardsRailRef = useRef<HTMLDivElement | null>(null);
+  const cardsProgrammaticUntilRef = useRef(0);
+  const dragCardStateRef = useRef<{
+    isDown: boolean;
+    startX: number;
+    startScrollLeft: number;
+    hasDragged: boolean;
+  }>({isDown: false, startX: 0, startScrollLeft: 0, hasDragged: false});
+  const touchSwipeRef = useRef<{
+    startX: number;
+    startY: number;
+    atStartEdge: boolean;
+    atEndEdge: boolean;
+    ignored: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -648,6 +684,271 @@ export const TeachingResourcesHubModal: React.FC<
       entries: bucketMap.get(meta.id) || [],
     })).filter((sec) => sec.entries.length > 0);
   }, [filteredEntries]);
+
+  const visibleCategories = useMemo(
+    () =>
+      CATEGORY_META.filter(
+        (meta) => (typeCounts[meta.id] ?? 0) > 0 || typeFilter === meta.id,
+      ),
+    [typeCounts, typeFilter],
+  );
+
+  const categorySequence = useMemo<TypeFilter[]>(
+    () => ['全部類型', ...visibleCategories.map((m) => m.id)],
+    [visibleCategories],
+  );
+
+  const orderedCardEntries = useMemo(
+    () => groupedDirectorySections.flatMap((sec) => sec.entries),
+    [groupedDirectorySections],
+  );
+
+  const activeFocusedCategory: Exclude<TypeFilter, '全部類型'> | null =
+    typeFilter !== '全部類型'
+      ? typeFilter
+      : viewMode === 'cards'
+        ? orderedCardEntries[activeCardIdx]
+          ? getEntryCategory(orderedCardEntries[activeCardIdx])
+          : null
+        : activeDirectoryCat || groupedDirectorySections[0]?.id || null;
+
+  useEffect(() => {
+    setActiveCardIdx(0);
+    if (cardsRailRef.current) {
+      cardsRailRef.current.scrollTo({left: 0, behavior: 'auto'});
+    }
+  }, [typeFilter, gradeFilter, searchQuery, viewMode]);
+
+  useEffect(() => {
+    if (!categorySwipeAnim) return;
+    const t = window.setTimeout(() => setCategorySwipeAnim(null), 300);
+    return () => window.clearTimeout(t);
+  }, [categorySwipeAnim]);
+
+  useEffect(() => {
+    const strip = categoryStripRef.current;
+    if (!strip) return;
+    const targetKey =
+      typeFilter !== '全部類型' ? typeFilter : activeFocusedCategory;
+    if (!targetKey) {
+      strip.scrollTo({left: 0, behavior: 'smooth'});
+      return;
+    }
+    const targetBtn = categoryTabRefs.current[targetKey];
+    if (!targetBtn) return;
+
+    const rafId = window.requestAnimationFrame(() => {
+      const allBtn = categoryTabRefs.current['全部類型'];
+      const pinnedOffset = allBtn ? allBtn.offsetWidth + 4 : 0;
+      const visibleWidth = Math.max(80, strip.clientWidth - pinnedOffset);
+      const targetLeft =
+        targetBtn.offsetLeft -
+        pinnedOffset -
+        (visibleWidth - targetBtn.offsetWidth) / 2;
+      strip.scrollTo({
+        left: Math.max(0, targetLeft),
+        behavior: 'smooth',
+      });
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [typeFilter, activeFocusedCategory, viewMode]);
+
+  useEffect(() => {
+    if (!isOpen || viewMode !== 'directory' || typeFilter !== '全部類型') {
+      setActiveDirectoryCat(null);
+      return;
+    }
+    const scroller = scrollAreaRef.current;
+    if (!scroller || groupedDirectorySections.length === 0) return;
+
+    let rafId = 0;
+    const updateActiveDirectory = () => {
+      rafId = 0;
+      const scrollerRect = scroller.getBoundingClientRect();
+      const focalY = scrollerRect.top + Math.min(260, scrollerRect.height * 0.42);
+      let matched = groupedDirectorySections[0].id;
+      for (const sec of groupedDirectorySections) {
+        const el = document.getElementById(`hub-dir-sec-${sec.id}`);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= focalY) {
+          matched = sec.id;
+        }
+      }
+      setActiveDirectoryCat((prev) => (prev === matched ? prev : matched));
+    };
+
+    const onScroll = () => {
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(updateActiveDirectory);
+    };
+
+    updateActiveDirectory();
+    scroller.addEventListener('scroll', onScroll, {passive: true});
+    return () => {
+      scroller.removeEventListener('scroll', onScroll);
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [isOpen, viewMode, typeFilter, groupedDirectorySections]);
+
+  const handleCardsRailScroll = useCallback(() => {
+    if (Date.now() < cardsProgrammaticUntilRef.current) return;
+    const rail = cardsRailRef.current;
+    if (!rail) return;
+    const cards = Array.from(rail.children) as HTMLElement[];
+    if (cards.length === 0) return;
+    const baseOffset = cards[0].offsetLeft;
+    const railLeft = rail.scrollLeft;
+    let closestIdx = 0;
+    let minDiff = Infinity;
+    for (let i = 0; i < cards.length; i++) {
+      const diff = Math.abs(cards[i].offsetLeft - baseOffset - railLeft);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
+      }
+    }
+    setActiveCardIdx((prev) => (prev === closestIdx ? prev : closestIdx));
+  }, []);
+
+  const scrollToHubCard = useCallback((idx: number) => {
+    const rail = cardsRailRef.current;
+    if (!rail) return;
+    const cards = Array.from(rail.children) as HTMLElement[];
+    if (cards.length === 0) return;
+    const clamped = Math.max(0, Math.min(cards.length - 1, idx));
+    const target = cards[clamped];
+    if (!target) return;
+    const baseOffset = cards[0].offsetLeft;
+    const maxScroll = Math.max(0, rail.scrollWidth - rail.clientWidth);
+    const targetLeft = Math.min(
+      maxScroll,
+      Math.max(0, target.offsetLeft - baseOffset),
+    );
+    cardsProgrammaticUntilRef.current = Date.now() + 550;
+    rail.scrollTo({left: targetLeft, behavior: 'smooth'});
+    setActiveCardIdx(clamped);
+  }, []);
+
+  const handleCardsPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    const rail = cardsRailRef.current;
+    if (!rail) return;
+    dragCardStateRef.current = {
+      isDown: true,
+      startX: e.clientX,
+      startScrollLeft: rail.scrollLeft,
+      hasDragged: false,
+    };
+  };
+
+  const handleCardsPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = dragCardStateRef.current;
+    if (!st.isDown) return;
+    const dx = e.clientX - st.startX;
+    if (Math.abs(dx) > 6 && !st.hasDragged) {
+      st.hasDragged = true;
+      setIsDraggingCardsRail(true);
+    }
+    if (st.hasDragged && cardsRailRef.current) {
+      cardsRailRef.current.scrollLeft = st.startScrollLeft - dx;
+    }
+  };
+
+  const handleCardsPointerUpOrCancel = () => {
+    const st = dragCardStateRef.current;
+    if (!st.isDown) return;
+    st.isDown = false;
+    const didDrag = st.hasDragged;
+    setIsDraggingCardsRail(false);
+    if (didDrag && cardsRailRef.current) {
+      const rail = cardsRailRef.current;
+      const cards = Array.from(rail.children) as HTMLElement[];
+      if (cards.length > 0) {
+        const baseOffset = cards[0].offsetLeft;
+        let closestIdx = 0;
+        let minDiff = Infinity;
+        for (let i = 0; i < cards.length; i++) {
+          const diff = Math.abs(
+            cards[i].offsetLeft - baseOffset - rail.scrollLeft,
+          );
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestIdx = i;
+          }
+        }
+        scrollToHubCard(closestIdx);
+      }
+      setTimeout(() => {
+        dragCardStateRef.current.hasDragged = false;
+      }, 0);
+    } else {
+      st.hasDragged = false;
+    }
+  };
+
+  const handleCardsClickCapture = (e: React.MouseEvent) => {
+    if (dragCardStateRef.current.hasDragged) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
+  const stepCategoryBy = useCallback(
+    (delta: -1 | 1) => {
+      if (categorySequence.length <= 1) return;
+      const curIdx = categorySequence.indexOf(typeFilter);
+      const baseIdx = curIdx === -1 ? 0 : curIdx;
+      const nextIdx = baseIdx + delta;
+      if (nextIdx < 0 || nextIdx >= categorySequence.length) return;
+      setCategorySwipeAnim(delta > 0 ? 'next' : 'prev');
+      setTypeFilter(categorySequence[nextIdx]);
+      scrollAreaRef.current?.scrollTo({top: 0, behavior: 'smooth'});
+    },
+    [categorySequence, typeFilter],
+  );
+
+  const handleListingTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.touches.length !== 1) return;
+    const target = e.target as HTMLElement | null;
+    const isInteractiveChild = Boolean(
+      target?.closest('input, select, textarea, [data-no-swipe="true"]'),
+    );
+    const rail = cardsRailRef.current;
+    const hasScrollableRail =
+      viewMode === 'cards' &&
+      Boolean(rail) &&
+      (rail?.scrollWidth ?? 0) > (rail?.clientWidth ?? 0) + 6;
+    const atStartEdge =
+      !hasScrollableRail || (rail ? rail.scrollLeft <= 6 : true);
+    const atEndEdge =
+      !hasScrollableRail ||
+      (rail
+        ? rail.scrollLeft >= rail.scrollWidth - rail.clientWidth - 6
+        : true);
+
+    touchSwipeRef.current = {
+      startX: e.touches[0].clientX,
+      startY: e.touches[0].clientY,
+      atStartEdge,
+      atEndEdge,
+      ignored: isInteractiveChild,
+    };
+  };
+
+  const handleListingTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    const st = touchSwipeRef.current;
+    touchSwipeRef.current = null;
+    if (!st || st.ignored || e.changedTouches.length !== 1) return;
+    const dx = e.changedTouches[0].clientX - st.startX;
+    const dy = e.changedTouches[0].clientY - st.startY;
+    if (Math.abs(dx) < 56 || Math.abs(dx) <= Math.abs(dy) * 1.35) return;
+
+    if (dx < 0 && st.atEndEdge) {
+      stepCategoryBy(1);
+    } else if (dx > 0 && st.atStartEdge) {
+      stepCategoryBy(-1);
+    }
+  };
 
   const filteredChapterCatalog = useMemo(() => {
     if (!constructedResponseBook) return [];
@@ -1327,7 +1628,7 @@ export const TeachingResourcesHubModal: React.FC<
       </header>
 
       {/* Main Scrollable Area */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollAreaRef} className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto px-3.5 sm:px-6 py-3 sm:py-4 space-y-3">
           {/* Compact Admin Notices & Errors */}
           {syncError && (
@@ -1505,26 +1806,30 @@ export const TeachingResourcesHubModal: React.FC<
             {/* Row 2: Single-line Horizontal Category Strip + Inline Grade Select */}
             <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-stone-100 min-w-0">
               <div
-                className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar"
+                ref={categoryStripRef}
+                className="relative flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar scroll-smooth"
                 role="tablist"
                 aria-label="資源分類篩選"
               >
                 <button
+                  ref={(el) => {
+                    categoryTabRefs.current['全部類型'] = el;
+                  }}
                   type="button"
                   role="tab"
                   aria-selected={typeFilter === '全部類型'}
                   onClick={() => setTypeFilter('全部類型')}
-                  className={`h-8 px-2.5 text-xs border-b-2 rounded-t transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
+                  className={`sticky left-0 z-10 h-8 px-2.5 mr-1 text-xs rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1 border-r border-stone-200 ${
                     typeFilter === '全部類型'
-                      ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-bold'
-                      : 'border-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
+                      ? 'bg-[#1E3A8A] text-white font-bold shadow-2xs'
+                      : 'bg-white text-stone-600 hover:text-[#1E3A8A] font-medium'
                   }`}
                 >
                   <span>全部</span>
                   <span
                     className={`font-mono-tabular text-[11px] ${
                       typeFilter === '全部類型'
-                        ? 'text-[#1E3A8A]/80'
+                        ? 'text-blue-100 font-semibold'
                         : 'text-stone-400'
                     }`}
                   >
@@ -1532,28 +1837,43 @@ export const TeachingResourcesHubModal: React.FC<
                   </span>
                 </button>
 
-                {CATEGORY_META.filter(
-                  (meta) => (typeCounts[meta.id] ?? 0) > 0 || typeFilter === meta.id,
-                ).map((meta) => {
+                {visibleCategories.map((meta) => {
                   const count = typeCounts[meta.id] ?? 0;
-                  const isActive = typeFilter === meta.id;
+                  const isDirectlySelected = typeFilter === meta.id;
+                  const isSwipePaired =
+                    typeFilter === '全部類型' && activeFocusedCategory === meta.id;
                   return (
                     <button
                       key={meta.id}
+                      ref={(el) => {
+                        categoryTabRefs.current[meta.id] = el;
+                      }}
                       type="button"
                       role="tab"
-                      aria-selected={isActive}
+                      aria-selected={isDirectlySelected}
                       onClick={() => setTypeFilter(meta.id)}
-                      className={`h-8 px-2.5 text-xs border-b-2 rounded-t transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
-                        isActive
-                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-bold'
-                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
+                      className={`h-8 px-2.5 text-xs rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                        isDirectlySelected
+                          ? 'bg-[#1E3A8A] text-white font-bold shadow-xs'
+                          : isSwipePaired
+                            ? 'bg-[#1E3A8A]/12 text-[#1E3A8A] border border-[#1E3A8A] font-bold shadow-2xs'
+                            : 'text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-100 font-medium'
                       }`}
                     >
+                      {isSwipePaired && (
+                        <span
+                          aria-hidden="true"
+                          className="w-1.5 h-1.5 rounded-full bg-[#1E3A8A] shrink-0"
+                        />
+                      )}
                       <span>{meta.shortLabel}</span>
                       <span
                         className={`font-mono-tabular text-[11px] ${
-                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
+                          isDirectlySelected
+                            ? 'text-blue-100 font-semibold'
+                            : isSwipePaired
+                              ? 'text-[#1E3A8A]/80 font-semibold'
+                              : 'text-stone-400'
                         }`}
                       >
                         {count}
@@ -1596,384 +1916,571 @@ export const TeachingResourcesHubModal: React.FC<
             </div>
           </section>
 
-          {/* Resources Listing: Grouped Directory (Default) or Cards */}
-          {filteredEntries.length === 0 ? (
-            !(
-              constructedResponseBook &&
-              (typeFilter === '全部類型' ||
-                typeFilter === '電子書' ||
-                typeFilter === '自製教案 / 學習單') &&
-              filteredChapterCatalog.length > 0
-            ) && (
-              <div className="bg-white border border-stone-200 rounded-2xl p-10 text-center space-y-3">
-                <FolderOpen className="w-8 h-8 text-stone-400 mx-auto" />
-                <div className="font-editorial text-lg font-semibold text-stone-900">
-                  找不到符合條件的教學資源
+          {/* Resources Listing: Grouped Directory (Default) or Swipeable Cards */}
+          <div
+            onTouchStart={handleListingTouchStart}
+            onTouchEnd={handleListingTouchEnd}
+            className={
+              categorySwipeAnim === 'next'
+                ? 'animate-channel-slide-next'
+                : categorySwipeAnim === 'prev'
+                  ? 'animate-channel-slide-prev'
+                  : undefined
+            }
+          >
+            {filteredEntries.length === 0 ? (
+              !(
+                constructedResponseBook &&
+                (typeFilter === '全部類型' ||
+                  typeFilter === '電子書' ||
+                  typeFilter === '自製教案 / 學習單') &&
+                filteredChapterCatalog.length > 0
+              ) && (
+                <div className="bg-white border border-stone-200 rounded-2xl p-10 text-center space-y-3">
+                  <FolderOpen className="w-8 h-8 text-stone-400 mx-auto" />
+                  <div className="font-editorial text-lg font-semibold text-stone-900">
+                    找不到符合條件的教學資源
+                  </div>
+                  <p className="text-sm text-stone-500 max-w-md mx-auto">
+                    請試著放寬年段或資源類型篩選條件，或清除搜尋關鍵字查看全部公開教案與研習筆記。
+                  </p>
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGradeFilter('全部年段');
+                        setTypeFilter('全部類型');
+                        setSearchQuery('');
+                      }}
+                      className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
+                    >
+                      顯示全部教學資源
+                    </button>
+                  )}
                 </div>
-                <p className="text-sm text-stone-500 max-w-md mx-auto">
-                  請試著放寬年段或資源類型篩選條件，或清除搜尋關鍵字查看全部公開教案與研習筆記。
-                </p>
-                {hasActiveFilters && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setGradeFilter('全部年段');
-                      setTypeFilter('全部類型');
-                      setSearchQuery('');
-                    }}
-                    className="min-h-[40px] px-4 py-2 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors"
-                  >
-                    顯示全部教學資源
-                  </button>
-                )}
+              )
+            ) : viewMode === 'directory' ? (
+              <div className="space-y-4">
+                {groupedDirectorySections.map((section) => {
+                  const isSectionFocused =
+                    typeFilter === section.id ||
+                    (typeFilter === '全部類型' &&
+                      activeFocusedCategory === section.id);
+                  return (
+                    <section
+                      key={section.id}
+                      id={`hub-dir-sec-${section.id}`}
+                      className={`bg-white rounded-2xl overflow-hidden transition-all duration-200 ${
+                        isSectionFocused
+                          ? 'border-2 border-[#1E3A8A] ring-2 ring-[#1E3A8A]/10 shadow-sm opacity-100'
+                          : 'border border-stone-200 opacity-80 hover:opacity-100'
+                      }`}
+                    >
+                      <div
+                        className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 transition-colors ${
+                          isSectionFocused
+                            ? 'bg-[#EDF2FA] border-[#1E3A8A]/20'
+                            : 'bg-[#F7F4EE] border-stone-200'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h2 className="font-editorial text-sm sm:text-base font-bold text-stone-950 truncate">
+                            {section.fullLabel}
+                          </h2>
+                          {isSectionFocused && (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#1E3A8A] text-white shrink-0">
+                              目前顯示
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs font-mono-tabular font-semibold text-stone-600 shrink-0">
+                          {section.entries.length} 筆
+                        </span>
+                      </div>
+                      <div className="divide-y divide-stone-100">
+                        {section.entries.map((entry) => renderDirectoryRow(entry))}
+                      </div>
+                    </section>
+                  );
+                })}
               </div>
-            )
-          ) : viewMode === 'directory' ? (
-            <div className="space-y-4">
-              {groupedDirectorySections.map((section) => (
-                <section
-                  key={section.id}
-                  className="bg-white border border-stone-200 rounded-2xl overflow-hidden"
-                >
-                  <div className="px-4 py-2.5 bg-[#F7F4EE] border-b border-stone-200 flex items-center justify-between gap-2">
-                    <h2 className="font-editorial text-sm sm:text-base font-bold text-stone-950">
-                      {section.fullLabel}
-                    </h2>
-                    <span className="text-xs font-mono-tabular font-semibold text-stone-600">
-                      {section.entries.length} 筆
+            ) : (
+              <div className="bg-white border-2 border-[#1E3A8A] ring-2 ring-[#1E3A8A]/10 rounded-2xl p-3.5 sm:p-5 space-y-3 shadow-sm">
+                {/* Swipeable Cards Header + Live Sync Readout */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 min-w-0">
+                    {activeFocusedCategory && (
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-md bg-[#1E3A8A] text-white shrink-0">
+                        {CATEGORY_META.find((m) => m.id === activeFocusedCategory)
+                          ?.shortLabel || activeFocusedCategory}
+                      </span>
+                    )}
+                    <span className="text-xs font-mono-tabular text-stone-600">
+                      {orderedCardEntries.length > 1 ? (
+                        <>
+                          第{' '}
+                          <strong className="text-[#1E3A8A] font-bold">
+                            {Math.min(activeCardIdx, orderedCardEntries.length - 1) + 1}
+                          </strong>
+                          /{orderedCardEntries.length} 張 · 左右滑動切換
+                        </>
+                      ) : (
+                        <>共 {orderedCardEntries.length} 張 · 左右滑動切換分類</>
+                      )}
                     </span>
                   </div>
-                  <div className="divide-y divide-stone-100">
-                    {section.entries.map((entry) => renderDirectoryRow(entry))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredEntries.map((entry) => {
-                if (entry.kind === 'resource') {
-                  const res = entry.resource;
-                  const tags = parseTopicTags(res.topicTags);
-                  const hasValidUrl = isSafeExternalOrLocalUrl(res.resourceUrl);
-                  const isInteractive = isInternalInteractiveHtmlUrl(
-                    res.resourceUrl,
-                  );
-                  const isEbook = res.resourceType === '電子書';
-                  const isPdfFile = isPdfOrDriveFileUrl(res.resourceUrl);
-                  const isReaderDocument = isEmbeddedReaderDocumentUrl(
-                    res.resourceUrl,
-                  );
-                  const openInEbookReader =
-                    (isEbook && (hasValidUrl || Boolean(res.content))) ||
-                    (hasValidUrl && isReaderDocument);
-                  const resolvedShareUrl =
-                    hasValidUrl && !isInteractive && typeof window !== 'undefined'
-                      ? new URL(res.resourceUrl!, window.location.href).toString()
-                      : hubShareUrl;
 
-                  return (
-                    <article
-                      key={entry.key}
-                      className="bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between gap-4 hover:border-stone-300 hover:shadow-sm transition-all"
-                    >
-                      <div className="space-y-3">
-                        {/* Clean Editorial Typographic Metadata Row (Zero Pill Discipline) */}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-stone-500">
-                          <span className="text-[#1E3A8A] font-semibold">
-                            {res.gradeBand}
-                          </span>
-                          <span aria-hidden="true">·</span>
-                          <span>{res.resourceType}</span>
-                          <span aria-hidden="true">·</span>
-                          <span>{res.sourceOrigin}</span>
-                          {res.isPinned && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span className="text-[#9A3412] font-semibold inline-flex items-center gap-1">
-                                <Sparkles className="w-3 h-3" />
-                                <span>精選</span>
-                              </span>
-                            </>
-                          )}
-                          {!res.isPublic && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span className="text-amber-800 font-semibold">
-                                草稿（僅管理員可見）
-                              </span>
-                            </>
-                          )}
-                        </div>
-
-                        <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug">
-                          {openInEbookReader ? (
-                            <button
-                              type="button"
-                              onClick={() => setViewingEbook(res)}
-                              className="text-left hover:text-[#1E3A8A] transition-colors"
-                            >
-                              {res.title}
-                            </button>
-                          ) : res.content ? (
-                            <button
-                              type="button"
-                              onClick={() => setReadingResource(res)}
-                              className="text-left hover:text-[#1E3A8A] transition-colors"
-                            >
-                              {res.title}
-                            </button>
-                          ) : (
-                            res.title
-                          )}
-                        </h3>
-
-                        <p className="text-sm text-stone-600 leading-relaxed line-clamp-3">
-                          {res.summary}
-                        </p>
-
-                        {tags.length > 0 && (
-                          <div className="text-xs text-stone-500 flex flex-wrap gap-x-2.5 gap-y-1 pt-0.5">
-                            {tags.map((tag) => (
-                              <span key={tag}>#{tag}</span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="pt-3 border-t border-stone-100 space-y-3">
-                        <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
-                          <span className="truncate">{res.author}</span>
-                          <span className="font-mono-tabular shrink-0">
-                            {res.publishedAt}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {res.content && (
-                            <button
-                              type="button"
-                              onClick={() => setReadingResource(res)}
-                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
-                            >
-                              <FileText className="w-3.5 h-3.5 shrink-0" />
-                              <span>心得 / 說明</span>
-                            </button>
-                          )}
-
-                          {openInEbookReader ? (
-                            <button
-                              type="button"
-                              onClick={() => setViewingEbook(res)}
-                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
-                            >
-                              <BookOpen className="w-3.5 h-3.5 shrink-0" />
-                              <span>
-                                {isEbook
-                                  ? '閱讀電子書'
-                                  : isPdfFile
-                                    ? '站內閱讀 PDF'
-                                    : '站內開啟文件'}
-                              </span>
-                            </button>
-                          ) : (
-                            hasValidUrl &&
-                            (isInteractive ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onOpenEmbedStage(
-                                    res.resourceUrl!,
-                                    res.title,
-                                  )
-                                }
-                                className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
-                              >
-                                <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
-                                <span>進入互動工具</span>
-                              </button>
-                            ) : (
-                              <a
-                                href={res.resourceUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                                <span>開啟資源連結</span>
-                              </a>
-                            ))
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenShareQr(resolvedShareUrl, res.title)
-                            }
-                            className="min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 inline-flex items-center justify-center transition-colors"
-                            title="分享此資源 QR Code"
-                            aria-label={`分享 ${res.title} QR Code`}
-                          >
-                            <QrCode className="w-3.5 h-3.5" />
-                          </button>
-
-                          {isTeacherAdmin && (
-                            <div className="ml-auto flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditModal(res)}
-                                className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-colors"
-                                aria-label={`編輯 ${res.title}`}
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                <span>編輯</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteResource(res)}
-                                className="min-h-[38px] min-w-[38px] px-2 py-1.5 text-xs font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 inline-flex items-center justify-center transition-colors"
-                                aria-label={`刪除 ${res.title}`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </article>
-                  );
-                }
-
-                // JournalPost entry synced from '教學資源' category
-                const post = entry.post;
-                const locked = checkPostLocked(post);
-                const hasEmbed = isSafeExternalOrLocalUrl(post.embedUrl);
-                const isInteractivePost = isInternalInteractiveHtmlUrl(
-                  post.embedUrl,
-                );
-
-                return (
-                  <article
-                    key={entry.key}
-                    className="bg-white border border-stone-200 rounded-2xl p-5 flex flex-col justify-between gap-4 hover:border-stone-300 hover:shadow-sm transition-all"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-stone-500">
-                        <span className="text-[#14532D] font-semibold">
-                          領域社群教學資源文章
-                        </span>
-                        <span aria-hidden="true">·</span>
-                        <span>{post.academicYear}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{formatCategoryDisplay(post.category)}</span>
-                        {post.isFeatured && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="text-[#9A3412] font-semibold">
-                              精選
-                            </span>
-                          </>
-                        )}
-                        {locked && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="text-amber-800 font-semibold inline-flex items-center gap-1">
-                              <Lock className="w-3 h-3" />
-                              校內限定
-                            </span>
-                          </>
-                        )}
-                      </div>
-
-                      <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug">
-                        {post.title}
-                      </h3>
-
-                      <p className="text-sm text-stone-600 leading-relaxed line-clamp-3">
-                        {locked
-                          ? '此期刊資源已設定為校內帳號限定檢視，登入後即可閱讀完整內容。'
-                          : post.summary}
-                      </p>
+                  {orderedCardEntries.length > 1 ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => scrollToHubCard(activeCardIdx - 1)}
+                        disabled={activeCardIdx <= 0}
+                        aria-label="上一張資源卡片"
+                        className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 hover:border-[#1E3A8A] hover:text-[#1E3A8A] disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => scrollToHubCard(activeCardIdx + 1)}
+                        disabled={activeCardIdx >= orderedCardEntries.length - 1}
+                        aria-label="下一張資源卡片"
+                        className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 hover:border-[#1E3A8A] hover:text-[#1E3A8A] disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
                     </div>
-
-                    <div className="pt-3 border-t border-stone-100 space-y-3">
-                      <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
-                        <span className="truncate">{post.author}</span>
-                        <span className="font-mono-tabular shrink-0">
-                          {post.publishedAt}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
+                  ) : (
+                    categorySequence.length > 1 && (
+                      <div className="flex items-center gap-1 shrink-0">
                         <button
                           type="button"
-                          onClick={() => onOpenPost(post)}
-                          className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                          onClick={() => stepCategoryBy(-1)}
+                          disabled={categorySequence.indexOf(typeFilter) <= 0}
+                          aria-label="上一個分類"
+                          className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 hover:border-[#1E3A8A] hover:text-[#1E3A8A] disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
                         >
-                          <BookOpen className="w-3.5 h-3.5 shrink-0" />
-                          <span>閱讀期刊全文</span>
+                          <ChevronLeft className="w-4 h-4" />
                         </button>
-
-                        {!locked &&
-                          hasEmbed &&
-                          (isInteractivePost ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onOpenEmbedStage(post.embedUrl!, post.title)
-                              }
-                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
-                            >
-                              <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
-                              <span>開啟互動舞台</span>
-                            </button>
-                          ) : isEmbeddedReaderDocumentUrl(post.embedUrl) ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setViewingEbook({
-                                  id: post.slug,
-                                  title: post.title,
-                                  gradeBand: '跨年級通用',
-                                  resourceType: '自製教案 / 學習單',
-                                  sourceOrigin: '原創自製',
-                                  topicTags: post.category,
-                                  summary: post.summary,
-                                  content: post.content || '',
-                                  resourceUrl: post.embedUrl || '',
-                                  author: post.author,
-                                  publishedAt: post.publishedAt,
-                                  isPinned: Boolean(post.isFeatured),
-                                  isPublic: post.status === 'Published',
-                                })
-                              }
-                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
-                            >
-                              <FileText className="w-3.5 h-3.5 shrink-0" />
-                              <span>
-                                {isPdfOrDriveFileUrl(post.embedUrl)
-                                  ? '站內閱讀 PDF'
-                                  : '站內閱讀附件'}
-                              </span>
-                            </button>
-                          ) : (
-                            <a
-                              href={post.embedUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
-                              <span>附件資源</span>
-                            </a>
-                          ))}
+                        <button
+                          type="button"
+                          onClick={() => stepCategoryBy(1)}
+                          disabled={
+                            categorySequence.indexOf(typeFilter) >=
+                            categorySequence.length - 1
+                          }
+                          aria-label="下一個分類"
+                          className="min-h-[34px] min-w-[34px] flex items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-700 hover:border-[#1E3A8A] hover:text-[#1E3A8A] disabled:opacity-35 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
                       </div>
+                    )
+                  )}
+                </div>
+
+                {/* Horizontal Swipeable Cards Rail */}
+                <div className="bg-[#EDF2FA]/70 border border-[#1E3A8A]/18 rounded-xl p-2.5 sm:p-4 relative overflow-hidden">
+                  <div
+                    ref={cardsRailRef}
+                    onScroll={handleCardsRailScroll}
+                    onPointerDown={handleCardsPointerDown}
+                    onPointerMove={handleCardsPointerMove}
+                    onPointerUp={handleCardsPointerUpOrCancel}
+                    onPointerCancel={handleCardsPointerUpOrCancel}
+                    onClickCapture={handleCardsClickCapture}
+                    className={`flex gap-3.5 sm:gap-5 overflow-x-auto no-scrollbar pb-1 pt-0.5 select-none items-stretch ${
+                      isDraggingCardsRail
+                        ? 'cursor-grabbing'
+                        : 'snap-x snap-mandatory scroll-smooth cursor-grab'
+                    }`}
+                  >
+                    {orderedCardEntries.map((entry, idx) => {
+                      const isCardFocused =
+                        idx ===
+                        Math.min(activeCardIdx, orderedCardEntries.length - 1);
+                      const cardFocusClasses = isCardFocused
+                        ? 'bg-white border-2 border-[#1E3A8A] ring-2 ring-[#1E3A8A]/10 shadow-md opacity-100 scale-100'
+                        : 'bg-white border border-stone-200 opacity-80 scale-[0.98] hover:opacity-100';
+
+                      if (entry.kind === 'resource') {
+                        const res = entry.resource;
+                        const tags = parseTopicTags(res.topicTags);
+                        const hasValidUrl = isSafeExternalOrLocalUrl(
+                          res.resourceUrl,
+                        );
+                        const isInteractive = isInternalInteractiveHtmlUrl(
+                          res.resourceUrl,
+                        );
+                        const isEbook = res.resourceType === '電子書';
+                        const isPdfFile = isPdfOrDriveFileUrl(res.resourceUrl);
+                        const isReaderDocument = isEmbeddedReaderDocumentUrl(
+                          res.resourceUrl,
+                        );
+                        const openInEbookReader =
+                          (isEbook && (hasValidUrl || Boolean(res.content))) ||
+                          (hasValidUrl && isReaderDocument);
+                        const resolvedShareUrl =
+                          hasValidUrl &&
+                          !isInteractive &&
+                          typeof window !== 'undefined'
+                            ? new URL(
+                                res.resourceUrl!,
+                                window.location.href,
+                              ).toString()
+                            : hubShareUrl;
+
+                        return (
+                          <div
+                            key={entry.key}
+                            className="w-[82vw] sm:w-[340px] lg:w-[360px] snap-start shrink-0 flex"
+                          >
+                            <article
+                              className={`w-full rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-200 ${cardFocusClasses}`}
+                            >
+                              <div className="space-y-3">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-stone-500">
+                                  <span className="text-[#1E3A8A] font-semibold">
+                                    {res.gradeBand}
+                                  </span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>{res.resourceType}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span>{res.sourceOrigin}</span>
+                                  {res.isPinned && (
+                                    <>
+                                      <span aria-hidden="true">·</span>
+                                      <span className="text-[#9A3412] font-semibold inline-flex items-center gap-1">
+                                        <Sparkles className="w-3 h-3" />
+                                        <span>精選</span>
+                                      </span>
+                                    </>
+                                  )}
+                                  {!res.isPublic && (
+                                    <>
+                                      <span aria-hidden="true">·</span>
+                                      <span className="text-amber-800 font-semibold">
+                                        草稿（僅管理員可見）
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
+
+                                <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug">
+                                  {openInEbookReader ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingEbook(res)}
+                                      className="text-left hover:text-[#1E3A8A] transition-colors"
+                                    >
+                                      {res.title}
+                                    </button>
+                                  ) : res.content ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setReadingResource(res)}
+                                      className="text-left hover:text-[#1E3A8A] transition-colors"
+                                    >
+                                      {res.title}
+                                    </button>
+                                  ) : (
+                                    res.title
+                                  )}
+                                </h3>
+
+                                <p className="text-sm text-stone-600 leading-relaxed line-clamp-3">
+                                  {res.summary}
+                                </p>
+
+                                {tags.length > 0 && (
+                                  <div className="text-xs text-stone-500 flex flex-wrap gap-x-2.5 gap-y-1 pt-0.5">
+                                    {tags.map((tag) => (
+                                      <span key={tag}>#{tag}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="pt-3 border-t border-stone-100 space-y-3">
+                                <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
+                                  <span className="truncate">{res.author}</span>
+                                  <span className="font-mono-tabular shrink-0">
+                                    {res.publishedAt}
+                                  </span>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {res.content && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setReadingResource(res)}
+                                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 shrink-0" />
+                                      <span>心得 / 說明</span>
+                                    </button>
+                                  )}
+
+                                  {openInEbookReader ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setViewingEbook(res)}
+                                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                                    >
+                                      <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        {isEbook
+                                          ? '閱讀電子書'
+                                          : isPdfFile
+                                            ? '站內閱讀 PDF'
+                                            : '站內開啟文件'}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    hasValidUrl &&
+                                    (isInteractive ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          onOpenEmbedStage(
+                                            res.resourceUrl!,
+                                            res.title,
+                                          )
+                                        }
+                                        className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                                      >
+                                        <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
+                                        <span>進入互動工具</span>
+                                      </button>
+                                    ) : (
+                                      <a
+                                        href={res.resourceUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                        <span>開啟資源連結</span>
+                                      </a>
+                                    ))
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onOpenShareQr(resolvedShareUrl, res.title)
+                                    }
+                                    className="min-h-[38px] min-w-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-600 bg-white border border-stone-200 rounded-lg hover:text-[#1E3A8A] hover:border-[#1E3A8A]/40 inline-flex items-center justify-center transition-colors"
+                                    title="分享此資源 QR Code"
+                                    aria-label={`分享 ${res.title} QR Code`}
+                                  >
+                                    <QrCode className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {isTeacherAdmin && (
+                                    <div className="ml-auto flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleOpenEditModal(res)}
+                                        className="min-h-[38px] px-2.5 py-1.5 text-xs font-medium text-stone-700 bg-white border border-stone-200 rounded-lg hover:bg-stone-50 inline-flex items-center gap-1 transition-colors"
+                                        aria-label={`編輯 ${res.title}`}
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                        <span>編輯</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => onDeleteResource(res)}
+                                        className="min-h-[38px] min-w-[38px] px-2 py-1.5 text-xs font-medium text-red-700 bg-white border border-red-200 rounded-lg hover:bg-red-50 inline-flex items-center justify-center transition-colors"
+                                        aria-label={`刪除 ${res.title}`}
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </article>
+                          </div>
+                        );
+                      }
+
+                      // JournalPost entry synced from '教學資源' category
+                      const post = entry.post;
+                      const locked = checkPostLocked(post);
+                      const hasEmbed = isSafeExternalOrLocalUrl(post.embedUrl);
+                      const isInteractivePost = isInternalInteractiveHtmlUrl(
+                        post.embedUrl,
+                      );
+
+                      return (
+                        <div
+                          key={entry.key}
+                          className="w-[82vw] sm:w-[340px] lg:w-[360px] snap-start shrink-0 flex"
+                        >
+                          <article
+                            className={`w-full rounded-2xl p-5 flex flex-col justify-between gap-4 transition-all duration-200 ${cardFocusClasses}`}
+                          >
+                            <div className="space-y-3">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-stone-500">
+                                <span className="text-[#14532D] font-semibold">
+                                  領域社群教學資源文章
+                                </span>
+                                <span aria-hidden="true">·</span>
+                                <span>{post.academicYear}</span>
+                                <span aria-hidden="true">·</span>
+                                <span>{formatCategoryDisplay(post.category)}</span>
+                                {post.isFeatured && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="text-[#9A3412] font-semibold">
+                                      精選
+                                    </span>
+                                  </>
+                                )}
+                                {locked && (
+                                  <>
+                                    <span aria-hidden="true">·</span>
+                                    <span className="text-amber-800 font-semibold inline-flex items-center gap-1">
+                                      <Lock className="w-3 h-3" />
+                                      校內限定
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+
+                              <h3 className="font-editorial text-lg font-bold text-stone-950 leading-snug">
+                                {post.title}
+                              </h3>
+
+                              <p className="text-sm text-stone-600 leading-relaxed line-clamp-3">
+                                {locked
+                                  ? '此期刊資源已設定為校內帳號限定檢視，登入後即可閱讀完整內容。'
+                                  : post.summary}
+                              </p>
+                            </div>
+
+                            <div className="pt-3 border-t border-stone-100 space-y-3">
+                              <div className="flex items-center justify-between gap-2 text-xs text-stone-500">
+                                <span className="truncate">{post.author}</span>
+                                <span className="font-mono-tabular shrink-0">
+                                  {post.publishedAt}
+                                </span>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenPost(post)}
+                                  className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] inline-flex items-center gap-1.5 transition-colors"
+                                >
+                                  <BookOpen className="w-3.5 h-3.5 shrink-0" />
+                                  <span>閱讀期刊全文</span>
+                                </button>
+
+                                {!locked &&
+                                  hasEmbed &&
+                                  (isInteractivePost ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onOpenEmbedStage(
+                                          post.embedUrl!,
+                                          post.title,
+                                        )
+                                      }
+                                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
+                                    >
+                                      <MonitorPlay className="w-3.5 h-3.5 shrink-0" />
+                                      <span>開啟互動舞台</span>
+                                    </button>
+                                  ) : isEmbeddedReaderDocumentUrl(
+                                      post.embedUrl,
+                                    ) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setViewingEbook({
+                                          id: post.slug,
+                                          title: post.title,
+                                          gradeBand: '跨年級通用',
+                                          resourceType: '自製教案 / 學習單',
+                                          sourceOrigin: '原創自製',
+                                          topicTags: post.category,
+                                          summary: post.summary,
+                                          content: post.content || '',
+                                          resourceUrl: post.embedUrl || '',
+                                          author: post.author,
+                                          publishedAt: post.publishedAt,
+                                          isPinned: Boolean(post.isFeatured),
+                                          isPublic: post.status === 'Published',
+                                        })
+                                      }
+                                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
+                                    >
+                                      <FileText className="w-3.5 h-3.5 shrink-0" />
+                                      <span>
+                                        {isPdfOrDriveFileUrl(post.embedUrl)
+                                          ? '站內閱讀 PDF'
+                                          : '站內閱讀附件'}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <a
+                                      href={post.embedUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="min-h-[38px] px-3 py-1.5 text-xs font-semibold text-stone-800 bg-[#F7F4EE] border border-stone-200 rounded-lg hover:bg-stone-200/70 inline-flex items-center gap-1.5 transition-colors"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                      <span>附件資源</span>
+                                    </a>
+                                  ))}
+                              </div>
+                            </div>
+                          </article>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Card Position Dots */}
+                {orderedCardEntries.length > 1 && (
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                      {orderedCardEntries.map((entry, idx) => {
+                        const isCur =
+                          idx ===
+                          Math.min(activeCardIdx, orderedCardEntries.length - 1);
+                        return (
+                          <button
+                            key={`hub-dot-${entry.key}`}
+                            type="button"
+                            onClick={() => scrollToHubCard(idx)}
+                            aria-label={`切換至第 ${idx + 1} 張資源卡片`}
+                            className="py-1 px-0.5 flex items-center"
+                          >
+                            <span
+                              className={`block h-2 rounded-full transition-all duration-200 ${
+                                isCur
+                                  ? 'w-8 bg-[#1E3A8A]'
+                                  : 'w-2 bg-stone-300 hover:bg-stone-400'
+                              }`}
+                            />
+                          </button>
+                        );
+                      })}
                     </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
+                    <span className="text-[11px] font-mono-tabular text-stone-500 shrink-0">
+                      滑至邊界可切換分類
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Structured Chapter Classification Architecture for Constructed Response Math Ebook */}
           {constructedResponseBook &&
