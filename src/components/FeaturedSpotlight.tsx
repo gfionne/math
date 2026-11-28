@@ -33,6 +33,8 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
   onOpenPresentationMode,
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [manualTick, setManualTick] = useState(0);
   const [failedImageSlugs, setFailedImageSlugs] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -40,6 +42,21 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
       setActiveIndex(0);
     }
   }, [posts.length, activeIndex]);
+
+  useEffect(() => {
+    if (posts.length <= 1 || isPaused) return;
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      setActiveIndex((prev) => (prev + 1) % posts.length);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [posts.length, isPaused, manualTick]);
 
   if (posts.length === 0) return null;
 
@@ -60,11 +77,13 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveIndex((prev) => (prev - 1 + posts.length) % posts.length);
+    setManualTick((t) => t + 1);
   };
 
   const handleNext = (e: React.MouseEvent) => {
     e.stopPropagation();
     setActiveIndex((prev) => (prev + 1) % posts.length);
+    setManualTick((t) => t + 1);
   };
 
   const renderEmbedIcon = () => {
@@ -84,6 +103,10 @@ export const FeaturedSpotlight: React.FC<FeaturedSpotlightProps> = ({
   return (
     <article
       onClick={() => onSelectPost(currentPost)}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocusCapture={() => setIsPaused(true)}
+      onBlurCapture={() => setIsPaused(false)}
       className="group relative w-full h-full min-w-0 cursor-pointer rounded-2xl overflow-hidden flex flex-col justify-between bg-[linear-gradient(155deg,#0C1D47_0%,#152F6E_54%,#1E3A8A_100%)] text-[#FBF9F5] border border-[#2B4B9E] shadow-[0_18px_40px_-14px_rgba(15,35,84,0.45)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-[#FDE68A]/65 hover:shadow-[0_24px_48px_-12px_rgba(15,35,84,0.58)] active:translate-y-0 active:scale-[0.995]"
     >
       {/* Top Curatorial Brass-Gold Hairline Accent */}

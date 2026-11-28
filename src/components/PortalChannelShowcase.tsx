@@ -715,8 +715,9 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
             <HorizontalCardTray
               sectionIndex={1}
               title="本期焦點精選"
-              subtitle="左右滑動瀏覽推薦"
+              subtitle="每 4 秒自動切換 · 左右滑動推薦"
               isActiveSection={activeChannel === 'all'}
+              autoAdvanceMs={4000}
               itemCount={featuredPosts.length}
               itemUnitLabel="篇焦點"
               onOpenQuickSwipe={(cardIdx) =>

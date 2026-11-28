@@ -14,6 +14,7 @@ interface HorizontalCardTrayProps {
   quickSwipeLabel?: string;
   headerActions?: React.ReactNode;
   isActiveSection?: boolean;
+  autoAdvanceMs?: number;
   children: React.ReactNode;
 }
 
@@ -30,11 +31,16 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   quickSwipeLabel = '滑動快覽',
   headerActions,
   isActiveSection = false,
+  autoAdvanceMs,
   children,
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
   const [activeCardIdx, setActiveCardIdx] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isHoverOrTouchPaused, setIsHoverOrTouchPaused] = useState(false);
+  const [interactionNonce, setInteractionNonce] = useState(0);
+  const activeCardIdxRef = useRef(0);
+  const programmaticScrollUntilRef = useRef(0);
 
   const dragStateRef = useRef<{
     isDown: boolean;
@@ -44,43 +50,89 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   }>({isDown: false, startX: 0, startScrollLeft: 0, hasDragged: false});
 
   useEffect(() => {
+    activeCardIdxRef.current = activeCardIdx;
+  }, [activeCardIdx]);
+
+  useEffect(() => {
     if (activeCardIdx >= itemCount && itemCount > 0) {
       setActiveCardIdx(0);
+      activeCardIdxRef.current = 0;
     }
   }, [itemCount, activeCardIdx]);
 
   const handleScroll = useCallback(() => {
+    if (Date.now() < programmaticScrollUntilRef.current) return;
     const rail = railRef.current;
     if (!rail) return;
     const cards = Array.from(rail.children) as HTMLElement[];
     if (cards.length === 0) return;
 
+    const baseOffset = cards[0].offsetLeft;
     const railLeft = rail.scrollLeft;
     let closestIdx = 0;
     let minDiff = Infinity;
     for (let i = 0; i < cards.length; i++) {
-      const diff = Math.abs(cards[i].offsetLeft - railLeft);
+      const diff = Math.abs(cards[i].offsetLeft - baseOffset - railLeft);
       if (diff < minDiff) {
         minDiff = diff;
         closestIdx = i;
       }
     }
     setActiveCardIdx(closestIdx);
+    activeCardIdxRef.current = closestIdx;
   }, []);
 
-  const scrollToCard = useCallback((index: number) => {
+  const scrollToCard = useCallback((index: number, isUserAction = false) => {
     const rail = railRef.current;
     if (!rail) return;
     const cards = Array.from(rail.children) as HTMLElement[];
+    if (cards.length === 0) return;
     const clamped = Math.max(0, Math.min(cards.length - 1, index));
     const target = cards[clamped];
     if (!target) return;
+    const baseOffset = cards[0].offsetLeft;
+    const maxScrollLeft = Math.max(0, rail.scrollWidth - rail.clientWidth);
+    const targetLeft = Math.min(
+      maxScrollLeft,
+      Math.max(0, target.offsetLeft - baseOffset),
+    );
+    programmaticScrollUntilRef.current = Date.now() + 650;
     rail.scrollTo({
-      left: target.offsetLeft,
+      left: targetLeft,
       behavior: 'smooth',
     });
     setActiveCardIdx(clamped);
+    activeCardIdxRef.current = clamped;
+    if (isUserAction) {
+      setInteractionNonce((n) => n + 1);
+    }
   }, []);
+
+  useEffect(() => {
+    if (!autoAdvanceMs || autoAdvanceMs <= 0 || itemCount <= 1) return;
+    if (isHoverOrTouchPaused || isDragging) return;
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      const nextIdx = (activeCardIdxRef.current + 1) % itemCount;
+      scrollToCard(nextIdx, false);
+    }, autoAdvanceMs);
+
+    return () => window.clearInterval(timer);
+  }, [
+    autoAdvanceMs,
+    itemCount,
+    isHoverOrTouchPaused,
+    isDragging,
+    interactionNonce,
+    scrollToCard,
+  ]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== 'mouse' || e.button !== 0) return;
@@ -117,18 +169,18 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
     if (didDrag && railRef.current) {
       const rail = railRef.current;
       const cards = Array.from(rail.children) as HTMLElement[];
-      let closestIdx = 0;
-      let minDiff = Infinity;
-      for (let i = 0; i < cards.length; i++) {
-        const diff = Math.abs(cards[i].offsetLeft - rail.scrollLeft);
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestIdx = i;
+      if (cards.length > 0) {
+        const baseOffset = cards[0].offsetLeft;
+        let closestIdx = 0;
+        let minDiff = Infinity;
+        for (let i = 0; i < cards.length; i++) {
+          const diff = Math.abs(cards[i].offsetLeft - baseOffset - rail.scrollLeft);
+          if (diff < minDiff) {
+            minDiff = diff;
+            closestIdx = i;
+          }
         }
-      }
-      const target = cards[closestIdx];
-      if (target) {
-        rail.scrollTo({left: target.offsetLeft, behavior: 'smooth'});
+        scrollToCard(closestIdx, true);
       }
       setTimeout(() => {
         dragStateRef.current.hasDragged = false;
@@ -202,7 +254,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => scrollToCard(activeCardIdx - 1)}
+                onClick={() => scrollToCard(activeCardIdx - 1, true)}
                 disabled={!canGoPrev}
                 aria-label={`上一張 ${title}`}
                 className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-stone-300/80 bg-white text-stone-700 hover:bg-[#F7F4EE] hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] active:scale-[0.96] disabled:opacity-35 disabled:cursor-not-allowed transition-all"
@@ -211,7 +263,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => scrollToCard(activeCardIdx + 1)}
+                onClick={() => scrollToCard(activeCardIdx + 1, true)}
                 disabled={!canGoNext}
                 aria-label={`下一張 ${title}`}
                 className="min-h-[36px] min-w-[36px] flex items-center justify-center rounded-lg border border-stone-300/80 bg-white text-stone-700 hover:bg-[#F7F4EE] hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] active:scale-[0.96] disabled:opacity-35 disabled:cursor-not-allowed transition-all"
@@ -224,7 +276,20 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
       </div>
 
       {/* Warm Limestone Swipeable Card Tray */}
-      <div className="bg-[#EFECE4] border border-stone-200/90 rounded-2xl p-3 sm:p-5 relative min-w-0 max-w-full overflow-hidden">
+      <div
+        onMouseEnter={() => setIsHoverOrTouchPaused(true)}
+        onMouseLeave={() => setIsHoverOrTouchPaused(false)}
+        onTouchStart={() => setIsHoverOrTouchPaused(true)}
+        onTouchEnd={() => {
+          setIsHoverOrTouchPaused(false);
+          setInteractionNonce((n) => n + 1);
+        }}
+        onTouchCancel={() => {
+          setIsHoverOrTouchPaused(false);
+          setInteractionNonce((n) => n + 1);
+        }}
+        className="bg-[#EFECE4] border border-stone-200/90 rounded-2xl p-3 sm:p-5 relative min-w-0 max-w-full overflow-hidden"
+      >
         <div
           ref={railRef}
           onScroll={handleScroll}
@@ -273,7 +338,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
         {canGoNext && (
           <button
             type="button"
-            onClick={() => scrollToCard(activeCardIdx + 1)}
+            onClick={() => scrollToCard(activeCardIdx + 1, true)}
             aria-label={`往左滑動下一張 ${title}`}
             className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all z-10"
           >
@@ -283,7 +348,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
         {canGoPrev && (
           <button
             type="button"
-            onClick={() => scrollToCard(activeCardIdx - 1)}
+            onClick={() => scrollToCard(activeCardIdx - 1, true)}
             aria-label={`往右滑動上一張 ${title}`}
             className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all z-10"
           >
@@ -300,7 +365,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
               <button
                 key={idx}
                 type="button"
-                onClick={() => scrollToCard(idx)}
+                onClick={() => scrollToCard(idx, true)}
                 aria-label={`切換至第 ${idx + 1} 張卡片`}
                 className="py-1 px-0.5 flex items-center focus-visible:outline-none"
               >
