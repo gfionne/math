@@ -1270,11 +1270,15 @@ function MainKnowledgeBaseApp() {
       const rawMsg = err?.message || '';
       const code = err?.code || '';
       const formatted =
-        rawMsg.includes('access_denied') ||
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request'
-          ? `Google 登入未完成（${code || 'access_denied'}）。若看到「應用程式目前處於測試階段 / 錯誤 403：access_denied」，請至 Google Cloud Console（專案 ${firebaseConfig.projectId}）的 OAuth 同意畫面 → 目標對象（Audience）→ 測試人員（Test users）加入您的 Gmail 帳號後重試。`
-          : rawMsg || 'Google 登入授權失敗，請再試一次。';
+        code === 'auth/network-request-failed'
+          ? 'Google 登入連線逾時或驗證視窗遭到阻擋（auth/network-request-failed）。請確認網路連線正常，或改用 Safari / Chrome 獨立視窗開啟後再試。'
+          : code === 'auth/popup-blocked'
+            ? '瀏覽器阻擋了 Google 登入彈出視窗，請允許彈出視窗後重試。'
+            : rawMsg.includes('access_denied') ||
+                code === 'auth/popup-closed-by-user' ||
+                code === 'auth/cancelled-popup-request'
+              ? `Google 登入未完成（${code || 'access_denied'}）。若看到「應用程式目前處於測試階段 / 錯誤 403：access_denied」，請至 Google Cloud Console（專案 ${firebaseConfig.projectId}）的 OAuth 同意畫面 → 目標對象（Audience）→ 測試人員（Test users）加入您的 Gmail 帳號後重試。`
+              : rawMsg || 'Google 登入授權失敗，請再試一次。';
       setSyncError(formatted);
       setGalleryAuthError(formatted);
       return null;
@@ -1298,7 +1302,15 @@ function MainKnowledgeBaseApp() {
     } catch (err: any) {
       const rawMsg = err?.message || '';
       const code = err?.code || '';
-      if (
+      if (code === 'auth/network-request-failed') {
+        setGalleryAuthError(
+          '學校帳號登入連線逾時或跨站驗證遭瀏覽器阻擋（auth/network-request-failed）。請確認網路連線正常，或改用 Safari / Chrome 獨立分頁開啟後重試。',
+        );
+      } else if (code === 'auth/popup-blocked') {
+        setGalleryAuthError(
+          '瀏覽器阻擋了 Google 登入彈出視窗，請允許彈出視窗後再試一次。',
+        );
+      } else if (
         rawMsg.includes('access_denied') ||
         code === 'auth/popup-closed-by-user' ||
         code === 'auth/cancelled-popup-request'

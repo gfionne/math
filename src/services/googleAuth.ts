@@ -1,9 +1,15 @@
 import {initializeApp, getApps, getApp} from 'firebase/app';
 import {
+  Auth,
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+  browserSessionPersistence,
   getAuth,
-  signInWithPopup,
   GoogleAuthProvider,
+  indexedDBLocalPersistence,
+  initializeAuth,
   onAuthStateChanged,
+  signInWithPopup,
   User,
 } from 'firebase/auth';
 import {
@@ -18,7 +24,25 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 export const app =
   getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+
+function createFirebaseAuth(): Auth {
+  try {
+    // Omit popupRedirectResolver here so Firebase Auth does not proactively open
+    // and ping __/auth/iframe on page load (especially on Safari/iOS/embedded previews),
+    // which otherwise triggers auth/network-request-failed when the hidden iframe ping times out.
+    return initializeAuth(app, {
+      persistence: [
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
+        browserSessionPersistence,
+      ],
+    });
+  } catch {
+    return getAuth(app);
+  }
+}
+
+export const auth = createFirebaseAuth();
 
 // Suppress transient SDK OnlineStateTracker console.error noise; real app errors still log via handleFirestoreError.
 setLogLevel('silent');
@@ -71,6 +95,23 @@ studentProvider.setCustomParameters({
 // In-memory cache ONLY (never stored in localStorage/sessionStorage)
 let cachedAccessToken: string | null = null;
 let isSigningIn = false;
+let lastSignInAttemptAtMs = 0;
+
+if (typeof window !== 'undefined') {
+  // Guard against dangling internal promise rejections from gapi.iframes' context.open
+  // callback while a popup sign-in is active or within PING_TIMEOUT after it settles.
+  window.addEventListener('unhandledrejection', (event) => {
+    if (!isSigningIn && Date.now() - lastSignInAttemptAtMs > 20000) return;
+    const reason = event.reason as {name?: unknown; code?: unknown} | null;
+    if (
+      reason &&
+      reason.name === 'FirebaseError' &&
+      reason.code === 'auth/network-request-failed'
+    ) {
+      event.preventDefault();
+    }
+  });
+}
 
 export function isOwnerAdminEmail(email?: string | null): boolean {
   return (email ?? '').trim().toLowerCase() === OWNER_ADMIN_EMAIL;
@@ -132,7 +173,12 @@ export const googleSignIn = async (): Promise<{
 } | null> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, provider);
+    lastSignInAttemptAtMs = Date.now();
+    const result = await signInWithPopup(
+      auth,
+      provider,
+      browserPopupRedirectResolver,
+    );
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('未能取得 Google Workspace 授權存取權杖，請再試一次。');
@@ -141,13 +187,19 @@ export const googleSignIn = async (): Promise<{
     return {user: result.user, accessToken: cachedAccessToken};
   } finally {
     isSigningIn = false;
+    lastSignInAttemptAtMs = Date.now();
   }
 };
 
 export const schoolGoogleSignIn = async (): Promise<User> => {
   try {
     isSigningIn = true;
-    const result = await signInWithPopup(auth, studentProvider);
+    lastSignInAttemptAtMs = Date.now();
+    const result = await signInWithPopup(
+      auth,
+      studentProvider,
+      browserPopupRedirectResolver,
+    );
     const signedUser = result.user;
     const isTeacher = await checkIsTeacherAdmin(signedUser);
     const isSchoolMember = isHmesSchoolEmail(signedUser.email);
@@ -165,6 +217,7 @@ export const schoolGoogleSignIn = async (): Promise<User> => {
     return signedUser;
   } finally {
     isSigningIn = false;
+    lastSignInAttemptAtMs = Date.now();
   }
 };
 
