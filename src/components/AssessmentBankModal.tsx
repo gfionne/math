@@ -197,6 +197,15 @@ export const AssessmentBankModal: React.FC<AssessmentBankModalProps> = ({
   }, [activeTabName]);
 
   useEffect(() => {
+    if (!isTeacherAdmin && mode === 'manage') {
+      setMode('practice');
+      setEditorState((prev) =>
+        prev.isOpen ? {...prev, isOpen: false} : prev,
+      );
+    }
+  }, [isTeacherAdmin, mode]);
+
+  useEffect(() => {
     if (!isOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -716,39 +725,41 @@ export const AssessmentBankModal: React.FC<AssessmentBankModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
-            {/* Segmented Mode Switch */}
-            <div
-              className="inline-flex p-0.5 rounded-lg bg-[#F7F4EE] border border-stone-200"
-              role="tablist"
-              aria-label="題庫模式切換"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'practice'}
-                onClick={() => setMode('practice')}
-                className={`px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                  mode === 'practice'
-                    ? 'bg-white text-[#1E3A8A] shadow-2xs'
-                    : 'text-stone-600 hover:text-stone-950'
-                }`}
+            {/* Segmented Mode Switch (Teacher Manage Tab visible only when signed in as teacher) */}
+            {isTeacherAdmin && (
+              <div
+                className="inline-flex p-0.5 rounded-lg bg-[#F7F4EE] border border-stone-200"
+                role="tablist"
+                aria-label="題庫模式切換"
               >
-                學生練習
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mode === 'manage'}
-                onClick={() => setMode('manage')}
-                className={`px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                  mode === 'manage'
-                    ? 'bg-white text-[#1E3A8A] shadow-2xs'
-                    : 'text-stone-600 hover:text-stone-950'
-                }`}
-              >
-                教師題庫管理
-              </button>
-            </div>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'practice'}
+                  onClick={() => setMode('practice')}
+                  className={`px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    mode === 'practice'
+                      ? 'bg-white text-[#1E3A8A] shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-950'
+                  }`}
+                >
+                  學生練習
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'manage'}
+                  onClick={() => setMode('manage')}
+                  className={`px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    mode === 'manage'
+                      ? 'bg-white text-[#1E3A8A] shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-950'
+                  }`}
+                >
+                  教師題庫管理
+                </button>
+              </div>
+            )}
 
             <button
               type="button"
@@ -806,7 +817,7 @@ export const AssessmentBankModal: React.FC<AssessmentBankModalProps> = ({
             </div>
           )}
 
-          {mode === 'practice' ? (
+          {!isTeacherAdmin || mode === 'practice' ? (
             <>
               {/* Practice Filter Bar + Live KPI Score Strip */}
               <section className="bg-white border border-stone-200 rounded-2xl p-4 sm:p-5 space-y-4">
