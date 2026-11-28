@@ -622,14 +622,14 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
       {/* Sleek Single-Row Sticky Major Channel Bar — docks flush under <header> when scrolling up */}
       <div
         ref={stickyBarRef}
-        className="sticky top-[56px] lg:top-[64px] -mt-px z-20 -mx-4 sm:mx-0 px-4 sm:px-0 bg-[#FBF9F5]/95 backdrop-blur-md border-b border-stone-200"
+        className="sticky top-[56px] lg:top-[64px] -mt-px z-20 -mx-4 sm:mx-0 px-4 sm:px-0 py-1.5 bg-[#FBF9F5]/95 backdrop-blur-md border-b border-stone-200"
       >
         <div className="flex items-center justify-between gap-3 min-w-0">
           <div
             ref={channelListRef}
             role="tablist"
             aria-label="網站主要大類項"
-            className="flex-1 flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar scroll-smooth min-w-0"
+            className="flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar scroll-smooth min-w-0 py-0.5"
           >
             {PORTAL_MAJOR_CHANNELS.map((tab) => {
               const isActive = activeChannel === tab.id;
@@ -652,23 +652,23 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   role="tab"
                   aria-selected={isActive}
                   onClick={() => scrollToChannel(tab.id)}
-                  className={`min-h-[44px] px-2.5 sm:px-3.5 py-2 text-xs sm:text-sm border-b-2 transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
+                  className={`min-h-[38px] px-3 sm:px-3.5 py-1.5 text-xs sm:text-sm rounded-lg transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.97] ${
                     isActive
-                      ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/[0.06] font-bold'
-                      : 'border-transparent text-stone-600 hover:text-[#1E3A8A] hover:border-stone-300 font-medium'
+                      ? 'bg-[#1E3A8A] text-white font-bold shadow-sm'
+                      : 'text-stone-600 hover:text-[#1E3A8A] hover:bg-stone-200/70 font-medium'
                   }`}
                 >
                   {tab.id === 'ximen' && isXimenLocked && (
                     <Lock
                       className={`w-3.5 h-3.5 shrink-0 ${
-                        isActive ? 'text-[#1E3A8A]' : 'text-amber-700'
+                        isActive ? 'text-amber-200' : 'text-amber-700'
                       }`}
                     />
                   )}
                   {tab.id === 'class403' && isClass403Locked && (
                     <Lock
                       className={`w-3.5 h-3.5 shrink-0 ${
-                        isActive ? 'text-[#1E3A8A]' : 'text-amber-700'
+                        isActive ? 'text-amber-200' : 'text-amber-700'
                       }`}
                     />
                   )}
@@ -676,7 +676,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   {tabCount !== null && (
                     <span
                       className={`font-mono-tabular text-[11px] ${
-                        isActive ? 'text-[#1E3A8A]/85' : 'text-stone-400'
+                        isActive ? 'text-blue-100 font-semibold' : 'text-stone-400'
                       }`}
                     >
                       {tabCount}
@@ -716,6 +716,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               sectionIndex={1}
               title="本期焦點精選"
               subtitle="左右滑動瀏覽推薦"
+              isActiveSection={activeChannel === 'all'}
               itemCount={featuredPosts.length}
               itemUnitLabel="篇焦點"
               onOpenQuickSwipe={(cardIdx) =>
@@ -768,7 +769,11 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 02: 領域社群 — Scoped Search + Topic Card Trays */}
         <section
           id="sec-journal"
-          className="scroll-mt-[114px] lg:scroll-mt-[122px] border-t border-stone-200/90 pt-6 space-y-5"
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] rounded-2xl px-3 sm:px-5 py-5 space-y-5 border transition-all duration-300 ${
+            activeChannel === 'journal'
+              ? 'bg-white border-[#1E3A8A]/30 border-t-2 border-t-[#1E3A8A] shadow-[0_10px_28px_-10px_rgba(30,58,138,0.18)]'
+              : 'bg-transparent border-transparent border-t-stone-200/90'
+          }`}
         >
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -1167,6 +1172,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               sectionIndex={3}
               title="教學資源與電子書"
               subtitle="教案、學習單與全本電子書"
+              isActiveSection={activeChannel === 'resources'}
               accentTextClass="text-amber-800"
               accentBarClass="bg-amber-700"
               itemCount={visibleResources.length}
@@ -1267,6 +1273,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               sectionIndex={4}
               title="學力檢測互動題庫"
               subtitle={`同步分頁：${assessmentTabName}`}
+              isActiveSection={activeChannel === 'assessment'}
               accentTextClass="text-emerald-800"
               accentBarClass="bg-emerald-700"
               itemCount={assessmentGradeGroups.length + 1}
@@ -1378,6 +1385,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   sectionIndex={4}
                   title={`${assessmentGradeFilter} · ${level}`}
                   subtitle={`同步分頁：${assessmentTabName}`}
+                  isActiveSection={activeChannel === 'assessment' && idx === 0}
                   accentTextClass="text-emerald-800"
                   accentBarClass="bg-emerald-700"
                   itemCount={items.length}
@@ -1475,6 +1483,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
             sectionIndex={5}
             title="百年西門 Scratch 舞台秀互動學習網"
             subtitle="401–404 年段實作資源"
+            isActiveSection={activeChannel === 'ximen'}
             accentTextClass="text-sky-800"
             accentBarClass="bg-sky-700"
             itemCount={XIMEN_CARDS.length}
@@ -1535,6 +1544,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
             sectionIndex={6}
             title="403 班級網站與互動聯絡簿"
             subtitle="Pes Class 115 · 分機 5207"
+            isActiveSection={activeChannel === 'class403'}
             itemCount={CLASS403_CARDS.length}
             itemUnitLabel="項班務系統"
             onOpenQuickSwipe={(cardIdx) =>

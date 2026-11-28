@@ -7,7 +7,6 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {User} from 'firebase/auth';
 import {
   AlertTriangle,
-  ArrowDown,
   BellRing,
   CalendarCheck,
   Check,
@@ -2646,11 +2645,17 @@ function MainKnowledgeBaseApp() {
                     onClick={() => selectPortalChannel(ch.id)}
                     className={`px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1 active:scale-[0.97] transition-all whitespace-nowrap shrink-0 ${
                       isActive
-                        ? 'text-[#1E3A8A] bg-[#1E3A8A]/10 font-semibold'
+                        ? 'bg-[#1E3A8A] text-white font-semibold shadow-xs'
                         : 'text-stone-700 hover:bg-stone-200/60 hover:text-stone-950'
                     }`}
                   >
-                    {locked && <Lock className="w-3 h-3 text-amber-700 shrink-0" />}
+                    {locked && (
+                      <Lock
+                        className={`w-3 h-3 shrink-0 ${
+                          isActive ? 'text-amber-200' : 'text-amber-700'
+                        }`}
+                      />
+                    )}
                     <span>{ch.label}</span>
                   </button>
                 );
@@ -3214,20 +3219,20 @@ function MainKnowledgeBaseApp() {
 
         {/* Compact Editorial Masthead + Desktop Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 lg:py-7 min-h-[calc(100svh-106px)] lg:min-h-0 flex flex-col justify-between">
-            <div className="my-auto lg:my-0 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 lg:py-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
               {/* Left Column: Brand Masthead */}
               <div
                 className={`${
                   featuredSpotlightPosts.length > 0 ? 'lg:col-span-7' : 'lg:col-span-12'
-                } min-w-0 flex flex-col justify-center gap-3`}
+                } min-w-0 flex flex-col justify-center gap-2`}
               >
                 {siteSettings.siteSubtitle.trim() && (
                   <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500 break-words">
                     {siteSettings.siteSubtitle}
                   </p>
                 )}
-                <h1 className="font-editorial text-3xl sm:text-4xl lg:text-[40px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
+                <h1 className="font-editorial text-2xl sm:text-4xl lg:text-[40px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
                   {siteSettings.heroHeading}
                 </h1>
                 {siteSettings.heroDescription.trim() && (
@@ -3247,21 +3252,6 @@ function MainKnowledgeBaseApp() {
                   />
                 </div>
               ) : null}
-            </div>
-
-            {/* Mobile Scroll Cue: reveals 01, 02, 03... below the docked channel bar */}
-            <div className="lg:hidden pt-4 border-t border-stone-100 flex items-center justify-between gap-3">
-              <span className="text-xs text-stone-500">
-                向上滑動或點選主題列展開 01–06 內容
-              </span>
-              <button
-                type="button"
-                onClick={() => selectPortalChannel('all')}
-                className="text-xs font-semibold text-[#1E3A8A] inline-flex items-center gap-1 whitespace-nowrap shrink-0 hover:underline"
-              >
-                <span>瀏覽精選卡片</span>
-                <ArrowDown className="w-3.5 h-3.5" />
-              </button>
             </div>
           </div>
         </section>

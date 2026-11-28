@@ -13,6 +13,7 @@ interface HorizontalCardTrayProps {
   onOpenQuickSwipe?: (activeCardIdx: number) => void;
   quickSwipeLabel?: string;
   headerActions?: React.ReactNode;
+  isActiveSection?: boolean;
   children: React.ReactNode;
 }
 
@@ -28,6 +29,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   onOpenQuickSwipe,
   quickSwipeLabel = '滑動快覽',
   headerActions,
+  isActiveSection = false,
   children,
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +153,11 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   return (
     <section
       id={id}
-      className="scroll-mt-32 border-t border-stone-200/90 pt-5 space-y-4 min-w-0 max-w-full"
+      className={`scroll-mt-32 rounded-2xl px-3 sm:px-5 py-5 space-y-4 min-w-0 max-w-full border transition-all duration-300 ${
+        isActiveSection
+          ? 'bg-white border-[#1E3A8A]/30 border-t-2 border-t-[#1E3A8A] shadow-[0_10px_28px_-10px_rgba(30,58,138,0.18)]'
+          : 'bg-transparent border-transparent border-t-stone-200/90'
+      }`}
     >
       {/* Editorial Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
