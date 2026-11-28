@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {JournalPost} from '../types/journal';
 import {getCategoryAccent, TopicGroup} from '../utils/postFormatting';
 import {ArticleCard} from './ArticleCard';
@@ -11,6 +11,7 @@ interface TopicSwipeFeedProps {
   isFilteredToSingleCategory: boolean;
   onResetCategoryFilter: () => void;
   checkPostLocked?: (post: JournalPost) => boolean;
+  isJournalActive?: boolean;
 }
 
 export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
@@ -20,9 +21,49 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
   isFilteredToSingleCategory,
   onResetCategoryFilter,
   checkPostLocked,
+  isJournalActive = true,
 }) => {
+  const [activeTopicIdx, setActiveTopicIdx] = useState(0);
+
+  useEffect(() => {
+    if (activeTopicIdx >= groups.length) {
+      setActiveTopicIdx(0);
+    }
+  }, [groups.length, activeTopicIdx]);
+
+  useEffect(() => {
+    if (!isJournalActive || groups.length <= 1) return;
+
+    let rafId = 0;
+    const updateActiveTopic = () => {
+      rafId = 0;
+      const focalY = Math.min(340, window.innerHeight * 0.42);
+      let matched = 0;
+      for (let i = 0; i < groups.length; i++) {
+        const el = document.getElementById(`swipe-topic-${i}`);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= focalY) {
+          matched = i;
+        }
+      }
+      setActiveTopicIdx((prev) => (prev === matched ? prev : matched));
+    };
+
+    const onScroll = () => {
+      if (rafId) return;
+      rafId = window.requestAnimationFrame(updateActiveTopic);
+    };
+
+    updateActiveTopic();
+    window.addEventListener('scroll', onScroll, {passive: true});
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (rafId) window.cancelAnimationFrame(rafId);
+    };
+  }, [groups.length, isJournalActive]);
+
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       {isFilteredToSingleCategory && (
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-white border border-stone-200 rounded-xl text-xs text-stone-700">
           <span>
@@ -38,7 +79,7 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
         </div>
       )}
 
-      <div className="space-y-11">
+      <div className="space-y-8">
         {groups.map((group, topicIndex) => {
           const accent = getCategoryAccent(group.topic);
           return (
@@ -47,6 +88,8 @@ export const TopicSwipeFeed: React.FC<TopicSwipeFeedProps> = ({
               id={`swipe-topic-${topicIndex}`}
               sectionIndex={topicIndex + 1}
               title={group.topic}
+              isActiveSection={isJournalActive && topicIndex === activeTopicIdx}
+              dimInactive={isJournalActive && groups.length > 1}
               accentTextClass={accent.textClass}
               accentBarClass={accent.barClass}
               itemCount={group.posts.length}

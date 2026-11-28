@@ -13,7 +13,9 @@ interface HorizontalCardTrayProps {
   onOpenQuickSwipe?: (activeCardIdx: number) => void;
   quickSwipeLabel?: string;
   headerActions?: React.ReactNode;
+  footerSlot?: React.ReactNode;
   isActiveSection?: boolean;
+  dimInactive?: boolean;
   autoAdvanceMs?: number;
   children: React.ReactNode;
 }
@@ -30,7 +32,9 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   onOpenQuickSwipe,
   quickSwipeLabel = '滑動快覽',
   headerActions,
+  footerSlot,
   isActiveSection = false,
+  dimInactive = true,
   autoAdvanceMs,
   children,
 }) => {
@@ -205,21 +209,36 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   return (
     <section
       id={id}
-      className={`scroll-mt-32 rounded-2xl px-3 sm:px-5 py-5 space-y-4 min-w-0 max-w-full border transition-all duration-300 ${
+      className={`scroll-mt-32 rounded-2xl px-3.5 sm:px-5 py-5 space-y-4 min-w-0 max-w-full transition-all duration-300 ${
         isActiveSection
-          ? 'bg-white border-[#1E3A8A]/30 border-t-2 border-t-[#1E3A8A] shadow-[0_10px_28px_-10px_rgba(30,58,138,0.18)]'
-          : 'bg-transparent border-transparent border-t-stone-200/90'
+          ? 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
+          : dimInactive
+            ? 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
+            : 'bg-white/70 border border-stone-200/90 opacity-100'
       }`}
     >
       {/* Editorial Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 min-w-0">
-          <span className={`font-mono-tabular text-sm font-bold ${accentTextClass}`}>
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 min-w-0">
+          <span
+            className={`font-mono-tabular text-sm font-bold transition-all ${
+              isActiveSection
+                ? `px-2.5 py-0.5 rounded-md ${accentBarClass} text-white shadow-2xs`
+                : accentTextClass
+            }`}
+          >
             {sectionNumber}
           </span>
           <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950 break-words">
             {title}
           </h3>
+          {isActiveSection && (
+            <span
+              className={`text-[11px] font-bold tracking-wide px-2 py-0.5 rounded bg-[#1E3A8A]/10 ${accentTextClass}`}
+            >
+              目前顯示
+            </span>
+          )}
           {itemCount > 0 && (
             <span className="text-xs font-mono-tabular text-stone-500">
               {itemCount > 1 ? (
@@ -275,7 +294,7 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
         </div>
       </div>
 
-      {/* Warm Limestone Swipeable Card Tray */}
+      {/* Warm Limestone / Active Spotlight Swipeable Card Tray */}
       <div
         onMouseEnter={() => setIsHoverOrTouchPaused(true)}
         onMouseLeave={() => setIsHoverOrTouchPaused(false)}
@@ -288,7 +307,11 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           setIsHoverOrTouchPaused(false);
           setInteractionNonce((n) => n + 1);
         }}
-        className="bg-[#EFECE4] border border-stone-200/90 rounded-2xl p-3 sm:p-5 relative min-w-0 max-w-full overflow-hidden"
+        className={`border rounded-2xl p-3 sm:p-5 relative min-w-0 max-w-full overflow-hidden transition-colors duration-300 ${
+          isActiveSection
+            ? 'bg-[#EBF0FA]/80 border-[#1E3A8A]/25'
+            : 'bg-[#EFECE4]/90 border-stone-200/90'
+        }`}
       >
         <div
           ref={railRef}
@@ -384,6 +407,8 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           </span>
         </div>
       )}
+
+      {footerSlot}
     </section>
   );
 };

@@ -425,8 +425,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
       }
 
       const stickyBottom =
-        stickyBarRef.current?.getBoundingClientRect().bottom ?? 108;
-      const triggerLine = stickyBottom + 60;
+        stickyBarRef.current?.getBoundingClientRect().bottom ?? 110;
+      const triggerLine =
+        stickyBottom +
+        Math.min(210, Math.max(80, (window.innerHeight - stickyBottom) * 0.34));
 
       let matchedChannel: PortalMajorChannel = sectionDescriptors[0].channel;
       for (let i = 0; i < sectionDescriptors.length; i++) {
@@ -788,20 +790,31 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 02: 領域社群 — Scoped Search + Topic Card Trays */}
         <section
           id="sec-journal"
-          className={`scroll-mt-[114px] lg:scroll-mt-[122px] rounded-2xl px-3 sm:px-5 py-5 space-y-5 border transition-all duration-300 ${
+          className={`scroll-mt-[114px] lg:scroll-mt-[122px] rounded-2xl px-3.5 sm:px-5 py-5 space-y-5 transition-all duration-300 ${
             activeChannel === 'journal'
-              ? 'bg-white border-[#1E3A8A]/30 border-t-2 border-t-[#1E3A8A] shadow-[0_10px_28px_-10px_rgba(30,58,138,0.18)]'
-              : 'bg-transparent border-transparent border-t-stone-200/90'
+              ? 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
+              : 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
           }`}
         >
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-mono-tabular text-sm font-bold text-[#1E3A8A]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+              <span
+                className={`font-mono-tabular text-sm font-bold transition-all ${
+                  activeChannel === 'journal'
+                    ? 'px-2.5 py-0.5 rounded-md bg-[#1E3A8A] text-white shadow-2xs'
+                    : 'text-[#1E3A8A]'
+                }`}
+              >
                 02
               </span>
               <h2 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
                 領域社群
               </h2>
+              {activeChannel === 'journal' && (
+                <span className="text-[11px] font-bold tracking-wide px-2 py-0.5 rounded bg-[#1E3A8A]/10 text-[#1E3A8A]">
+                  目前顯示
+                </span>
+              )}
               <span className="text-xs font-mono-tabular text-stone-500">
                 共 {filteredPosts.length} 篇文章 · 分區滑動與搜尋篩選
               </span>
@@ -1096,6 +1109,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               isFilteredToSingleCategory={selectedCategory !== '全部分類'}
               onResetCategoryFilter={() => onSelectCategory('全部分類')}
               checkPostLocked={checkPostLocked}
+              isJournalActive={activeChannel === 'journal'}
             />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1205,7 +1219,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         {/* 03: 教學資源 — Teaching Resources & Ebooks */}
         <section
           id="sec-resources"
-          className="scroll-mt-[114px] lg:scroll-mt-[122px] space-y-4"
+          className="scroll-mt-[114px] lg:scroll-mt-[122px]"
         >
           {visibleResources.length > 0 ? (
             <HorizontalCardTray
@@ -1235,18 +1249,56 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   <span>開啟資源庫與電子書索引</span>
                 </button>
               }
+              footerSlot={
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                  {RESOURCE_GRADE_OPTIONS.map((opt) => {
+                    const active = resourceGradeFilter === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => onChangeResourceGradeFilter(opt)}
+                        className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                          active
+                            ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                            : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
+                        }`}
+                      >
+                        {opt}
+                      </button>
+                    );
+                  })}
+                </div>
+              }
             >
               {visibleResources.map((res) => renderResourceCard(res))}
             </HorizontalCardTray>
           ) : (
-            <div className="border-t border-stone-200/90 pt-5 space-y-4">
-              <div className="flex items-baseline gap-3">
-                <span className="font-mono-tabular text-sm font-bold text-amber-800">
+            <div
+              className={`rounded-2xl px-3.5 sm:px-5 py-5 space-y-4 transition-all duration-300 ${
+                activeChannel === 'resources'
+                  ? 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
+                  : 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`font-mono-tabular text-sm font-bold ${
+                    activeChannel === 'resources'
+                      ? 'px-2.5 py-0.5 rounded-md bg-amber-700 text-white shadow-2xs'
+                      : 'text-amber-800'
+                  }`}
+                >
                   03
                 </span>
                 <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
                   教學資源與電子書
                 </h3>
+                {activeChannel === 'resources' && (
+                  <span className="text-[11px] font-bold tracking-wide px-2 py-0.5 rounded bg-[#1E3A8A]/10 text-amber-800">
+                    目前顯示
+                  </span>
+                )}
               </div>
               <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
                 <BookOpen className="w-7 h-7 text-stone-400 mx-auto" />
@@ -1261,29 +1313,27 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   顯示全部教學資源
                 </button>
               </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                {RESOURCE_GRADE_OPTIONS.map((opt) => {
+                  const active = resourceGradeFilter === opt;
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => onChangeResourceGradeFilter(opt)}
+                      className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
-
-          {/* Inline Grade-Band Filter Strip */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-            {RESOURCE_GRADE_OPTIONS.map((opt) => {
-              const active = resourceGradeFilter === opt;
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => onChangeResourceGradeFilter(opt)}
-                  className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-                    active
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
-                      : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
-                  }`}
-                >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
         </section>
 
         {/* 04: 檢測題庫 — Elementary Math Assessment Bank */}
@@ -1292,14 +1342,31 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
           className="scroll-mt-[114px] lg:scroll-mt-[122px] space-y-4"
         >
           {publishedAssessmentQuestions.length === 0 ? (
-            <div className="border-t border-stone-200/90 pt-5 space-y-4">
-              <div className="flex items-baseline gap-3">
-                <span className="font-mono-tabular text-sm font-bold text-emerald-800">
+            <div
+              className={`rounded-2xl px-3.5 sm:px-5 py-5 space-y-4 transition-all duration-300 ${
+                activeChannel === 'assessment'
+                  ? 'bg-white border-2 border-[#1E3A8A] ring-4 ring-[#1E3A8A]/10 shadow-[0_18px_40px_-12px_rgba(30,58,138,0.24)] opacity-100'
+                  : 'bg-[#F5F2EB]/65 border border-stone-200/80 opacity-65 hover:opacity-95'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`font-mono-tabular text-sm font-bold ${
+                    activeChannel === 'assessment'
+                      ? 'px-2.5 py-0.5 rounded-md bg-emerald-700 text-white shadow-2xs'
+                      : 'text-emerald-800'
+                  }`}
+                >
                   04
                 </span>
                 <h3 className="font-editorial text-xl sm:text-2xl font-bold text-stone-950">
                   學力檢測互動題庫
                 </h3>
+                {activeChannel === 'assessment' && (
+                  <span className="text-[11px] font-bold tracking-wide px-2 py-0.5 rounded bg-[#1E3A8A]/10 text-emerald-800">
+                    目前顯示
+                  </span>
+                )}
               </div>
               <div className="bg-white border border-stone-200 rounded-xl p-8 text-center space-y-3">
                 <ClipboardCheck className="w-7 h-7 text-stone-400 mx-auto" />
@@ -1335,6 +1402,35 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   <ClipboardCheck className="w-3.5 h-3.5" />
                   <span>進入互動題庫開始練習</span>
                 </button>
+              }
+              footerSlot={
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1">
+                  <button
+                    type="button"
+                    onClick={() => onChangeAssessmentGradeFilter('全部年級')}
+                    className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                      assessmentGradeFilter === '全部年級'
+                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                        : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
+                    }`}
+                  >
+                    全部年級 ({publishedAssessmentQuestions.length})
+                  </button>
+                  {assessmentGradeGroups.map(({grade, items}) => (
+                    <button
+                      key={grade}
+                      type="button"
+                      onClick={() => onChangeAssessmentGradeFilter(grade)}
+                      className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                        assessmentGradeFilter === grade
+                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                          : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
+                      }`}
+                    >
+                      {grade} ({items.length})
+                    </button>
+                  ))}
+                </div>
               }
             >
               <div className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex">
@@ -1418,7 +1514,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               })}
             </HorizontalCardTray>
           ) : (
-            <div className="space-y-8">
+            <div className="space-y-6">
               {assessmentCognitiveGroups.map(({level, items}, idx) => (
                 <HorizontalCardTray
                   key={`${assessmentGradeFilter}-${level}`}
@@ -1479,37 +1575,35 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   {items.map((q, qIdx) => renderAssessmentQuestionCard(q, qIdx))}
                 </HorizontalCardTray>
               ))}
-            </div>
-          )}
 
-          {/* Inline Grade Filter Strip */}
-          {publishedAssessmentQuestions.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-              <button
-                type="button"
-                onClick={() => onChangeAssessmentGradeFilter('全部年級')}
-                className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-                  assessmentGradeFilter === '全部年級'
-                    ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
-                    : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
-                }`}
-              >
-                全部年級 ({publishedAssessmentQuestions.length})
-              </button>
-              {assessmentGradeGroups.map(({grade, items}) => (
+              {/* Inline Grade Filter Strip for filtered cognitive view */}
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
                 <button
-                  key={grade}
                   type="button"
-                  onClick={() => onChangeAssessmentGradeFilter(grade)}
+                  onClick={() => onChangeAssessmentGradeFilter('全部年級')}
                   className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-                    assessmentGradeFilter === grade
+                    assessmentGradeFilter === '全部年級'
                       ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
                       : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
                   }`}
                 >
-                  {grade} ({items.length})
+                  全部年級 ({publishedAssessmentQuestions.length})
                 </button>
-              ))}
+                {assessmentGradeGroups.map(({grade, items}) => (
+                  <button
+                    key={grade}
+                    type="button"
+                    onClick={() => onChangeAssessmentGradeFilter(grade)}
+                    className={`min-h-[36px] px-3 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                      assessmentGradeFilter === grade
+                        ? 'bg-[#1E3A8A] text-white border-[#1E3A8A] font-semibold'
+                        : 'bg-white text-stone-700 border-stone-200 hover:border-[#1E3A8A]/40 hover:text-[#1E3A8A]'
+                    }`}
+                  >
+                    {grade} ({items.length})
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </section>
