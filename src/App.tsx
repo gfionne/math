@@ -3262,6 +3262,7 @@ function MainKnowledgeBaseApp() {
                     posts={featuredSpotlightPosts}
                     onSelectPost={(post) => setActivePost(post)}
                     checkPostLocked={checkPostLocked}
+                    onOpenPresentationMode={() => setIsPresentationModeOpen(true)}
                   />
                 </div>
               ) : null}

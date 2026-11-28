@@ -23,12 +23,14 @@ interface ArticleCardProps {
   post: JournalPost;
   onSelect: (post: JournalPost) => void;
   isLocked?: boolean;
+  spotlightMode?: boolean;
 }
 
 export const ArticleCard: React.FC<ArticleCardProps> = ({
   post,
   onSelect,
   isLocked = false,
+  spotlightMode = false,
 }) => {
   const [imgFailed, setImgFailed] = useState(false);
   const [triedThumbnail, setTriedThumbnail] = useState(false);
@@ -62,11 +64,19 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
   return (
     <article
       onClick={() => onSelect(post)}
-      className="group h-full cursor-pointer bg-white border border-stone-300/85 rounded-xl overflow-hidden flex flex-col shadow-[0_2px_10px_rgba(28,25,23,0.05)] transition-all duration-200 ease-out hover:-translate-y-1 hover:border-[#1E3A8A]/50 hover:shadow-[0_14px_28px_-6px_rgba(30,58,138,0.16)] active:translate-y-0 active:scale-[0.99]"
+      className={`group h-full cursor-pointer rounded-xl overflow-hidden flex flex-col transition-all duration-200 ease-out hover:-translate-y-1 active:translate-y-0 active:scale-[0.99] ${
+        spotlightMode
+          ? 'bg-[#FFFDF9] border border-[#FDE68A]/55 shadow-[0_14px_30px_-8px_rgba(9,21,54,0.38)] hover:border-[#FDE68A] hover:shadow-[0_20px_38px_-8px_rgba(9,21,54,0.52)]'
+          : 'bg-white border border-stone-300/85 shadow-[0_2px_10px_rgba(28,25,23,0.05)] hover:border-[#1E3A8A]/50 hover:shadow-[0_14px_28px_-6px_rgba(30,58,138,0.16)]'
+      }`}
     >
-      {/* Top Category Color Rule that subtly accentuates on hover */}
+      {/* Top Category / Curatorial Brass-Gold Color Rule */}
       <div
-        className={`h-1 group-hover:h-1.5 w-full shrink-0 transition-all duration-200 ${accent.barClass}`}
+        className={`w-full shrink-0 transition-all duration-200 ${
+          spotlightMode
+            ? 'h-1.5 bg-gradient-to-r from-[#D97706] via-[#F59E0B] to-[#1E3A8A]'
+            : `h-1 group-hover:h-1.5 ${accent.barClass}`
+        }`}
       />
 
       {/* Clear Image OR Attachment Slot */}
@@ -158,7 +168,11 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
             </div>
           </div>
 
-          <h3 className="font-editorial text-[19px] font-bold text-stone-950 leading-[1.35] text-balance line-clamp-2">
+          <h3
+            className={`font-editorial font-bold text-stone-950 leading-[1.35] text-balance line-clamp-2 ${
+              spotlightMode ? 'text-xl' : 'text-[19px]'
+            }`}
+          >
             <button
               type="button"
               onClick={(e) => {
@@ -188,7 +202,13 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
             <span className="mx-1.5" aria-hidden="true">·</span>
             <span className="font-mono-tabular">{post.publishedAt}</span>
           </div>
-          <span className="font-semibold text-[#1E3A8A] px-2 py-1 -mr-2 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all duration-200">
+          <span
+            className={`font-semibold inline-flex items-center gap-1 whitespace-nowrap shrink-0 transition-all duration-200 ${
+              spotlightMode
+                ? 'px-3 py-1.5 rounded-lg bg-[#1E3A8A] text-white group-hover:bg-[#0B1B42] shadow-2xs'
+                : 'text-[#1E3A8A] px-2 py-1 -mr-2 rounded-md group-hover:bg-[#1E3A8A] group-hover:text-white'
+            }`}
+          >
             {isLocked ? (
               <>
                 <Lock className="w-3.5 h-3.5" />
@@ -196,7 +216,7 @@ export const ArticleCard: React.FC<ArticleCardProps> = ({
               </>
             ) : (
               <>
-                <span>閱讀全文</span>
+                <span>{spotlightMode ? '閱讀本期焦點' : '閱讀全文'}</span>
                 <ArrowUpRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
               </>
             )}

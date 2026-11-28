@@ -971,7 +971,7 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
         onTouchEnd={handleSectionsTouchEnd}
         className="space-y-10 sm:space-y-12 overflow-x-clip [overflow-anchor:none]"
       >
-        {/* 01: 全部精選 — Featured Spotlight Cards */}
+        {/* 01: 全部精選 — Featured Spotlight Exhibition Showcase */}
         {featuredPosts.length > 0 && (
           <div
             id="sec-all"
@@ -980,7 +980,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
             <HorizontalCardTray
               sectionIndex={1}
               title="本期焦點精選"
-              subtitle="每 4 秒自動切換 · 左右滑動推薦"
+              subtitle="每 4 秒自動輪播 · 左右滑動推薦"
+              variant="spotlight"
               isActiveSection={activeChannel === 'all'}
               autoAdvanceMs={4000}
               onUserInteract={() => activateChannelFromInteract('all')}
@@ -999,15 +1000,15 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                   <button
                     type="button"
                     onClick={onOpenPresentationMode}
-                    className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-[#1E3A8A] bg-white border border-stone-300/80 rounded-lg hover:bg-[#1E3A8A] hover:text-white hover:border-[#1E3A8A] inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
+                    className="min-h-[36px] px-3 py-1.5 text-xs font-bold text-[#0B1B42] bg-[#FDE68A] border border-[#FDE68A] rounded-lg hover:bg-white hover:border-white shadow-xs inline-flex items-center gap-1.5 transition-all whitespace-nowrap shrink-0"
                   >
-                    <Presentation className="w-3.5 h-3.5" />
+                    <Presentation className="w-3.5 h-3.5 shrink-0" />
                     <span>簡報模式</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => scrollToChannel('journal')}
-                    className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-stone-700 bg-white border border-stone-300/80 rounded-lg hover:border-[#1E3A8A]/50 hover:text-[#1E3A8A] inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
+                    className="min-h-[36px] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white bg-white/10 border border-white/25 rounded-lg hover:bg-white hover:text-[#0B1B42] hover:border-white inline-flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
                   >
                     <span>領域社群</span>
                     <ChevronRight className="w-3.5 h-3.5" />
@@ -1018,13 +1019,14 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
               {featuredPosts.map((post, idx) => (
                 <div
                   key={`spotlight-${post.slug}-${post.rowIndex ?? idx}`}
-                  className="w-[78vw] sm:w-[305px] lg:w-[325px] snap-start shrink-0 flex"
+                  className="w-[82vw] sm:w-[340px] lg:w-[375px] snap-start shrink-0 flex"
                 >
                   <div className="w-full flex flex-col">
                     <ArticleCard
                       post={post}
                       onSelect={onSelectPost}
                       isLocked={checkPostLocked(post)}
+                      spotlightMode
                     />
                   </div>
                 </div>
