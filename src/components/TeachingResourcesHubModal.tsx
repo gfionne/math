@@ -1328,7 +1328,7 @@ export const TeachingResourcesHubModal: React.FC<
 
       {/* Main Scrollable Area */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 space-y-4">
+        <div className="max-w-7xl mx-auto px-3.5 sm:px-6 py-3 sm:py-4 space-y-3">
           {/* Compact Admin Notices & Errors */}
           {syncError && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-900">
@@ -1439,73 +1439,73 @@ export const TeachingResourcesHubModal: React.FC<
           )}
 
           {/* Compact Search, Filter & View-Mode Bar */}
-          <section className="bg-white border border-stone-200 rounded-2xl p-3.5 sm:p-4 space-y-3">
-            {/* Top Row: Search + View Mode Switcher */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <section className="bg-white border border-stone-200 rounded-xl px-3 py-2.5 space-y-2">
+            {/* Row 1: Search + Compact View Switcher */}
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜尋資源標題、單元關鍵字或作者..."
+                  placeholder="搜尋資源、關鍵字或作者..."
                   aria-label="搜尋教學資源"
-                  className="w-full min-h-[38px] pl-10 pr-9 py-1.5 text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
+                  className="w-full h-9 pl-8 pr-7 text-xs sm:text-sm bg-[#FBF9F5] border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]"
                 />
                 {searchQuery && (
                   <button
                     type="button"
                     onClick={() => setSearchQuery('')}
                     aria-label="清除搜尋"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-stone-400 hover:text-stone-700"
                   >
-                    <X className="w-4 h-4" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
 
-              <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                <span className="text-xs font-mono-tabular text-stone-500 px-1">
-                  共 {filteredEntries.length} 筆
-                </span>
+              <span className="hidden sm:inline text-xs font-mono-tabular text-stone-500 whitespace-nowrap shrink-0">
+                共 {filteredEntries.length} 筆
+              </span>
 
-                <div
-                  className="inline-flex bg-[#F7F4EE] border border-stone-200 rounded-lg p-0.5"
-                  role="group"
-                  aria-label="切換瀏覽檢視模式"
+              <div
+                className="inline-flex bg-[#F7F4EE] border border-stone-200 rounded-lg p-0.5 shrink-0"
+                role="group"
+                aria-label="切換瀏覽檢視模式"
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode('directory')}
+                  className={`h-8 px-2 sm:px-2.5 text-xs font-semibold rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    viewMode === 'directory'
+                      ? 'bg-white text-[#1E3A8A] shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-950'
+                  }`}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('directory')}
-                    className={`min-h-[32px] px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 transition-colors ${
-                      viewMode === 'directory'
-                        ? 'bg-white text-[#1E3A8A] shadow-2xs'
-                        : 'text-stone-600 hover:text-stone-950'
-                    }`}
-                  >
-                    <List className="w-3.5 h-3.5" />
-                    <span>一目了然目錄</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode('cards')}
-                    className={`min-h-[32px] px-2.5 py-1 text-xs font-semibold rounded-md inline-flex items-center gap-1 transition-colors ${
-                      viewMode === 'cards'
-                        ? 'bg-white text-[#1E3A8A] shadow-2xs'
-                        : 'text-stone-600 hover:text-stone-950'
-                    }`}
-                  >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>圖文卡片</span>
-                  </button>
-                </div>
+                  <List className="w-3.5 h-3.5 shrink-0" />
+                  <span className="sm:hidden">目錄</span>
+                  <span className="hidden sm:inline">一目了然目錄</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('cards')}
+                  className={`h-8 px-2 sm:px-2.5 text-xs font-semibold rounded-md inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                    viewMode === 'cards'
+                      ? 'bg-white text-[#1E3A8A] shadow-2xs'
+                      : 'text-stone-600 hover:text-stone-950'
+                  }`}
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 shrink-0" />
+                  <span className="sm:hidden">卡片</span>
+                  <span className="hidden sm:inline">圖文卡片</span>
+                </button>
               </div>
             </div>
 
-            {/* Second Row: Non-empty Category Chips + Compact Grade Filter */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 pt-2.5 border-t border-stone-100">
+            {/* Row 2: Single-line Horizontal Category Strip + Inline Grade Select */}
+            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-stone-100 min-w-0">
               <div
-                className="flex flex-wrap items-center gap-1.5"
+                className="flex-1 min-w-0 flex items-center gap-1 overflow-x-auto no-scrollbar"
                 role="tablist"
                 aria-label="資源分類篩選"
               >
@@ -1514,21 +1514,21 @@ export const TeachingResourcesHubModal: React.FC<
                   role="tab"
                   aria-selected={typeFilter === '全部類型'}
                   onClick={() => setTypeFilter('全部類型')}
-                  className={`min-h-[34px] px-3 py-1 text-xs font-semibold rounded-lg border inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                  className={`h-8 px-2.5 text-xs border-b-2 rounded-t transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
                     typeFilter === '全部類型'
-                      ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                      : 'bg-[#F7F4EE] text-stone-700 border-stone-200 hover:text-stone-950'
+                      ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-bold'
+                      : 'border-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
                   }`}
                 >
-                  <span>全部分類</span>
+                  <span>全部</span>
                   <span
                     className={`font-mono-tabular text-[11px] ${
                       typeFilter === '全部類型'
-                        ? 'text-blue-100'
-                        : 'text-stone-500'
+                        ? 'text-[#1E3A8A]/80'
+                        : 'text-stone-400'
                     }`}
                   >
-                    ({typeCounts['全部類型']})
+                    {typeCounts['全部類型']}
                   </span>
                 </button>
 
@@ -1544,43 +1544,40 @@ export const TeachingResourcesHubModal: React.FC<
                       role="tab"
                       aria-selected={isActive}
                       onClick={() => setTypeFilter(meta.id)}
-                      className={`min-h-[34px] px-3 py-1 text-xs font-medium rounded-lg border inline-flex items-center gap-1 transition-colors whitespace-nowrap ${
+                      className={`h-8 px-2.5 text-xs border-b-2 rounded-t transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
                         isActive
-                          ? 'bg-[#1E3A8A] text-white border-[#1E3A8A]'
-                          : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
+                          ? 'border-[#1E3A8A] text-[#1E3A8A] bg-[#1E3A8A]/5 font-bold'
+                          : 'border-transparent text-stone-600 hover:text-[#1E3A8A] font-medium'
                       }`}
                     >
                       <span>{meta.shortLabel}</span>
                       <span
                         className={`font-mono-tabular text-[11px] ${
-                          isActive ? 'text-blue-100' : 'text-stone-500'
+                          isActive ? 'text-[#1E3A8A]/80' : 'text-stone-400'
                         }`}
                       >
-                        ({count})
+                        {count}
                       </span>
                     </button>
                   );
                 })}
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                <span className="text-xs text-stone-500">年段：</span>
-                {(['全部年段', ...RESOURCE_GRADE_BANDS] as GradeFilter[]).map(
-                  (grade) => (
-                    <button
-                      key={grade}
-                      type="button"
-                      onClick={() => setGradeFilter(grade)}
-                      className={`min-h-[32px] px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
-                        gradeFilter === grade
-                          ? 'bg-stone-900 text-white border-stone-900'
-                          : 'bg-white text-stone-700 border-stone-200 hover:border-stone-400'
-                      }`}
-                    >
-                      {grade === '全部年段' ? '全部' : getShortGradeLabel(grade)}
-                    </button>
-                  ),
-                )}
+              <div className="flex items-center gap-1.5 pl-2 border-l border-stone-200 shrink-0">
+                <select
+                  aria-label="篩選年段"
+                  value={gradeFilter}
+                  onChange={(e) => setGradeFilter(e.target.value as GradeFilter)}
+                  className="h-8 pl-2 pr-5 text-xs font-medium text-stone-800 bg-[#FBF9F5] border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
+                >
+                  {(['全部年段', ...RESOURCE_GRADE_BANDS] as GradeFilter[]).map(
+                    (grade) => (
+                      <option key={grade} value={grade}>
+                        {grade === '全部年段' ? '全部年段' : getShortGradeLabel(grade)}
+                      </option>
+                    ),
+                  )}
+                </select>
 
                 {hasActiveFilters && (
                   <button
@@ -1590,7 +1587,7 @@ export const TeachingResourcesHubModal: React.FC<
                       setTypeFilter('全部類型');
                       setSearchQuery('');
                     }}
-                    className="min-h-[32px] px-2 py-1 text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap"
+                    className="h-8 px-1.5 text-xs font-medium text-[#1E3A8A] hover:underline whitespace-nowrap"
                   >
                     重設
                   </button>
