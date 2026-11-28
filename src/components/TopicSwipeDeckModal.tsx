@@ -50,8 +50,10 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
 }) => {
   const railRef = useRef<HTMLDivElement | null>(null);
   const mobileStripRef = useRef<HTMLDivElement | null>(null);
+  const dotStripRef = useRef<HTMLDivElement | null>(null);
   const mobileTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const desktopTabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const dotItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [activeTopicIdx, setActiveTopicIdx] = useState(initialTopicIndex);
   const [activeCardIdx, setActiveCardIdx] = useState(initialCardIndex);
   const [topicTransitionDir, setTopicTransitionDir] = useState<
@@ -199,7 +201,7 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
     };
   }, [isOpen, initialTopicIndex, initialCardIndex, resolvedGroups, scrollToCard]);
 
-  // Keep active topic tab smoothly centered in mobile strip and visible in desktop sidebar
+  // Keep active topic tab & top progress dot smoothly centered/visible
   useEffect(() => {
     if (!isOpen) return;
     const raf = requestAnimationFrame(() => {
@@ -210,6 +212,17 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           mobileBtn.offsetLeft -
           (strip.clientWidth - mobileBtn.offsetWidth) / 2;
         strip.scrollTo({
+          left: Math.max(0, targetLeft),
+          behavior: 'smooth',
+        });
+      }
+      const dotStrip = dotStripRef.current;
+      const dotBtn = dotItemRefs.current[safeTopicIdx];
+      if (dotStrip && dotBtn) {
+        const targetLeft =
+          dotBtn.offsetLeft -
+          (dotStrip.clientWidth - dotBtn.offsetWidth) / 2;
+        dotStrip.scrollTo({
           left: Math.max(0, targetLeft),
           behavior: 'smooth',
         });
@@ -431,6 +444,57 @@ export const TopicSwipeDeckModal: React.FC<TopicSwipeDeckModalProps> = ({
           <span>回到頁面</span>
         </button>
       </header>
+
+      {/* Top Dot-Style Group Progress Bar (indicates vertical group position) */}
+      {hasMultipleTopics && (
+        <div
+          role="navigation"
+          aria-label="分組進度圓點指示列"
+          className="shrink-0 bg-[#FBF9F5] border-b border-stone-200 px-3.5 sm:px-6 py-1.5 flex items-center justify-center gap-3 min-w-0"
+        >
+          <span className="hidden sm:inline text-[11px] font-medium text-stone-500 whitespace-nowrap shrink-0">
+            分組進度
+          </span>
+          <div
+            ref={dotStripRef}
+            className="flex items-center gap-2 overflow-x-auto no-scrollbar scroll-smooth py-0.5 px-1 max-w-full"
+          >
+            {resolvedGroups.map((g, idx) => {
+              const isAct = idx === safeTopicIdx;
+              const isPassed = idx < safeTopicIdx;
+              return (
+                <button
+                  key={`${g.id}-dot`}
+                  ref={(el) => {
+                    dotItemRefs.current[idx] = el;
+                  }}
+                  type="button"
+                  onClick={() => switchTopic(idx)}
+                  aria-label={`跳至第 ${idx + 1} 組：${g.topic}`}
+                  aria-current={isAct ? 'step' : undefined}
+                  title={`${String(idx + 1).padStart(2, '0')} · ${g.topic}（${g.cards.length} 張）`}
+                  className="p-1 -m-0.5 flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1E3A8A] rounded-full group"
+                >
+                  <span
+                    className={`block rounded-full transition-all duration-200 ${
+                      isAct
+                        ? `w-3 h-3 ${g.accentBarClass} ring-2 ring-offset-1 ring-[#1E3A8A]/30 shadow-2xs`
+                        : isPassed
+                          ? 'w-2 h-2 bg-stone-500 group-hover:bg-stone-700'
+                          : 'w-2 h-2 bg-stone-300 group-hover:bg-stone-400'
+                    }`}
+                  />
+                </button>
+              );
+            })}
+          </div>
+          <span
+            className={`text-[11px] font-mono-tabular font-semibold whitespace-nowrap shrink-0 ${currentGroup.accentTextClass}`}
+          >
+            {safeTopicIdx + 1} / {resolvedGroups.length}
+          </span>
+        </div>
+      )}
 
       {/* Mobile / Tablet Group Strip (when multiple groups exist) */}
       {hasMultipleTopics && (
