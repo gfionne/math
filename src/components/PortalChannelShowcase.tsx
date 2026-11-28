@@ -196,24 +196,23 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
   const journalFeedTopRef = useRef<HTMLDivElement | null>(null);
   const channelTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const categoryTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const sectionsContainerRef = useRef<HTMLDivElement | null>(null);
+  const pendingJournalDockRef = useRef(false);
   const [activeSwipeTopic, setActiveSwipeTopic] = useState<string | null>(null);
   const activeChannelRef = useRef<PortalMajorChannel>(activeChannel);
   const programmaticScrollLockUntilRef = useRef<number>(0);
   const lastHandledJumpNonceRef = useRef<number>(0);
 
-  const scrollToJournalFeedIfStuck = useCallback(() => {
+  const scheduleJournalDockIfStuck = useCallback(() => {
     const subBarEl = journalSubBarRef.current;
     const feedEl = journalFeedTopRef.current;
     if (!subBarEl || !feedEl) return;
     const stickyThreshold = window.innerWidth >= 1024 ? 126 : 118;
     const subBarRect = subBarEl.getBoundingClientRect();
-    if (subBarRect.top <= stickyThreshold) {
-      const feedTop = feedEl.getBoundingClientRect().top + window.scrollY;
-      const desiredOffset = stickyThreshold + subBarRect.height + 10;
-      const targetY = Math.max(0, feedTop - desiredOffset);
-      if (window.scrollY > targetY + 4) {
-        window.scrollTo({top: targetY, behavior: 'smooth'});
-      }
+    const desiredOffset = stickyThreshold + subBarRect.height + 10;
+    const feedRect = feedEl.getBoundingClientRect();
+    if (subBarRect.top <= stickyThreshold || feedRect.top < desiredOffset - 8) {
+      pendingJournalDockRef.current = true;
     }
   }, []);
 
@@ -439,67 +438,137 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
     });
   }, [selectedCategory, activeSwipeTopic, activeChannel, viewMode]);
 
-  // Bi-directional scroll-spy: vertical scrolling updates activeChannel in real time
+  const updateActiveFromScroll = useCallback(() => {
+    if (sectionDescriptors.length === 0) return;
+    if (Date.now() < programmaticScrollLockUntilRef.current) return;
+
+    const scrollBottom = window.innerHeight + window.scrollY;
+    const docHeight = document.documentElement.scrollHeight;
+    if (docHeight > window.innerHeight && scrollBottom >= docHeight - 36) {
+      const lastChannel =
+        sectionDescriptors[sectionDescriptors.length - 1].channel;
+      if (activeChannelRef.current !== lastChannel) {
+        onSelectChannel(lastChannel);
+      }
+      return;
+    }
+
+    const stickyBottom =
+      stickyBarRef.current?.getBoundingClientRect().bottom ?? 110;
+    const triggerLine =
+      stickyBottom +
+      Math.min(210, Math.max(80, (window.innerHeight - stickyBottom) * 0.34));
+
+    let matchedChannel: PortalMajorChannel = sectionDescriptors[0].channel;
+    for (let i = 0; i < sectionDescriptors.length; i++) {
+      const el = document.getElementById(sectionDescriptors[i].domId);
+      if (!el) continue;
+      if (el.getBoundingClientRect().top <= triggerLine) {
+        matchedChannel = sectionDescriptors[i].channel;
+      }
+    }
+
+    if (matchedChannel !== activeChannelRef.current) {
+      onSelectChannel(matchedChannel);
+    }
+  }, [sectionDescriptors, onSelectChannel]);
+
+  // Execute pending journal dock scroll AFTER React commits category/viewMode height changes
+  useEffect(() => {
+    if (!pendingJournalDockRef.current) return;
+    pendingJournalDockRef.current = false;
+
+    const subBarEl = journalSubBarRef.current;
+    const feedEl = journalFeedTopRef.current;
+    if (!subBarEl || !feedEl) return;
+
+    programmaticScrollLockUntilRef.current = Date.now() + 750;
+    if (activeChannelRef.current !== 'journal') {
+      onSelectChannel('journal');
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      const currentSub = journalSubBarRef.current;
+      const currentFeed = journalFeedTopRef.current;
+      if (!currentSub || !currentFeed) return;
+      const stickyThreshold = window.innerWidth >= 1024 ? 126 : 118;
+      const feedTop = currentFeed.getBoundingClientRect().top + window.scrollY;
+      const desiredOffset = stickyThreshold + currentSub.offsetHeight + 10;
+      const targetY = Math.max(0, feedTop - desiredOffset);
+      if (window.scrollY > targetY + 6) {
+        window.scrollTo({top: targetY, behavior: 'smooth'});
+      }
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [selectedCategory, viewMode, filteredPosts.length, onSelectChannel]);
+
+  // Bi-directional scroll-spy: vertical scrolling, momentum scrollend, and DOM height shifts keep activeChannel in sync
   useEffect(() => {
     if (sectionDescriptors.length === 0) return;
 
     let rafId = 0;
-
-    const updateActiveFromScroll = () => {
-      rafId = 0;
-      if (Date.now() < programmaticScrollLockUntilRef.current) return;
-
-      const scrollBottom = window.innerHeight + window.scrollY;
-      const docHeight = document.documentElement.scrollHeight;
-      if (docHeight > window.innerHeight && scrollBottom >= docHeight - 36) {
-        const lastChannel =
-          sectionDescriptors[sectionDescriptors.length - 1].channel;
-        if (activeChannelRef.current !== lastChannel) {
-          onSelectChannel(lastChannel);
-        }
-        return;
-      }
-
-      const stickyBottom =
-        stickyBarRef.current?.getBoundingClientRect().bottom ?? 110;
-      const triggerLine =
-        stickyBottom +
-        Math.min(210, Math.max(80, (window.innerHeight - stickyBottom) * 0.34));
-
-      let matchedChannel: PortalMajorChannel = sectionDescriptors[0].channel;
-      for (let i = 0; i < sectionDescriptors.length; i++) {
-        const el = document.getElementById(sectionDescriptors[i].domId);
-        if (!el) continue;
-        if (el.getBoundingClientRect().top <= triggerLine) {
-          matchedChannel = sectionDescriptors[i].channel;
-        }
-      }
-
-      if (matchedChannel !== activeChannelRef.current) {
-        onSelectChannel(matchedChannel);
-      }
-    };
-
-    const onScroll = () => {
+    const scheduleSync = () => {
       if (rafId) return;
-      rafId = window.requestAnimationFrame(updateActiveFromScroll);
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        updateActiveFromScroll();
+      });
     };
 
     const cancelProgrammaticLock = () => {
       programmaticScrollLockUntilRef.current = 0;
     };
 
-    window.addEventListener('scroll', onScroll, {passive: true});
+    const onScrollEnd = () => {
+      programmaticScrollLockUntilRef.current = 0;
+      scheduleSync();
+    };
+
+    window.addEventListener('scroll', scheduleSync, {passive: true});
+    window.addEventListener('scrollend', onScrollEnd, {passive: true});
     window.addEventListener('touchstart', cancelProgrammaticLock, {passive: true});
+    window.addEventListener('touchmove', cancelProgrammaticLock, {passive: true});
     window.addEventListener('wheel', cancelProgrammaticLock, {passive: true});
 
+    const container = sectionsContainerRef.current;
+    const resizeObserver =
+      container && typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            scheduleSync();
+          })
+        : null;
+    if (container && resizeObserver) {
+      resizeObserver.observe(container);
+    }
+
     return () => {
-      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('scroll', scheduleSync);
+      window.removeEventListener('scrollend', onScrollEnd);
       window.removeEventListener('touchstart', cancelProgrammaticLock);
+      window.removeEventListener('touchmove', cancelProgrammaticLock);
       window.removeEventListener('wheel', cancelProgrammaticLock);
+      resizeObserver?.disconnect();
       if (rafId) window.cancelAnimationFrame(rafId);
     };
-  }, [sectionDescriptors, onSelectChannel]);
+  }, [sectionDescriptors, updateActiveFromScroll]);
+
+  // Re-evaluate activeChannel when filter state shrinks/expands any section without firing a scroll event
+  useEffect(() => {
+    const rafId = window.requestAnimationFrame(() => {
+      updateActiveFromScroll();
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [
+    updateActiveFromScroll,
+    filteredPosts.length,
+    selectedCategory,
+    viewMode,
+    resourceGradeFilter,
+    assessmentGradeFilter,
+    selectedYear,
+    searchQuery,
+  ]);
 
   const prevChannelMeta =
     activeChannelIndex > 0 ? PORTAL_MAJOR_CHANNELS[activeChannelIndex - 1] : null;
@@ -764,7 +833,10 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
       </div>
 
       {/* Unified Vertical Sections in exact PORTAL_MAJOR_CHANNELS order */}
-      <div className="space-y-10 sm:space-y-12">
+      <div
+        ref={sectionsContainerRef}
+        className="space-y-10 sm:space-y-12 [overflow-anchor:none]"
+      >
         {/* 01: 全部精選 — Featured Spotlight Cards */}
         {featuredPosts.length > 0 && (
           <div id="sec-all" className="scroll-mt-[114px] lg:scroll-mt-[122px]">
@@ -976,8 +1048,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                       type="button"
                       data-active={isSelected || isScrollPaired ? 'true' : undefined}
                       onClick={() => {
+                        scheduleJournalDockIfStuck();
                         onSelectCategory(cat);
-                        requestAnimationFrame(scrollToJournalFeedIfStuck);
                       }}
                       className={`px-3 py-2 text-sm border-b-2 rounded-t-md transition-all whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 active:scale-[0.98] ${
                         isAllTab
@@ -1049,8 +1121,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    scheduleJournalDockIfStuck();
                     onChangeViewMode('swipe');
-                    requestAnimationFrame(scrollToJournalFeedIfStuck);
                   }}
                   className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'swipe'
@@ -1064,8 +1136,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    scheduleJournalDockIfStuck();
                     onChangeViewMode('grid');
-                    requestAnimationFrame(scrollToJournalFeedIfStuck);
                   }}
                   className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'grid'
@@ -1079,8 +1151,8 @@ export const PortalChannelShowcase: React.FC<PortalChannelShowcaseProps> = ({
                 <button
                   type="button"
                   onClick={() => {
+                    scheduleJournalDockIfStuck();
                     onChangeViewMode('list');
-                    requestAnimationFrame(scrollToJournalFeedIfStuck);
                   }}
                   className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded-md inline-flex items-center gap-1.5 transition-all active:scale-[0.97] whitespace-nowrap shrink-0 ${
                     viewMode === 'list'
