@@ -179,8 +179,6 @@ export interface BuildSwipeDeckParams {
   publishedAssessmentQuestions: AssessmentQuestion[];
   assessmentGradeFilter: string;
   assessmentTabName: string;
-  searchQuery: string;
-  selectedCategory: string;
   isXimenLocked: boolean;
   isClass403Locked: boolean;
   onSelectPost: (post: JournalPost) => void;
@@ -382,8 +380,6 @@ export function buildChannelSwipeDeck(
     onOpenAssessmentBank,
     onOpenXimenStage,
     onOpenClass403Stage,
-    searchQuery,
-    selectedCategory,
   } = params;
 
   const emptyOffsets = {
@@ -535,11 +531,7 @@ export function buildChannelSwipeDeck(
     journalStartIdx: 0,
   };
 
-  if (
-    featuredPosts.length > 0 &&
-    searchQuery.trim() === '' &&
-    selectedCategory === '全部分類'
-  ) {
+  if (featuredPosts.length > 0) {
     offsets.featuredIdx = groups.length;
     groups.push({
       id: 'all-featured',
@@ -612,33 +604,31 @@ export function buildChannelSwipeDeck(
     });
   }
 
-  if (searchQuery.trim() === '') {
-    offsets.interactiveIdx = groups.length;
-    groups.push({
-      id: 'all-interactive',
-      topic: '互動專題 × 403 班網',
-      accentBarClass: 'bg-sky-700',
-      accentTextClass: 'text-sky-800',
-      cards: [
-        ...XIMEN_CARDS.map((c) =>
-          mapInteractiveModuleToDeckCard(
-            c,
-            '百年西門 Scratch',
-            isXimenLocked,
-            () => onOpenXimenStage(c.id),
-          ),
+  offsets.interactiveIdx = groups.length;
+  groups.push({
+    id: 'all-interactive',
+    topic: '互動專題 × 403 班網',
+    accentBarClass: 'bg-sky-700',
+    accentTextClass: 'text-sky-800',
+    cards: [
+      ...XIMEN_CARDS.map((c) =>
+        mapInteractiveModuleToDeckCard(
+          c,
+          '百年西門 Scratch',
+          isXimenLocked,
+          () => onOpenXimenStage(c.id),
         ),
-        ...CLASS403_CARDS.map((c) =>
-          mapInteractiveModuleToDeckCard(
-            c,
-            '403 班級網站',
-            isClass403Locked,
-            () => onOpenClass403Stage(c.id),
-          ),
+      ),
+      ...CLASS403_CARDS.map((c) =>
+        mapInteractiveModuleToDeckCard(
+          c,
+          '403 班級網站',
+          isClass403Locked,
+          () => onOpenClass403Stage(c.id),
         ),
-      ],
-    });
-  }
+      ),
+    ],
+  });
 
   offsets.journalStartIdx = groups.length;
   for (const g of topicGroups) {

@@ -21,7 +21,6 @@ import {
   PenTool,
   Pin,
   QrCode,
-  Search,
   Sheet,
   ShieldCheck,
   UserCheck,
@@ -1091,7 +1090,6 @@ function MainKnowledgeBaseApp() {
   );
 
   const visibleResources = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
     return resources
       .filter((r) => isTeacherAdmin || r.isPublic)
       .filter((r) => {
@@ -1102,51 +1100,18 @@ function MainKnowledgeBaseApp() {
         ) {
           return false;
         }
-        if (q) {
-          const hay = [
-            r.title,
-            r.summary,
-            r.topicTags,
-            r.gradeBand,
-            r.resourceType,
-            r.author,
-          ]
-            .join(' ')
-            .toLowerCase();
-          return hay.includes(q);
-        }
         return true;
       })
       .sort((a, b) => {
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return b.publishedAt.localeCompare(a.publishedAt);
       });
-  }, [
-    resources,
-    isTeacherAdmin,
-    activePortalChannel,
-    resourceGradeFilter,
-    searchQuery,
-  ]);
+  }, [resources, isTeacherAdmin, activePortalChannel, resourceGradeFilter]);
 
-  const publishedAssessmentQuestions = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return assessmentQuestions
-      .filter((item) => item.isPublished)
-      .filter((item) => {
-        if (!q) return true;
-        const hay = [
-          item.grade,
-          item.unitTitle,
-          item.domainTopic,
-          item.stem,
-          item.cognitiveLevel,
-        ]
-          .join(' ')
-          .toLowerCase();
-        return hay.includes(q);
-      });
-  }, [assessmentQuestions, searchQuery]);
+  const publishedAssessmentQuestions = useMemo(
+    () => assessmentQuestions.filter((item) => item.isPublished),
+    [assessmentQuestions],
+  );
 
   const handleOpenResourcesHub = useCallback(
     (initialResource?: TeachingResource) => {
@@ -1176,8 +1141,6 @@ function MainKnowledgeBaseApp() {
         publishedAssessmentQuestions,
         assessmentGradeFilter,
         assessmentTabName,
-        searchQuery,
-        selectedCategory,
         isXimenLocked,
         isClass403Locked,
         onSelectPost: setActivePost,
@@ -1195,8 +1158,6 @@ function MainKnowledgeBaseApp() {
       publishedAssessmentQuestions,
       assessmentGradeFilter,
       assessmentTabName,
-      searchQuery,
-      selectedCategory,
       isXimenLocked,
       isClass403Locked,
       handleOpenResourcesHub,
@@ -3251,114 +3212,29 @@ function MainKnowledgeBaseApp() {
           </section>
         )}
 
-        {/* Compact Editorial Masthead + Search + Desktop Featured Spotlight */}
+        {/* Compact Editorial Masthead + Desktop Featured Spotlight */}
         <section className="border-b border-stone-200 bg-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 lg:py-8">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
-              {/* Left Column: Brand Masthead & Unified Search Bar */}
-              <div className="lg:col-span-7 min-w-0 flex flex-col justify-center gap-4">
-                <div className="space-y-2 min-w-0">
-                  {siteSettings.siteSubtitle.trim() && (
-                    <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500 break-words">
-                      {siteSettings.siteSubtitle}
-                    </p>
-                  )}
-                  <h1 className="font-editorial text-2xl sm:text-4xl lg:text-[40px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
-                    {siteSettings.heroHeading}
-                  </h1>
-                  {siteSettings.heroDescription.trim() && (
-                    <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl break-words">
-                      {siteSettings.heroDescription}
-                    </p>
-                  )}
-                </div>
-
-                {/* First-Screen Unified Search & Academic Year Bar */}
-                <div className="space-y-2.5 min-w-0">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (
-                        activePortalChannel !== 'all' &&
-                        activePortalChannel !== 'journal'
-                      ) {
-                        setActivePortalChannel('journal');
-                      }
-                      scrollToSection('portal-showcase');
-                    }}
-                    className="bg-[#FBF9F5] border border-stone-300 rounded-xl p-1.5 flex flex-col sm:flex-row sm:items-center gap-2 shadow-xs focus-within:ring-2 focus-within:ring-[#1E3A8A] focus-within:border-[#1E3A8A] focus-within:bg-white transition-all min-w-0"
-                  >
-                    <div className="relative flex-1 min-w-0">
-                      <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      <input
-                        type="search"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={`搜尋 ${posts.length} 篇教案、學力檢測、會議紀錄或作者...`}
-                        className="w-full h-10 pl-9 pr-3 text-sm text-stone-900 placeholder:text-stone-400 bg-transparent focus:outline-none min-w-0"
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-2 sm:border-l sm:border-stone-200 sm:pl-2 min-w-0 shrink-0">
-                      <select
-                        id="academic-year-select"
-                        aria-label="篩選學年度"
-                        value={selectedYear}
-                        onChange={(e) => setSelectedYear(e.target.value)}
-                        className="flex-1 sm:flex-initial min-w-0 h-10 pl-2.5 pr-7 text-xs font-medium text-stone-800 bg-white border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E3A8A] cursor-pointer"
-                      >
-                        {availableYears.map((yr) => (
-                          <option key={yr} value={yr}>
-                            {yr} ({yearCounts.get(yr) ?? 0})
-                          </option>
-                        ))}
-                      </select>
-
-                      <button
-                        type="submit"
-                        className="h-10 px-4 text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg hover:bg-[#172554] transition-colors whitespace-nowrap shrink-0"
-                      >
-                        搜尋文章
-                      </button>
-                    </div>
-                  </form>
-
-                  {(searchQuery.trim() !== '' ||
-                    selectedYear !== '全部年度' ||
-                    selectedCategory !== '全部分類') && (
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-stone-600 px-1">
-                      <span className="font-mono-tabular font-medium text-stone-800">
-                        符合條件：{filteredPosts.length} 篇
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (
-                            activePortalChannel !== 'all' &&
-                            activePortalChannel !== 'journal'
-                          ) {
-                            setActivePortalChannel('journal');
-                          }
-                          scrollToSection('portal-showcase');
-                        }}
-                        className="font-medium text-[#1E3A8A] hover:underline"
-                      >
-                        查看篩選結果 ↓
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSearchQuery('');
-                          setSelectedYear('全部年度');
-                          setSelectedCategory('全部分類');
-                        }}
-                        className="text-stone-500 hover:text-stone-900 hover:underline"
-                      >
-                        清除條件
-                      </button>
-                    </div>
-                  )}
-                </div>
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 sm:py-6 lg:py-7">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
+              {/* Left Column: Brand Masthead */}
+              <div
+                className={`${
+                  featuredSpotlightPosts.length > 0 ? 'lg:col-span-7' : 'lg:col-span-12'
+                } min-w-0 flex flex-col justify-center gap-2.5`}
+              >
+                {siteSettings.siteSubtitle.trim() && (
+                  <p className="text-xs font-mono-tabular tracking-widest uppercase text-stone-500 break-words">
+                    {siteSettings.siteSubtitle}
+                  </p>
+                )}
+                <h1 className="font-editorial text-2xl sm:text-4xl lg:text-[40px] font-semibold text-stone-950 leading-[1.2] text-balance break-words">
+                  {siteSettings.heroHeading}
+                </h1>
+                {siteSettings.heroDescription.trim() && (
+                  <p className="text-sm sm:text-base text-stone-600 leading-relaxed max-w-2xl break-words">
+                    {siteSettings.heroDescription}
+                  </p>
+                )}
               </div>
 
               {/* Right Column: Curated Featured Spotlight Showcase (Desktop lg+ only to keep mobile channel bar above the fold) */}
@@ -3393,7 +3269,11 @@ function MainKnowledgeBaseApp() {
             selectedCategory={selectedCategory}
             onSelectCategory={setSelectedCategory}
             selectedYear={selectedYear}
+            onSelectYear={setSelectedYear}
+            availableYears={availableYears}
+            yearCounts={yearCounts}
             searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
             onResetFilters={() => {
               setSearchQuery('');
               setSelectedYear('全部年度');

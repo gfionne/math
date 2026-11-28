@@ -146,11 +146,12 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
   const sectionNumber = String(sectionIndex).padStart(2, '0');
   const canGoPrev = activeCardIdx > 0;
   const canGoNext = activeCardIdx < itemCount - 1;
+  const childArray = React.Children.toArray(children);
 
   return (
     <section
       id={id}
-      className="scroll-mt-24 border-t-2 border-stone-900 pt-5 space-y-4 min-w-0 max-w-full"
+      className="scroll-mt-36 sm:scroll-mt-40 border-t-2 border-stone-900 pt-5 space-y-4 min-w-0 max-w-full"
     >
       {/* Editorial Section Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 min-w-0">
@@ -163,8 +164,17 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           </h3>
           {itemCount > 0 && (
             <span className="text-xs font-mono-tabular text-stone-500">
-              共 {itemCount} {itemUnitLabel}
-              {subtitle ? ` · ${subtitle}` : ''}
+              {itemCount > 1 ? (
+                <>
+                  <strong className={`${accentTextClass} font-bold`}>
+                    第 {activeCardIdx + 1}/{itemCount} 張
+                  </strong>
+                  {' · '}
+                </>
+              ) : (
+                <>共 {itemCount} {itemUnitLabel}</>
+              )}
+              {itemCount > 1 && subtitle ? subtitle : itemCount === 1 && subtitle ? ` · ${subtitle}` : ''}
             </span>
           )}
         </div>
@@ -217,21 +227,49 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
           onPointerUp={handlePointerUpOrCancel}
           onPointerCancel={handlePointerUpOrCancel}
           onClickCapture={handleClickCapture}
-          className={`flex gap-4 sm:gap-5 overflow-x-auto no-scrollbar pb-1 pt-1 select-none items-stretch ${
+          className={`flex gap-3.5 sm:gap-5 overflow-x-auto no-scrollbar pb-1 pt-1 select-none items-stretch ${
             isDragging
               ? 'cursor-grabbing'
               : 'snap-x snap-mandatory scroll-smooth cursor-grab'
           }`}
         >
-          {children}
+          {childArray.map((child, idx) => {
+            if (!React.isValidElement<{className?: string}>(child)) {
+              return child;
+            }
+            const isFocus = idx === activeCardIdx;
+            const focusCls =
+              itemCount > 1
+                ? isFocus
+                  ? 'transition-all duration-300 ease-out scale-100 opacity-100'
+                  : 'transition-all duration-300 ease-out scale-[0.96] opacity-80'
+                : '';
+            return React.cloneElement(child, {
+              className: `${child.props.className || ''} ${focusCls}`.trim(),
+            });
+          })}
         </div>
+
+        {/* Left & Right Peek Gradient Cues */}
+        {canGoPrev && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 left-0 w-7 bg-gradient-to-r from-[#EFECE4]/90 to-transparent"
+          />
+        )}
+        {canGoNext && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-0 w-9 bg-gradient-to-l from-[#EFECE4]/90 to-transparent"
+          />
+        )}
 
         {canGoNext && (
           <button
             type="button"
             onClick={() => scrollToCard(activeCardIdx + 1)}
             aria-label={`往左滑動下一張 ${title}`}
-            className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all"
+            className="hidden md:flex absolute right-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all z-10"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
@@ -241,33 +279,38 @@ export const HorizontalCardTray: React.FC<HorizontalCardTrayProps> = ({
             type="button"
             onClick={() => scrollToCard(activeCardIdx - 1)}
             aria-label={`往右滑動上一張 ${title}`}
-            className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all"
+            className="hidden md:flex absolute left-3 top-1/2 -translate-y-1/2 min-h-[42px] min-w-[42px] items-center justify-center rounded-full bg-white border border-stone-300 text-stone-900 shadow-md opacity-95 hover:opacity-100 hover:border-[#1E3A8A] hover:text-[#1E3A8A] hover:scale-110 active:scale-95 transition-all z-10"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
         )}
       </div>
 
-      {/* Clickable Progress Segments */}
+      {/* Clickable Progress Segments + Live Position Readout */}
       {itemCount > 1 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {Array.from({length: itemCount}, (_, idx) => (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => scrollToCard(idx)}
-              aria-label={`切換至第 ${idx + 1} 張卡片`}
-              className="py-1 px-0.5 flex items-center focus-visible:outline-none"
-            >
-              <span
-                className={`block h-1.5 rounded-full transition-all duration-200 ${
-                  idx === activeCardIdx
-                    ? `w-7 ${accentBarClass}`
-                    : 'w-2.5 bg-stone-300 hover:bg-stone-400'
-                }`}
-              />
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            {Array.from({length: itemCount}, (_, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => scrollToCard(idx)}
+                aria-label={`切換至第 ${idx + 1} 張卡片`}
+                className="py-1 px-0.5 flex items-center focus-visible:outline-none"
+              >
+                <span
+                  className={`block h-2 rounded-full transition-all duration-200 ${
+                    idx === activeCardIdx
+                      ? `w-9 ${accentBarClass}`
+                      : 'w-2.5 bg-stone-300 hover:bg-stone-400'
+                  }`}
+                />
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] font-mono-tabular text-stone-500 whitespace-nowrap shrink-0">
+            第 <strong className={`${accentTextClass} font-bold`}>{activeCardIdx + 1}</strong> / {itemCount} 張 · 左右滑動卡片
+          </span>
         </div>
       )}
     </section>

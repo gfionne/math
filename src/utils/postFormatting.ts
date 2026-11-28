@@ -108,6 +108,28 @@ export function estimateReadMinutes(content: string): number {
   return Math.max(1, Math.round(chars / 320));
 }
 
+const TEACHING_TOPIC_FLOW_ORDER = [
+  '社群計畫',
+  '夥伴教師',
+  '會議紀錄',
+  '探究教學',
+  '趣味數學',
+  'STEAM',
+  '教學資源',
+  '學力檢測',
+  '成果報告',
+  '綜合專欄',
+];
+
+function getTopicFlowRank(topic: string): number {
+  const exactIdx = TEACHING_TOPIC_FLOW_ORDER.indexOf(topic);
+  if (exactIdx !== -1) return exactIdx;
+  const fuzzyIdx = TEACHING_TOPIC_FLOW_ORDER.findIndex((key) =>
+    topic.includes(key),
+  );
+  return fuzzyIdx !== -1 ? fuzzyIdx : TEACHING_TOPIC_FLOW_ORDER.length;
+}
+
 export function groupPostsByTopic(
   posts: JournalPost[],
   selectedCategory?: string,
@@ -136,10 +158,16 @@ export function groupPostsByTopic(
     }
   }
 
-  return Array.from(map.entries()).map(([topic, topicPosts]) => ({
-    topic,
-    posts: topicPosts,
-  }));
+  return Array.from(map.entries())
+    .map(([topic, topicPosts]) => ({
+      topic,
+      posts: topicPosts,
+    }))
+    .sort((a, b) => {
+      const rankDiff = getTopicFlowRank(a.topic) - getTopicFlowRank(b.topic);
+      if (rankDiff !== 0) return rankDiff;
+      return b.posts.length - a.posts.length;
+    });
 }
 
 export function isPostLocked(
